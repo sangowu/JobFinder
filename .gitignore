@@ -1,0 +1,37 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.bak
+.env.example
+*.db
+*.egg-info/
+dist/
+.pytest_cache/
+.claude/
+*.log
+
+# ── 本地私有文件，不上传 ──────────────────────────────────────────────────────
+jobfinder/scrapers.py
+CLAUDE.md
+
+# ── 探索/调试脚本（本地使用，不发布）──────────────────────────────────────────
+bench_*.py
+test_*.py
+preview_*.py
+text.py
+
+# ── 调试产物 ──────────────────────────────────────────────────────────────────
+*.html
+# 排除：jobfinder/templates/ 是正式 UI，不应被忽略
+!jobfinder/templates/
+!jobfinder/templates/*.html
+*.png
+*.txt
+cdp_results.json
+edge_cookies.json
+export_edge_cookies.py
+jobfinder_results.json
+jobspy_*.json
+jobspy_test_result.json
+jobspy_*.md
