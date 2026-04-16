@@ -9,10 +9,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from jobfinder.logger import get_logger
-from jobfinder.scraper_jobspy import _filter_cards_by_llm, scrape_indeed_jobspy_multi
+from jobfinder.scraper_jobspy import (
+    _LINKEDIN_LOCATION,
+    _filter_cards_by_llm,
+    scrape_indeed_jobspy_multi,
+    scrape_linkedin_jobspy_multi,
+)
 
 if TYPE_CHECKING:
     from jobfinder.llm_backend import LLMConfig
+    from jobfinder.pipeline_stats import PipelineStats
     from jobfinder.schemas import CVProfile
 
 logger = get_logger(__name__)
@@ -28,11 +34,12 @@ def scrape_sources(
     # 兼容旧参数
     provider: str = "gemini",
     model: str = "gemini-2.0-flash",
+    linkedin_limit_per_role: int = 30,
+    hours_old: int | None = 72,
+    stats: "PipelineStats | None" = None,
 ) -> list[dict]:
     """
-    用 JobSpy 抓取 Indeed，返回去重、LLM 过滤后的职位列表。
-
-    参数与旧版 scrapers.scrape_sources 完全相同，agent.py 无需改动调用方式。
+    用 JobSpy 抓取 Indeed + LinkedIn，合并去重后返回。
     """
     def _cb(msg: str) -> None:
         if cb:
@@ -45,17 +52,49 @@ def scrape_sources(
         _provider = llm.provider
         _model    = llm.model
 
-    # 推断 Indeed country（location 首单词，如 "Ireland" → "ireland"）
     country = location.strip().split()[0].lower() if location else "ireland"
+    linkedin_location = _LINKEDIN_LOCATION.get(country, f"{location.title()}")
 
-    _cb(f"JobSpy scraping (indeed.com/{country}): {roles}")
+    # ── Indeed ────────────────────────────────────────────────────────────────
+    raw_indeed: list[dict] = []
+    if limit_per_query > 0:
+        raw_indeed = scrape_indeed_jobspy_multi(
+            roles=roles,
+            limit_per_role=limit_per_query,
+            country=country,
+            hours_old=hours_old,
+            cb=cb,
+        )
+    else:
+        _cb("Indeed scraping skipped (limit=0)")
 
-    raw = scrape_indeed_jobspy_multi(
-        roles=roles,
-        limit_per_role=limit_per_query,
-        country=country,
-        cb=cb,
-    )
+    # ── LinkedIn ──────────────────────────────────────────────────────────────
+    raw_linkedin: list[dict] = []
+    if linkedin_limit_per_role > 0 and linkedin_location:
+        raw_linkedin = scrape_linkedin_jobspy_multi(
+            roles=roles,
+            limit_per_role=linkedin_limit_per_role,
+            location=linkedin_location,
+            hours_old=hours_old,
+            cb=cb,
+        )
+    elif linkedin_limit_per_role > 0:
+        _cb("LinkedIn scraping skipped: no location mapping for remote")
+
+    # ── 合并 URL 去重 ─────────────────────────────────────────────────────────
+    seen: set[str] = {j["url"] for j in raw_indeed}
+    raw = list(raw_indeed)
+    for job in raw_linkedin:
+        if job["url"] not in seen:
+            seen.add(job["url"])
+            raw.append(job)
+    _cb(f"Merged: {len(raw_indeed)} indeed + {len(raw_linkedin)} linkedin = {len(raw)} total")
+
+    # 阶段一数量写入 stats
+    if stats is not None:
+        stats.scraped_indeed = len(raw_indeed)
+        stats.scraped_linkedin = len(raw_linkedin)
+        stats.scraped_total = len(raw)
 
     if not raw:
         _cb("JobSpy: no results returned")
@@ -73,8 +112,17 @@ def scrape_sources(
         raw = [j for i, j in enumerate(raw) if i in passing_ids]
         logger.info("LLM title filter done: %d → %d jobs", before, len(raw))
         _cb(f"LLM title filter: {before} → {len(raw)} jobs")
+        # 阶段二数量写入 stats
+        if stats is not None:
+            stats.title_filter_in = before
+            stats.title_filter_passed = len(raw)
+            stats.title_filter_out = before - len(raw)
     else:
         logger.info("LLM title filter skipped (no CVProfile), keeping %d jobs", len(raw))
         _cb(f"LLM title filter skipped (no CVProfile): keeping {len(raw)} jobs")
+        if stats is not None:
+            stats.title_filter_in = len(raw)
+            stats.title_filter_passed = len(raw)
+            stats.title_filter_out = 0
 
     return raw

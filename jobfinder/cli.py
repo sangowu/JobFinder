@@ -22,7 +22,6 @@ import json
 
 from jobfinder import cache
 from jobfinder.agent import _batch_assess_jds, run_search
-from jobfinder.company_lookup import enrich_jobs_with_company
 from jobfinder.cv_extractor import extract_cv_profile
 from jobfinder.cv_reader import read_cv
 from jobfinder.llm_backend import LLMConfig
@@ -274,7 +273,6 @@ def find(
     refresh: Annotated[bool, typer.Option("--refresh", help="忽略缓存，强制重新搜索")] = False,
     limit: Annotated[int, typer.Option("--limit", help="展示条数")] = 20,
     verify: Annotated[bool, typer.Option("--verify", help="展示前主动验证职位链接是否仍有效（较慢）")] = False,
-    enrich: Annotated[bool, typer.Option("--enrich/--no-enrich", help="对高分职位查询公司信息")] = False,
 ) -> None:
     """根据 CV 文件搜索匹配职位。"""
     telemetry.reset()
@@ -387,13 +385,15 @@ def find(
     search_profile = profile.model_copy(update={"preferred_roles": search_queries})
     try:
         with telemetry.timer("职位抓取与筛选"):
-            dedup_keys = run_search(
+            dedup_keys, pipeline_stats = run_search(
                 profile=search_profile,
                 location=target_location,
                 llm=llm,
                 on_progress=lambda msg: console.print(f"  [dim]{msg}[/dim]"),
                 force_refresh=refresh,
             )
+        for line in pipeline_stats.summary_lines():
+            console.print(f"  [cyan]{line}[/cyan]")
     except Exception as e:
         console.print(f"[red]搜索失败：{e}[/red]")
         raise typer.Exit(1)
@@ -421,17 +421,6 @@ def find(
             console.print(f"[yellow]已过滤 {before - len(jobs)} 个失效职位。[/yellow]")
 
     jobs.sort(key=lambda j: (j.assessment.score if j.assessment else -1), reverse=True)
-
-    # Step 5: 补充公司信息（可选，--enrich 开启）
-    if enrich:
-        with telemetry.timer("公司信息查询"):
-            enrich_jobs_with_company(
-                jobs,
-                llm=llm,
-                top_n=10,
-                min_score=3,
-                cb=lambda msg: console.print(f"  [dim]{msg}[/dim]"),
-            )
 
     console.print()
     show_jobs(jobs)
@@ -508,7 +497,6 @@ def assess(
     provider: Annotated[Optional[Provider], typer.Option("--provider", "-p", help="LLM Provider（覆盖默认值）")] = None,
     model: Annotated[Optional[str], typer.Option("--model", "-m", help="模型名称（覆盖默认值）")] = None,
     limit: Annotated[int, typer.Option("--limit", help="最多评估条数")] = 200,
-    enrich: Annotated[bool, typer.Option("--enrich/--no-enrich", help="对高分职位查询公司信息")] = True,
 ) -> None:
     """对缓存中尚未评估的 JD 单独运行 LLM 评估（无需重新抓取）。"""
     telemetry.reset()
@@ -566,17 +554,6 @@ def assess(
     if not all_jobs:
         console.print("[yellow]没有可展示的已评估职位。[/yellow]")
         raise typer.Exit(0)
-
-    # Step 4：可选公司信息补充（高分职位，跳过已有缓存的公司）
-    if enrich:
-        with telemetry.timer("公司信息查询"):
-            enrich_jobs_with_company(
-                all_jobs,
-                llm=llm,
-                top_n=10,
-                min_score=3,
-                cb=lambda msg: console.print(f"  [dim]{msg}[/dim]"),
-            )
 
     console.print()
     show_jobs(all_jobs)

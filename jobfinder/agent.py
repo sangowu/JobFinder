@@ -1,8 +1,8 @@
-"""Job Search：直接抓取目标站点，不依赖外部搜索 API。
+"""Job Search：通过 JobSpy 抓取 Indeed / LinkedIn，不依赖浏览器或 Jina。
 
 流程：
-  scrapers.SCRAPER_REGISTRY 中所有站点并发抓取
-  → 标题相关性过滤 → 资历过滤 → Fetch 完整 JD → LLM 匹配评估 → 写缓存
+  JobSpy 抓取（Indeed + LinkedIn）→ LLM 标题过滤
+  → 年资过滤 → 相关性过滤 → 缓存命中检查 → LLM 批量评估 → 写缓存
 """
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from jobfinder import cache
 from jobfinder.filters import is_seniority_ok
 from jobfinder.logger import get_logger
 from jobfinder.llm_backend import DEFAULT_MODELS, LLMConfig, Provider, complete_structured
-from jobfinder.schemas import CVProfile, JobAssessment, SearchSession, is_closed_posting
+from jobfinder.pipeline_stats import PipelineStats
+from jobfinder.schemas import CVProfile, JobAssessment, SearchSession, is_closed_posting, make_dedup_key
 from jobfinder.scrapers_jobspy import scrape_sources
 from jobfinder.tools import (
-    fetch_page,
     record_failed_url,
     write_cache,
 )
@@ -35,28 +35,37 @@ def run_search(
     force_refresh: bool = False,
     language: str = "zh",
     limit_per_role: int = 200,
+    linkedin_limit_per_role: int = 30,
+    hours_old: int | None = 72,
     # 兼容旧参数，优先使用 llm
     provider: Provider = "claude",
     model: str | None = None,
-) -> list[str]:
+) -> tuple[list[str], PipelineStats]:
     """
-    抓取所有注册站点，过滤并写缓存，返回本次写入的 dedup_key 列表。
+    抓取所有注册站点，过滤并写缓存。
+    返回 (dedup_key 列表, 本次搜索的管道统计数据)。
     """
     effective_llm = llm or LLMConfig(
         provider=provider,
         model=model or DEFAULT_MODELS.get(provider, ""),
     )
+    pipeline_stats = PipelineStats()
 
     def _cb(msg: str) -> None:
         if on_progress:
             on_progress(msg)
 
     # ── Session 缓存检查 ───────────────────────────────────────────────────────
+    active_sources = []
+    if limit_per_role > 0:          active_sources.append("indeed")
+    if linkedin_limit_per_role > 0: active_sources.append("linkedin")
+
     session = SearchSession(
         roles=profile.preferred_roles,
         location=location,
         seniority=profile.seniority,
         search_language=profile.search_language,
+        sources=active_sources,
     )
     if not force_refresh:
         cached = cache.get_session(session.session_key)
@@ -66,7 +75,8 @@ def run_search(
             if on_job:
                 for k in cached.job_dedup_keys:
                     on_job(k)
-            return cached.job_dedup_keys
+            pipeline_stats.saved = len(cached.job_dedup_keys)
+            return cached.job_dedup_keys, pipeline_stats
 
     logger.info("Starting search: %s @ %s (seniority=%s)", profile.preferred_roles, location, profile.seniority)
     _cb(f"Starting search: {profile.preferred_roles} @ {location}")
@@ -83,6 +93,9 @@ def run_search(
             limit_per_query=limit_per_role,
             cv_profile=profile,
             llm=effective_llm,
+            linkedin_limit_per_role=linkedin_limit_per_role,
+            hours_old=hours_old,
+            stats=pipeline_stats,
         )
         logger.info("Scraped %d jobs, starting filter & LLM assessment...", len(scraped))
         role_keywords = _build_role_keywords(profile.preferred_roles)
@@ -93,6 +106,7 @@ def run_search(
             llm=effective_llm,
             on_job=on_job,
             language=language,
+            stats=pipeline_stats,
         )
         collected_keys.extend(keys)
         logger.info("Scrape done: %d jobs", len(keys))
@@ -107,7 +121,15 @@ def run_search(
 
     logger.info("Search complete, %d jobs collected", len(collected_keys))
     _cb(f"Search complete — {len(collected_keys)} jobs collected")
-    return collected_keys
+
+    # ── 写管道统计报告 ────────────────────────────────────────────────────────
+    try:
+        report_path = pipeline_stats.write_report()
+        logger.info("Pipeline stats report written: %s", report_path)
+    except Exception as e:
+        logger.warning("Failed to write pipeline stats report: %s", e)
+
+    return collected_keys, pipeline_stats
 
 
 # ─── 内部工具函数 ─────────────────────────────────────────────────────────────
@@ -161,6 +183,7 @@ def _write_scraped(
     llm: LLMConfig | None = None,
     on_job: Callable[[str], None] | None = None,
     language: str = "zh",
+    stats: PipelineStats | None = None,
     # 兼容旧参数
     seniority: str = "",
     max_years: int = 99,
@@ -191,6 +214,8 @@ def _write_scraped(
     pending: list[tuple[dict, str, str | None]] = []
     # patch_keys: URL 缓存命中但缺少 assessment，需补跑 LLM，暂存 cached_job
     patch_pending: list[tuple[object, str]] = []  # (cached_job, content)
+    # 跨来源 dedup_key 去重：防止同一职位在 Indeed + LinkedIn 都出现时重复 LLM 消耗
+    seen_dedup_keys: set[str] = set()
 
     # 过滤漏斗计数器
     _total = 0
@@ -199,28 +224,59 @@ def _write_scraped(
     _skip_irrelevant = 0
     _cache_hit = 0
     _cache_patch = 0
-    _skip_fetch_fail = 0
+    _skip_no_desc = 0
     _skip_closed = 0
     _skip_exp = 0
     _skip_skill = 0
 
+    # 分源统计：{source: {step: count}}
+    _SS_KEYS = ("in","dup","seniority","irrelevant","cache_hit","no_desc","closed","exp","skill","llm_rejected","saved")
+    _source_stats: dict[str, dict[str, int]] = {}
+
+    # 预计算每个 dedup_key 对应的全部来源（跨平台去重前收集，用于多来源写入）
+    _job_all_sources: dict[str, list[str]] = {}
+    for _j in jobs:
+        _dk = make_dedup_key((_j.get("company") or "").strip(), (_j.get("title") or "").strip())
+        _s = _j.get("source") or "unknown"
+        if _dk not in _job_all_sources:
+            _job_all_sources[_dk] = []
+        if _s not in _job_all_sources[_dk]:
+            _job_all_sources[_dk].append(_s)
+
     for job in jobs:
         _total += 1
+        _src = job.get("source") or "unknown"
+        _ss = _source_stats.setdefault(_src, {k: 0 for k in _SS_KEYS})
+        _ss["in"] += 1
+
         url = job.get("url", "")
         if not url or url in seen_urls:
+            _ss["dup"] += 1
             _skip_dup += 1
             continue
         seen_urls.add(url)
 
         title = (job.get("title") or "").strip()
         if not title:
+            _ss["dup"] += 1
             _skip_dup += 1
             continue
 
-        # 1. 年资过滤（零成本，title 即可判断）
+        # 1a. 跨来源 dedup（同一公司+职位名已在本轮处理中，跳过重复 LLM）
+        company = (job.get("company") or "").strip()
+        _dedup_key = make_dedup_key(company, title)
+        if _dedup_key in seen_dedup_keys:
+            logger.debug("Skip (cross-source dedup): %s @ %s", title, company)
+            _ss["dup"] += 1
+            _skip_dup += 1
+            continue
+        seen_dedup_keys.add(_dedup_key)
+
+        # 1b. 年资过滤（零成本，title 即可判断）
         if _seniority and not is_seniority_ok(title, _seniority):
             logger.debug("Skip (seniority mismatch): %s", title)
             cb(f"Skip (seniority mismatch): {title[:60]}")
+            _ss["seniority"] += 1
             _skip_seniority += 1
             continue
 
@@ -228,6 +284,7 @@ def _write_scraped(
         if role_keywords and not _is_title_relevant(title, role_keywords):
             logger.debug("Skip (irrelevant title): %s", title)
             cb(f"Skip (irrelevant title): {title[:60]}")
+            _ss["irrelevant"] += 1
             _skip_irrelevant += 1
             continue
 
@@ -237,6 +294,7 @@ def _write_scraped(
             if cached_job.assessment is not None or not (_cv_summary and _cv_skills):
                 logger.debug("URL cache hit, skip fetch+LLM: %s", title)
                 immediate_keys.append(cached_job.dedup_key)
+                _ss["cache_hit"] += 1
                 _cache_hit += 1
                 continue
             else:
@@ -245,25 +303,21 @@ def _write_scraped(
                 _cache_patch += 1
                 continue
 
-        # 4. 获取 JD 内容
-        prefetched = (job.get("description_snippet") or "").strip()
-        if len(prefetched) > 200:
-            content = prefetched
-            logger.debug("Using pre-fetched JD (%d chars): %s", len(content), title)
-        else:
-            cb(f"Fetching JD: {title[:50]}")
-            content = fetch_page(url)
-            if not content:
-                record_failed_url(url, "fetch_failed")
-                logger.warning("Fetch failed: %s", url)
-                _skip_fetch_fail += 1
-                continue
+        # 4. 获取 JD 内容（直接使用 JobSpy 返回的描述，无 Jina 回退）
+        content = (job.get("description_snippet") or "").strip()
+        if not content:
+            logger.debug("Skip (no description): %s", title)
+            cb(f"Skip (no description): {title[:50]}")
+            _ss["no_desc"] += 1
+            _skip_no_desc += 1
+            continue
 
         # 5. 关闭检测
         if is_closed_posting(content):
             record_failed_url(url, "posting_closed")
             cb(f"Skip (posting closed): {url[:70]}")
             logger.info("Posting closed: %s", url)
+            _ss["closed"] += 1
             _skip_closed += 1
             continue
 
@@ -271,6 +325,7 @@ def _write_scraped(
         if _over_experience_limit(content, _max_years):
             cb(f"Skip (experience requirement too high): {title[:60]}")
             logger.debug("Experience requirement too high: %s", title)
+            _ss["exp"] += 1
             _skip_exp += 1
             continue
 
@@ -279,6 +334,7 @@ def _write_scraped(
             if not any(s in content.lower() for s in skill_keywords):
                 cb(f"Skip (skill mismatch): {title[:60]}")
                 logger.debug("Skill mismatch: %s", title)
+                _ss["skill"] += 1
                 _skip_skill += 1
                 continue
 
@@ -347,44 +403,88 @@ def _write_scraped(
 
         for (job, content, expires_at), assessment in zip(pending, assessments):
             title = (job.get("title") or "").strip()
+            _job_src = job.get("source") or "unknown"
+            _job_ss = _source_stats.setdefault(_job_src, {k: 0 for k in _SS_KEYS})
             if not assessment.relevant:
                 cb(f"Skip (not relevant): {title[:50]} — {assessment.reason}")
                 logger.info("LLM assess rejected: %s | %s", title, assessment.reason)
+                _job_ss["llm_rejected"] += 1
                 _llm_rejected += 1
                 continue
             logger.debug("LLM assess matched: %s | score=%d", title, assessment.score)
 
             job_assessment = assessment.to_job_assessment() if (_cv_summary and _cv_skills) else None
+            _dedup_key = make_dedup_key(job.get("company", ""), title)
             key = write_cache({
                 "title": title,
                 "company": job.get("company", ""),
                 "location": job.get("location", ""),
                 "url": job.get("url", ""),
                 "description_snippet": content,
+                "date_posted": job.get("date_posted", ""),
                 "expires_at": expires_at,
                 "is_complete": job.get("is_complete", True),
                 "assessment": job_assessment,
+                "sources": _job_all_sources.get(_dedup_key, [_job_src]),
             })
+            _job_ss["saved"] += 1
             keys.append(key)
             if on_job:
                 on_job(key)
-            cb(f"Saved: {title} @ {job.get('company', '?')} [{job.get('source', '')}]")
+            cb(f"Saved: {title} @ {job.get('company', '?')} [{_job_src}]")
+
+    # ── 阶段三：多来源合并（跨平台重复职位补全 sources 字段）────────────────────
+    for dk, srcs in _job_all_sources.items():
+        if len(srcs) > 1:
+            for s in srcs:
+                cache.merge_job_source(dk, s)
+
+    # ── 填充管道统计 ──────────────────────────────────────────────────────────
+    if stats is not None:
+        stats.prefilter_in    = _total
+        stats.skip_dup        = _skip_dup
+        stats.skip_seniority  = _skip_seniority
+        stats.skip_irrelevant = _skip_irrelevant
+        stats.cache_hit       = _cache_hit
+        stats.cache_patch     = _cache_patch
+        stats.skip_no_desc    = _skip_no_desc
+        stats.skip_closed     = _skip_closed
+        stats.skip_exp        = _skip_exp
+        stats.skip_skill      = _skip_skill
+        stats.llm_assessed    = len(pending) + len(patch_pending)
+        stats.llm_rejected    = _llm_rejected
+        stats.saved           = len(keys)
+        stats.by_source       = {src: dict(st) for src, st in _source_stats.items()}
 
     # ── 汇总日志 ─────────────────────────────────────────────────────────────
     _saved = len(keys)
     logger.info(
         "Filter funnel | input=%d dup_skip=%d seniority=%d irrelevant=%d cache_hit=%d cache_patch=%d "
-        "fetch_fail=%d closed=%d exp_limit=%d skill_mismatch=%d llm_in=%d llm_rejected=%d saved=%d",
+        "no_desc=%d closed=%d exp_limit=%d skill_mismatch=%d llm_in=%d llm_rejected=%d saved=%d",
         _total, _skip_dup, _skip_seniority, _skip_irrelevant,
-        _cache_hit, _cache_patch, _skip_fetch_fail, _skip_closed,
+        _cache_hit, _cache_patch, _skip_no_desc, _skip_closed,
         _skip_exp, _skip_skill, len(pending) + len(patch_pending),
         _llm_rejected, _saved,
     )
     cb(
         f"Summary: {_total} in → seniority {_skip_seniority} | irrelevant {_skip_irrelevant} | "
-        f"cache hit {_cache_hit} | fetch fail {_skip_fetch_fail} | closed {_skip_closed} | "
+        f"cache hit {_cache_hit} | no description {_skip_no_desc} | closed {_skip_closed} | "
         f"exp limit {_skip_exp} | skill mismatch {_skip_skill} | LLM rejected {_llm_rejected} → saved {_saved}"
     )
+    if _source_stats:
+        for src, st in sorted(_source_stats.items()):
+            parts = []
+            for step in ("dup", "seniority", "irrelevant", "cache_hit", "no_desc", "closed", "exp", "skill", "llm_rejected"):
+                v = st.get(step, 0)
+                if v:
+                    parts.append(f"{step}={v}")
+            detail = f"({', '.join(parts)})" if parts else ""
+            logger.info("Source [%s]: %d in → %d saved %s", src, st["in"], st["saved"], detail)
+        src_summary = " | ".join(
+            f"{src} {st['in']} in → {st['saved']} saved"
+            for src, st in sorted(_source_stats.items())
+        )
+        cb(f"Source breakdown: {src_summary}")
 
     return keys
 

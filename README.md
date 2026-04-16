@@ -38,15 +38,25 @@ uv run jobfinder find cv.docx  # CLI 模式
 ```
 CV 文件
   │
-  ▼ CV 解析（LLM → CVProfile）← SHA-256 永久缓存
-  ▼ Title 发现（Adzuna API + LLM）← 7 天缓存
-  ▼ 用户确认 title 列表
-  ▼ Indeed 抓取（JobSpy，无浏览器）
-      LLM 标题预筛 → 串行限速（2s/role）→ 去重
-  ▼ 过滤漏斗：年资 → 相关性 → URL 缓存 → 关闭检测 → 经验 → 技能
-  ▼ LLM 批量评估（score / strengths / weaknesses / matched_keywords）
-  ▼ [可选] 公司信息查询（--enrich）
-  ▼ Web UI / 终端展示
+  ▼ ① CV 解析（LLM → CVProfile）← SHA-256 永久缓存
+  ▼ ② Title 发现（Adzuna API + LLM）← 7 天缓存
+  ▼    用户确认 title 列表
+  ▼ ③ 抓取（Indeed + LinkedIn，JobSpy，无浏览器）
+         LLM 标题预筛 → 串行限速（Indeed 2s / LinkedIn 3s）→ URL 去重
+  ▼ ④ 预筛漏斗：年资 → 相关性 → URL 缓存命中 → 关闭检测 → 经验年限 → 技能关键词
+  ▼ ⑤ LLM 批量评估（score / strengths / weaknesses / matched_keywords）
+  ▼    [可选] 公司信息查询（--enrich）
+  ▼ ⑥ 统计报告写入 reports/pipeline_stats.jsonl
+  ▼    Web UI / 终端展示
+```
+
+典型漏斗（真实数据）：
+```
+Indeed 741 + LinkedIn 255 = 996 抓取
+  → LLM 标题过滤  996 → 689（淘汰 30.8%）
+  → 预筛漏斗     689 → 76（年资/去重/技能等各步过滤）
+  → LLM 评估     76 → 54 保存（通过率 71.1%）
+  → 最终过滤率   94.6%（996 条中仅 54 条需人工审阅）
 ```
 
 ### 环境变量
@@ -75,10 +85,23 @@ DEFAULT_MODEL=gemini-2.0-flash
 ### Web UI 功能
 
 - **实时进度**：搜索期间 SSE 逐条推送职位卡片
+- **管道漏斗统计**：搜索完成后在进度日志和完成卡片展示各阶段明细（抓取量 → LLM 标题过滤 → 预筛漏斗 → LLM 评估 → 最终保存量 / 过滤率）
 - **三栏布局**：职位列表 + 详情 + CV 上传/搜索面板
+- **搜索历史**：每条记录可展开 📊 管道漏斗详情，按来源（Indeed / LinkedIn）分项显示
 - **日志面板**：级别过滤、关键词高亮、自动刷新
 - **配置页**：在线管理 LLM API Key 和 Adzuna 职位检索 API、选择默认模型、清除缓存；新用户无需编辑 `.env`，直接在页面完成所有配置
 - **多语言**：界面支持中文 / English / Español 切换
+
+### 统计报告
+
+每次搜索完成后自动写入 `reports/` 目录：
+
+| 文件 | 说明 |
+|---|---|
+| `pipeline_stats.jsonl` | 逐行追加，保存全量历史，每行一次搜索的完整漏斗数据 |
+| `pipeline_stats_latest.json` | 覆盖写入，始终为最新一次搜索的 JSON 报告 |
+
+字段包括：各来源抓取量、LLM 标题过滤量、预筛各步计数、LLM 评估通过率、最终过滤率等。
 
 ### 隐私说明
 
@@ -128,15 +151,25 @@ uv run jobfinder find cv.docx  # CLI mode
 ```
 CV file
   │
-  ▼ CV parsing (LLM → CVProfile)  ← permanent SHA-256 cache
-  ▼ Title discovery (Adzuna API + LLM)  ← 7-day cache
-  ▼ User reviews & confirms title list
-  ▼ Indeed scraping (JobSpy, no browser)
-      LLM title pre-filter → rate-limited serial (2s/role) → dedup
-  ▼ Filter funnel: seniority → relevance → URL cache → closed → exp → skills
-  ▼ Batch LLM assessment (score / strengths / weaknesses / matched_keywords)
-  ▼ [Optional] Company lookup (--enrich)
-  ▼ Web UI / terminal display
+  ▼ ① CV parsing (LLM → CVProfile)  ← permanent SHA-256 cache
+  ▼ ② Title discovery (Adzuna API + LLM)  ← 7-day cache
+  ▼    User reviews & confirms title list
+  ▼ ③ Scraping (Indeed + LinkedIn, JobSpy, no browser)
+         LLM title pre-filter → rate-limited serial (Indeed 2s / LinkedIn 3s) → URL dedup
+  ▼ ④ Filter funnel: seniority → relevance → URL cache hit → closed → exp limit → skills
+  ▼ ⑤ Batch LLM assessment (score / strengths / weaknesses / matched_keywords)
+  ▼    [Optional] Company lookup (--enrich)
+  ▼ ⑥ Pipeline stats written to reports/pipeline_stats.jsonl
+  ▼    Web UI / terminal display
+```
+
+Real-world funnel (actual data):
+```
+Indeed 741 + LinkedIn 255 = 996 scraped
+  → LLM title filter   996 → 689  (30.8% removed)
+  → Pre-filter funnel  689 → 76   (seniority / dedup / skills etc.)
+  → LLM assessment      76 → 54 saved  (71.1% pass rate)
+  → Overall filter rate: 94.6%  (only 54 of 996 require human review)
 ```
 
 ### Environment Variables
@@ -165,10 +198,23 @@ DEFAULT_MODEL=gemini-2.0-flash
 ### Web UI Features
 
 - **Live progress**: jobs streamed card-by-card via SSE during search
+- **Pipeline funnel stats**: after each search, the progress log and completion card display per-stage breakdown (scraped → LLM title filter → pre-filter funnel → LLM assessment → saved / filter rate)
 - **Three-column layout**: job list + detail + CV upload/search panel
+- **Search history**: each record has a 📊 button to expand the full pipeline funnel, with per-source breakdown (Indeed / LinkedIn)
 - **Log panel**: level filtering, keyword highlight, auto-refresh
 - **Config page**: manage LLM API keys and Adzuna job search API, select default model, clear cache — new users can complete all setup without editing `.env`
 - **Multilingual**: UI supports Chinese / English / Español
+
+### Pipeline Stats Reports
+
+After every search, stats are automatically written to the `reports/` directory:
+
+| File | Description |
+|---|---|
+| `pipeline_stats.jsonl` | Append-only log — one JSON line per search, full history preserved |
+| `pipeline_stats_latest.json` | Always overwritten with the most recent search report |
+
+Fields include: per-source scrape counts, LLM title filter stats, per-step pre-filter counts, LLM assessment pass rate, overall filter rate, and more.
 
 ### Privacy
 
@@ -218,15 +264,25 @@ uv run jobfinder find cv.docx  # Modo CLI
 ```
 Archivo CV
   │
-  ▼ Análisis de CV (LLM → CVProfile)  ← caché permanente SHA-256
-  ▼ Descubrimiento de títulos (Adzuna API + LLM)  ← caché 7 días
-  ▼ El usuario revisa y confirma la lista de títulos
-  ▼ Extracción de Indeed (JobSpy, sin navegador)
-      Pre-filtro LLM de títulos → serie con límite de velocidad (2s/rol) → dedup
-  ▼ Embudo de filtros: antigüedad → relevancia → caché URL → cerrada → exp → habilidades
-  ▼ Evaluación LLM por lotes (score / strengths / weaknesses / matched_keywords)
-  ▼ [Opcional] Consulta de empresa (--enrich)
-  ▼ Web UI / terminal
+  ▼ ① Análisis de CV (LLM → CVProfile)  ← caché permanente SHA-256
+  ▼ ② Descubrimiento de títulos (Adzuna API + LLM)  ← caché 7 días
+  ▼    El usuario revisa y confirma la lista de títulos
+  ▼ ③ Extracción (Indeed + LinkedIn, JobSpy, sin navegador)
+         Pre-filtro LLM de títulos → serie limitada (Indeed 2s / LinkedIn 3s) → dedup
+  ▼ ④ Embudo de filtros: antigüedad → relevancia → caché URL → cerrada → exp → habilidades
+  ▼ ⑤ Evaluación LLM por lotes (score / strengths / weaknesses / matched_keywords)
+  ▼    [Opcional] Consulta de empresa (--enrich)
+  ▼ ⑥ Estadísticas escritas en reports/pipeline_stats.jsonl
+  ▼    Web UI / terminal
+```
+
+Embudo real (datos reales):
+```
+Indeed 741 + LinkedIn 255 = 996 extraídos
+  → Filtro título LLM  996 → 689  (30.8% eliminados)
+  → Embudo pre-filtro  689 → 76   (antigüedad / dedup / habilidades, etc.)
+  → Evaluación LLM      76 → 54 guardados  (tasa aprobación 71.1%)
+  → Tasa de filtrado total: 94.6%  (solo 54 de 996 requieren revisión humana)
 ```
 
 ### Variables de Entorno
@@ -255,10 +311,23 @@ DEFAULT_MODEL=gemini-2.0-flash
 ### Funciones de la Web UI
 
 - **Progreso en tiempo real**: ofertas enviadas carta a carta vía SSE durante la búsqueda
+- **Estadísticas del embudo**: al finalizar la búsqueda, el log de progreso y la tarjeta de finalización muestran el desglose por etapa (extraídos → filtro título LLM → pre-filtro → evaluación LLM → guardados / tasa de filtrado)
 - **Diseño de tres columnas**: lista de trabajos + detalle + panel de subida de CV/búsqueda
+- **Historial de búsquedas**: cada registro tiene un botón 📊 para expandir el embudo completo, con desglose por fuente (Indeed / LinkedIn)
 - **Panel de logs**: filtrado por nivel, resaltado de palabras clave, actualización automática
 - **Página de configuración**: gestiona API Keys de LLM y API de búsqueda Adzuna, selecciona modelo por defecto, limpia caché — los nuevos usuarios pueden completar toda la configuración sin editar `.env`
 - **Multilingüe**: la interfaz soporta 中文 / English / Español
+
+### Informes de Estadísticas
+
+Tras cada búsqueda se escriben automáticamente en el directorio `reports/`:
+
+| Archivo | Descripción |
+|---|---|
+| `pipeline_stats.jsonl` | Log de solo añadir — una línea JSON por búsqueda, historial completo |
+| `pipeline_stats_latest.json` | Siempre sobreescrito con el informe de la búsqueda más reciente |
+
+Los campos incluyen: conteos de extracción por fuente, estadísticas del filtro de títulos LLM, conteos por paso del pre-filtro, tasa de aprobación de la evaluación LLM, tasa de filtrado global, entre otros.
 
 ### Privacidad
 

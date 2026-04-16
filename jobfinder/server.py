@@ -303,13 +303,22 @@ class DiscoverTitlesRequest(BaseModel):
     provider: str = "gemini"
     model: str = ""
     countries: list[str] = ["us", "gb"]
+    profile: dict | None = None  # 前端传来的 CVProfile，缓存丢失时作兜底
 
 
 @app.post("/api/titles/discover")
 def discover_titles_endpoint(req: DiscoverTitlesRequest) -> dict:
+    from jobfinder.schemas import CVProfile
     from jobfinder.title_discovery import discover_titles
 
-    profile = cache.get_latest_cv_profile()
+    profile = cache.get_cv_profile(req.cv_hash) or cache.get_latest_cv_profile()
+    if profile is None and req.profile:
+        try:
+            profile = CVProfile.model_validate(req.profile)
+            cache.save_cv_profile(req.cv_hash, profile)  # 重新写入缓存
+            logger.info("CV profile restored from request body | hash=%s", req.cv_hash[:8])
+        except Exception as e:
+            logger.warning("Failed to restore CV profile from request body: %s", e)
     if profile is None:
         raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
 
@@ -353,7 +362,9 @@ class SearchRequest(BaseModel):
     model: str = ""
     refresh: bool = False
     language: str = "zh"
-    limit_per_role: int = 200
+    limit_per_role: int = 100
+    linkedin_limit_per_role: int = 30
+    hours_old: int | None = 72
 
 
 @app.post("/api/search")
@@ -401,7 +412,7 @@ async def _run_search_task(req: SearchRequest) -> None:
             telemetry.reset()
             _search_start = _time.monotonic()
 
-            dedup_keys = run_search(
+            dedup_keys, pipeline_stats = run_search(
                 profile=profile,
                 location=req.location,
                 llm=llm,
@@ -410,6 +421,8 @@ async def _run_search_task(req: SearchRequest) -> None:
                 force_refresh=req.refresh,
                 language=req.language,
                 limit_per_role=req.limit_per_role,
+                linkedin_limit_per_role=req.linkedin_limit_per_role,
+                hours_old=req.hours_old,
             )
 
             elapsed = _time.monotonic() - _search_start
@@ -430,10 +443,12 @@ async def _run_search_task(req: SearchRequest) -> None:
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 jobs_found=len(dedup_keys),
+                funnel=pipeline_stats.to_dict(),
             )
             _emit("done", count=len(dedup_keys),
                   elapsed=round(elapsed, 1),
-                  tokens_in=tokens_in, tokens_out=tokens_out)
+                  tokens_in=tokens_in, tokens_out=tokens_out,
+                  pipeline_stats=pipeline_stats.to_dict())
         except Exception as e:
             logger.error("Search failed | error=%s", e, exc_info=True)
             _emit("error", msg=str(e))

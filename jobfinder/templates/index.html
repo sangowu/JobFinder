@@ -73,6 +73,11 @@
     #step-progress { display: none; }
     #step-progress.active { display: block; }
     @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; } }
+    @keyframes discoverSlide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    .animate-discover-slide { animation: discoverSlide 1.2s ease-in-out infinite; }
 
     /* ── Log panel ── */
     #log-panel {
@@ -130,6 +135,7 @@
             <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_in">输入 tokens</th>
             <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_out">输出 tokens</th>
             <th class="px-4 py-3 text-right" data-i18n="hist.col_jobs">职位数</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_funnel">漏斗</th>
           </tr>
         </thead>
         <tbody id="hist-tbody" class="divide-y divide-gray-700 text-gray-300 font-mono text-xs"></tbody>
@@ -364,10 +370,44 @@
         </div>
       </div>
 
-      <div class="flex gap-1" id="date-filter">
-        <button data-range="all"   class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_all"></button>
-        <button data-range="today" class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_today"></button>
-        <button data-range="week"  class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_week"></button>
+      <div class="flex gap-1 items-center">
+        <div class="flex gap-1 flex-1" id="date-filter">
+          <button data-range="all"   class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_all"></button>
+          <button data-range="today" class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_today"></button>
+          <button data-range="week"  class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_week"></button>
+        </div>
+        <!-- Score filter -->
+        <div class="relative flex-shrink-0" id="score-filter-wrap">
+          <button id="score-filter-btn" onclick="toggleScoreDropdown()"
+            class="flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-colors
+                   border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700
+                   text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600">
+            <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/>
+            </svg>
+            <span id="score-filter-label">—</span>
+          </button>
+          <div id="score-dropdown"
+            class="hidden absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800
+                   border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-1 min-w-[90px]">
+            <button data-min="null" onclick="setScoreFilter(null)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200" data-i18n="list.score_all"></button>
+            <button data-min="3" onclick="setScoreFilter(3)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 3</button>
+            <button data-min="5" onclick="setScoreFilter(5)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 5</button>
+            <button data-min="7" onclick="setScoreFilter(7)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 7</button>
+            <button data-min="9" onclick="setScoreFilter(9)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 9</button>
+          </div>
+        </div>
       </div>
 
       <div id="select-all-row" class="hidden flex items-center gap-2 pt-1">
@@ -448,9 +488,18 @@
                 <h3 id="prof-name" class="font-semibold text-gray-800 dark:text-gray-100 text-base"></h3>
                 <p id="prof-summary" class="text-sm text-gray-500 dark:text-gray-400 mt-1"></p>
               </div>
-              <span id="prof-seniority"
-                class="px-2.5 py-0.5 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900/40
-                       text-blue-700 dark:text-blue-300 whitespace-nowrap flex-shrink-0"></span>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span id="prof-seniority"
+                  class="px-2.5 py-0.5 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900/40
+                         text-blue-700 dark:text-blue-300 whitespace-nowrap"></span>
+                <button onclick="swapCV()" title="更换 CV"
+                  class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors rounded">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div class="flex flex-wrap gap-1.5 mt-3">
             </div>
@@ -486,6 +535,10 @@
                 <span data-i18n="titles.discover"></span>
               </button>
             </div>
+            <!-- 市场发现进度条 -->
+            <div id="discover-progress" class="hidden h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden mb-2">
+              <div class="h-full w-1/3 rounded-full bg-blue-500 animate-discover-slide"></div>
+            </div>
             <div id="titles-list" class="space-y-1.5"></div>
             <div class="flex gap-2 mt-2">
               <input id="add-title-input" type="text" data-i18n-ph="titles.add_placeholder"
@@ -499,14 +552,52 @@
             </div>
           </div>
 
-          <!-- Limit per role -->
+          <!-- Source + Limit per role -->
+          <div class="space-y-2">
+            <label class="text-sm text-gray-600 dark:text-gray-400" data-i18n="titles.limit_label"></label>
+            <div class="space-y-1.5">
+              <!-- Indeed row -->
+              <div class="flex items-center gap-3">
+                <input id="source-indeed" type="checkbox" checked
+                  class="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                  onchange="toggleSource('indeed')"/>
+                <label for="source-indeed" class="text-xs text-gray-500 dark:text-gray-400 w-14 cursor-pointer select-none">Indeed</label>
+                <input id="limit-per-role" type="number" min="10" max="500" step="10" value="100"
+                  class="w-20 text-sm text-center bg-white dark:bg-gray-800 border border-gray-200
+                         dark:border-gray-600 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1
+                         focus:ring-blue-400 tabular-nums"/>
+                <span class="text-xs text-gray-400 dark:text-gray-500" data-i18n="titles.limit_unit"></span>
+              </div>
+              <!-- LinkedIn row -->
+              <div class="flex items-center gap-3">
+                <input id="source-linkedin" type="checkbox" checked
+                  class="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                  onchange="toggleSource('linkedin')"/>
+                <label for="source-linkedin" class="text-xs text-gray-500 dark:text-gray-400 w-14 cursor-pointer select-none">LinkedIn</label>
+                <input id="linkedin-limit-per-role" type="number" min="5" max="200" step="5" value="30"
+                  class="w-20 text-sm text-center bg-white dark:bg-gray-800 border border-gray-200
+                         dark:border-gray-600 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1
+                         focus:ring-blue-400 tabular-nums"/>
+                <span class="text-xs text-gray-400 dark:text-gray-500" data-i18n="titles.limit_unit"></span>
+              </div>
+            </div>
+            <p class="text-xs text-amber-500 dark:text-amber-400" data-i18n="titles.linkedin_tip"></p>
+          </div>
+
+          <!-- Date range -->
           <div class="flex items-center gap-3">
-            <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap" data-i18n="titles.limit_label"></label>
-            <input id="limit-per-role" type="number" min="10" max="500" step="10" value="200"
-              class="w-24 text-sm text-center bg-white dark:bg-gray-800 border border-gray-200
-                     dark:border-gray-600 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1
-                     focus:ring-blue-400 tabular-nums"/>
-            <span class="text-xs text-gray-400 dark:text-gray-500" data-i18n="titles.limit_unit"></span>
+            <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap" data-i18n="titles.date_range"></label>
+            <select id="hours-old"
+              class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                     text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              onchange="onHoursOldChange()">
+              <option value="24" data-i18n="hours.24h">24h</option>
+              <option value="72" selected data-i18n="hours.3d">3 天</option>
+              <option value="168" data-i18n="hours.7d">7 天</option>
+              <option value="336" data-i18n="hours.14d">14 天</option>
+              <option value="720" data-i18n="hours.30d">30 天</option>
+              <option value="0" data-i18n="hours.unlimited">不限</option>
+            </select>
           </div>
 
           <!-- Search button -->
@@ -540,6 +631,7 @@
             <p id="done-elapsed"></p>
             <p id="done-tokens"></p>
           </div>
+          <div id="done-funnel" class="hidden text-gray-400 dark:text-gray-500"></div>
           <button onclick="resetSearchPanel()"
             class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
             data-i18n="done.restart">
@@ -639,7 +731,20 @@ const I18N = {
     'hist.empty': '暂无搜索记录', 'hist.total_searches': '总搜索次数', 'hist.total_jobs': '累计职位数',
     'hist.total_tokens': '累计 tokens', 'hist.total_elapsed': '累计耗时',
     'hist.clear': '清空历史', 'hist.clear_confirm': '确定要清空全部搜索历史吗？此操作不可撤销。',
-    'hist.clear_done': '历史记录已清空',
+    'hist.clear_done': '历史记录已清空', 'hist.col_funnel': '漏斗',
+    'funnel.toggle': '查看管道漏斗统计', 'funnel.scraped': '①抓取',
+    'funnel.title': '②LLM标题', 'funnel.prefilter': '③预筛漏斗',
+    'funnel.llm': '④LLM评估', 'funnel.saved': '最终保存',
+    'funnel.no_filter': '无过滤', 'funnel.by_source': '分来源统计',
+    'funnel.src_in': '进入', 'funnel.src_saved': '保存',
+    'funnel.passed': '通过', 'funnel.out': '淘汰', 'funnel.entered': '进入',
+    'funnel.sent': '送入', 'funnel.rejected': '拒绝', 'funnel.pass_rate': '通过率',
+    'funnel.merged': '合并', 'funnel.filter_rate_label': '过滤无效 JD',
+    'funnel.header': '━━━ 搜索管道统计 ━━━',
+    'funnel.skip_dup': '去重', 'funnel.skip_seniority': '年资',
+    'funnel.skip_irrelevant': '不相关', 'funnel.skip_cache': '缓存命中',
+    'funnel.skip_no_desc': '无描述', 'funnel.skip_closed': '已关闭',
+    'funnel.skip_exp': '经验超限', 'funnel.skip_skill': '技能不符',
     'tip.view_logs': '查看日志', 'tip.session_tokens': '本次会话 token 消耗',
     'tip.refresh_logs': '手动刷新', 'tip.clear_log_view': '清空视图',
     'tip.resize_log': '拖动调整高度', 'tip.close_log': '关闭',
@@ -661,13 +766,16 @@ const I18N = {
     'cfg.job_api_desc': '启用后可检索真实市场上的 role title，增强 JD 检索结果。此功能非必需，效果依赖外部 API，本软件对检索结果不负责。',
     'cfg.saved_ok': '已保存', 'cfg.test_ok': '{0} / {1} 连接正常',
     'list.search_placeholder': '搜索职位、公司…', 'list.sort_score': '得分降序', 'list.sort_date': '最新时间',
-    'list.filter_all': '全部', 'list.filter_today': '今天', 'list.filter_week': '本周',
+    'list.filter_all': '全部', 'list.filter_today': '今天', 'list.filter_week': '本周', 'list.score_all': '全部分数',
     'list.select_all': '全选', 'list.loading': '加载中…', 'list.empty': '暂无职位数据，请上传 CV 开始搜索', 'list.delete': '删除', 'list.cancel': '取消',
     'upload.title': '上传 CV 开始搜索', 'upload.drop': '拖放 CV 文件至此，或', 'upload.click': '点击选择',
     'upload.formats': '支持 .docx / .md', 'upload.parsing': '解析 CV…',
     'titles.location': '目标地区', 'titles.roles': '目标职位', 'titles.discover': '从市场数据发现',
     'titles.add_placeholder': '添加 title…', 'titles.add': '添加', 'titles.search': '开始搜索',
     'titles.limit_label': '每个职位抓取上限', 'titles.limit_unit': '条/role',
+    'titles.linkedin_tip': 'LinkedIn 建议不超过 50 条/role，否则可能触发限流。设为 0 可跳过 LinkedIn 抓取。',
+    'titles.date_range': '发布时间范围',
+    'hours.24h': '24 小时', 'hours.3d': '3 天', 'hours.7d': '7 天', 'hours.14d': '14 天', 'hours.30d': '30 天', 'hours.unlimited': '不限',
     'progress.title': '搜索中…', 'done.restart': '重新搜索',
     'detail.back': '返回搜索', 'detail.source': '来源：{0}', 'detail.apply': '投递 →',
     'detail.strengths': '优势', 'detail.weaknesses': '待加强', 'detail.no_jd': '暂无 JD 内容',
@@ -679,10 +787,11 @@ const I18N = {
     'modal.title': '确认删除', 'modal.cancel': '取消', 'modal.confirm': '删除',
     'dot.read_on': '已读', 'dot.read_off': '未读', 'dot.applied_on': '已投递', 'dot.applied_off': '未投递',
     'dot.replied_on': '已回复', 'dot.replied_off': '未回复',
-    'msg.parse_fail': 'CV 解析失败：', 'msg.discover_done': '发现 {0} 个市场 title',
+    'msg.parse_fail': 'CV 解析失败：', 'msg.discover_done': '新增 {0} 个 role',
     'msg.discover_fail': '发现失败：', 'msg.discovering': '发现中…',
     'msg.search_require': '请先上传 CV 并确认 title', 'msg.searching': '搜索中…',
-    'msg.search_fail_start': '搜索启动失败：', 'msg.search_done': '找到 {0} 个匹配职位',
+    'msg.source_required': '请至少选择一个搜索来源', 'msg.search_fail_start': '搜索启动失败：', 'msg.search_done': '找到 {0} 个匹配职位',
+    'msg.search_done_diff': '新增 {0} 个职位，复用缓存 {1} 个',
     'msg.search_fail': '搜索失败：',
     'msg.sse_disconnect': 'SSE 连接中断，搜索可能仍在后台运行，稍后刷新页面可查看结果',
     'msg.selected': '已选 {0} 个', 'msg.delete_confirm': '确定要删除选中的 {0} 个职位吗？此操作不可撤销。',
@@ -697,7 +806,20 @@ const I18N = {
     'hist.empty': 'No search history yet', 'hist.total_searches': 'Total Searches', 'hist.total_jobs': 'Total Jobs Found',
     'hist.total_tokens': 'Total Tokens', 'hist.total_elapsed': 'Total Time',
     'hist.clear': 'Clear History', 'hist.clear_confirm': 'Clear all search history? This cannot be undone.',
-    'hist.clear_done': 'History cleared',
+    'hist.clear_done': 'History cleared', 'hist.col_funnel': 'Funnel',
+    'funnel.toggle': 'View pipeline funnel stats', 'funnel.scraped': '①Scrape',
+    'funnel.title': '②LLM Title', 'funnel.prefilter': '③Pre-filter',
+    'funnel.llm': '④LLM Assess', 'funnel.saved': 'Saved',
+    'funnel.no_filter': 'No filter', 'funnel.by_source': 'By source',
+    'funnel.src_in': 'in', 'funnel.src_saved': 'saved',
+    'funnel.passed': 'passed', 'funnel.out': 'filtered', 'funnel.entered': 'entered',
+    'funnel.sent': 'sent', 'funnel.rejected': 'rejected', 'funnel.pass_rate': 'pass rate',
+    'funnel.merged': 'merged', 'funnel.filter_rate_label': 'invalid JDs filtered',
+    'funnel.header': '━━━ Pipeline Stats ━━━',
+    'funnel.skip_dup': 'dedup', 'funnel.skip_seniority': 'seniority',
+    'funnel.skip_irrelevant': 'irrelevant', 'funnel.skip_cache': 'cache hit',
+    'funnel.skip_no_desc': 'no desc', 'funnel.skip_closed': 'closed',
+    'funnel.skip_exp': 'exp limit', 'funnel.skip_skill': 'skill miss',
     'tip.view_logs': 'View logs', 'tip.session_tokens': 'Session token usage',
     'tip.refresh_logs': 'Refresh', 'tip.clear_log_view': 'Clear view',
     'tip.resize_log': 'Drag to resize', 'tip.close_log': 'Close',
@@ -719,13 +841,16 @@ const I18N = {
     'cfg.job_api_desc': 'When enabled, discovers real market role titles to enhance JD search results. This feature is optional and relies on external APIs. This software is not responsible for search results.',
     'cfg.saved_ok': 'Saved', 'cfg.test_ok': '{0} / {1} connected',
     'list.search_placeholder': 'Search jobs, companies…', 'list.sort_score': 'Score ↓', 'list.sort_date': 'Latest',
-    'list.filter_all': 'All', 'list.filter_today': 'Today', 'list.filter_week': 'This Week',
+    'list.filter_all': 'All', 'list.filter_today': 'Today', 'list.filter_week': 'This Week', 'list.score_all': 'All scores',
     'list.select_all': 'Select All', 'list.loading': 'Loading…', 'list.empty': 'No jobs yet — upload your CV to start', 'list.delete': 'Delete', 'list.cancel': 'Cancel',
     'upload.title': 'Upload CV to Start', 'upload.drop': 'Drop CV here, or', 'upload.click': 'click to select',
     'upload.formats': 'Supports .docx / .md', 'upload.parsing': 'Parsing CV…',
     'titles.location': 'Target Location', 'titles.roles': 'Target Roles', 'titles.discover': 'Discover from Market',
     'titles.add_placeholder': 'Add title…', 'titles.add': 'Add', 'titles.search': 'Start Search',
     'titles.limit_label': 'Results per role', 'titles.limit_unit': 'jobs/role',
+    'titles.linkedin_tip': 'LinkedIn: recommended ≤ 50/role to avoid rate limiting. Set to 0 to skip LinkedIn.',
+    'titles.date_range': 'Date posted',
+    'hours.24h': '24h', 'hours.3d': '3 days', 'hours.7d': '7 days', 'hours.14d': '14 days', 'hours.30d': '30 days', 'hours.unlimited': 'No limit',
     'progress.title': 'Searching…', 'done.restart': 'Search Again',
     'detail.back': '← Back', 'detail.source': 'Source: {0}', 'detail.apply': 'Apply →',
     'detail.strengths': 'Strengths', 'detail.weaknesses': 'Areas to Improve', 'detail.no_jd': 'No JD content available',
@@ -737,10 +862,11 @@ const I18N = {
     'modal.title': 'Confirm Delete', 'modal.cancel': 'Cancel', 'modal.confirm': 'Delete',
     'dot.read_on': 'Read', 'dot.read_off': 'Unread', 'dot.applied_on': 'Applied', 'dot.applied_off': 'Not Applied',
     'dot.replied_on': 'Replied', 'dot.replied_off': 'No Reply',
-    'msg.parse_fail': 'CV parse failed: ', 'msg.discover_done': 'Discovered {0} market titles',
+    'msg.parse_fail': 'CV parse failed: ', 'msg.discover_done': '{0} new role(s) added',
     'msg.discover_fail': 'Discovery failed: ', 'msg.discovering': 'Discovering…',
     'msg.search_require': 'Please upload CV and confirm titles first', 'msg.searching': 'Searching…',
-    'msg.search_fail_start': 'Search failed to start: ', 'msg.search_done': 'Found {0} matching jobs',
+    'msg.source_required': 'Please select at least one source', 'msg.search_fail_start': 'Search failed to start: ', 'msg.search_done': 'Found {0} matching jobs',
+    'msg.search_done_diff': '{0} new jobs, {1} from cache',
     'msg.search_fail': 'Search failed: ',
     'msg.sse_disconnect': 'SSE connection lost. Search may still be running. Refresh later to see results.',
     'msg.selected': '{0} selected', 'msg.delete_confirm': 'Delete {0} selected jobs? This cannot be undone.',
@@ -755,7 +881,20 @@ const I18N = {
     'hist.empty': 'Sin historial de búsquedas', 'hist.total_searches': 'Total búsquedas', 'hist.total_jobs': 'Empleos encontrados',
     'hist.total_tokens': 'Tokens totales', 'hist.total_elapsed': 'Tiempo total',
     'hist.clear': 'Limpiar historial', 'hist.clear_confirm': '¿Limpiar todo el historial? No se puede deshacer.',
-    'hist.clear_done': 'Historial eliminado',
+    'hist.clear_done': 'Historial eliminado', 'hist.col_funnel': 'Embudo',
+    'funnel.toggle': 'Ver estadísticas del embudo', 'funnel.scraped': '①Extracción',
+    'funnel.title': '②Título LLM', 'funnel.prefilter': '③Pre-filtro',
+    'funnel.llm': '④Evaluación LLM', 'funnel.saved': 'Guardados',
+    'funnel.no_filter': 'Sin filtro', 'funnel.by_source': 'Por fuente',
+    'funnel.src_in': 'entrada', 'funnel.src_saved': 'guardados',
+    'funnel.passed': 'aprobados', 'funnel.out': 'filtrados', 'funnel.entered': 'entradas',
+    'funnel.sent': 'enviados', 'funnel.rejected': 'rechazados', 'funnel.pass_rate': 'tasa aprobación',
+    'funnel.merged': 'fusionados', 'funnel.filter_rate_label': 'JDs inválidos filtrados',
+    'funnel.header': '━━━ Estadísticas del pipeline ━━━',
+    'funnel.skip_dup': 'dedup', 'funnel.skip_seniority': 'antigüedad',
+    'funnel.skip_irrelevant': 'irrelevante', 'funnel.skip_cache': 'caché',
+    'funnel.skip_no_desc': 'sin desc', 'funnel.skip_closed': 'cerrado',
+    'funnel.skip_exp': 'exp. excedida', 'funnel.skip_skill': 'sin habilidad',
     'tip.view_logs': 'Ver registros', 'tip.session_tokens': 'Tokens de sesión',
     'tip.refresh_logs': 'Actualizar', 'tip.clear_log_view': 'Limpiar vista',
     'tip.resize_log': 'Arrastrar para redimensionar', 'tip.close_log': 'Cerrar',
@@ -777,13 +916,16 @@ const I18N = {
     'cfg.job_api_desc': 'Permite descubrir títulos reales del mercado para mejorar los resultados. Esta función es opcional y depende de APIs externas. El software no se responsabiliza de los resultados.',
     'cfg.saved_ok': 'Guardado', 'cfg.test_ok': '{0} / {1} conectado',
     'list.search_placeholder': 'Buscar empleos, empresas…', 'list.sort_score': 'Puntuación ↓', 'list.sort_date': 'Reciente',
-    'list.filter_all': 'Todos', 'list.filter_today': 'Hoy', 'list.filter_week': 'Esta semana',
+    'list.filter_all': 'Todos', 'list.filter_today': 'Hoy', 'list.filter_week': 'Esta semana', 'list.score_all': 'Todas',
     'list.select_all': 'Selec. todo', 'list.loading': 'Cargando…', 'list.empty': 'Sin empleos — sube tu CV para comenzar', 'list.delete': 'Eliminar', 'list.cancel': 'Cancelar',
     'upload.title': 'Sube tu CV para comenzar', 'upload.drop': 'Arrastra el CV aquí, o', 'upload.click': 'haz clic para seleccionar',
     'upload.formats': 'Admite .docx / .md', 'upload.parsing': 'Analizando CV…',
     'titles.location': 'Ubicación objetivo', 'titles.roles': 'Puestos objetivo', 'titles.discover': 'Descubrir del mercado',
     'titles.add_placeholder': 'Agregar título…', 'titles.add': 'Agregar', 'titles.search': 'Iniciar búsqueda',
     'titles.limit_label': 'Resultados por puesto', 'titles.limit_unit': 'empleos/rol',
+    'titles.linkedin_tip': 'LinkedIn: se recomienda ≤ 50/puesto para evitar limitación. Pon 0 para omitir LinkedIn.',
+    'titles.date_range': 'Fecha de publicación',
+    'hours.24h': '24h', 'hours.3d': '3 días', 'hours.7d': '7 días', 'hours.14d': '14 días', 'hours.30d': '30 días', 'hours.unlimited': 'Sin límite',
     'progress.title': 'Buscando…', 'done.restart': 'Nueva búsqueda',
     'detail.back': '← Volver', 'detail.source': 'Fuente: {0}', 'detail.apply': 'Postular →',
     'detail.strengths': 'Fortalezas', 'detail.weaknesses': 'Áreas de mejora', 'detail.no_jd': 'Sin contenido de oferta',
@@ -795,10 +937,11 @@ const I18N = {
     'modal.title': 'Confirmar eliminación', 'modal.cancel': 'Cancelar', 'modal.confirm': 'Eliminar',
     'dot.read_on': 'Leído', 'dot.read_off': 'No leído', 'dot.applied_on': 'Postulado', 'dot.applied_off': 'Sin postular',
     'dot.replied_on': 'Respondido', 'dot.replied_off': 'Sin respuesta',
-    'msg.parse_fail': 'Error al analizar CV: ', 'msg.discover_done': 'Se descubrieron {0} títulos',
+    'msg.parse_fail': 'Error al analizar CV: ', 'msg.discover_done': '{0} rol(es) nuevo(s) añadido(s)',
     'msg.discover_fail': 'Error en descubrimiento: ', 'msg.discovering': 'Descubriendo…',
     'msg.search_require': 'Sube el CV y confirma los títulos primero', 'msg.searching': 'Buscando…',
-    'msg.search_fail_start': 'Error al iniciar búsqueda: ', 'msg.search_done': 'Se encontraron {0} empleos',
+    'msg.source_required': 'Selecciona al menos una fuente', 'msg.search_fail_start': 'Error al iniciar búsqueda: ', 'msg.search_done': 'Se encontraron {0} empleos',
+    'msg.search_done_diff': '{0} nuevos empleos, {1} del caché',
     'msg.search_fail': 'Búsqueda fallida: ',
     'msg.sse_disconnect': 'Conexión SSE interrumpida. La búsqueda puede seguir en segundo plano.',
     'msg.selected': '{0} seleccionados', 'msg.delete_confirm': '¿Eliminar {0} empleos? No se puede deshacer.',
@@ -864,6 +1007,7 @@ let isLoading   = true;   // true 直到首次 loadJobs() 完成
 let sortMode    = "score";
 let dateRange   = "all";
 let searchText  = "";
+let scoreMin    = null;   // null = 不过滤
 let deleteMode  = false;
 let selectedKeys = new Set();
 let activeKey   = null;
@@ -871,6 +1015,8 @@ let activeJob   = null;
 let cvHash      = null;
 let cvProfile   = null;
 let titlesList  = [];   // confirmed title list
+let _prevSearchKeys = new Set();  // 本次搜索开始前的 dedup_key 快照
+let _newThisSearch  = new Set();  // 本次搜索中新增的 dedup_key
 let cfgData     = null; // config fetched from API
 
 const STATUS = {};   // dedup_key → { read, applied, replied }
@@ -1177,6 +1323,61 @@ function renderHistorySummary(s) {
     </div>`).join("");
 }
 
+function _renderFunnelRow(f, rid) {
+  if (!f) return "";
+  const steps = [
+    { label: t('funnel.scraped'),   value: `Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total}`, color: "text-blue-300" },
+    { label: t('funnel.title'),     value: f.title_filter_in ? `${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out}  (${f.llm_title_pass_rate}%)` : "—", color: "text-purple-300" },
+    { label: t('funnel.prefilter'), value: (() => {
+        const parts = [];
+        if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
+        if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
+        if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
+        if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
+        if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
+        if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
+        if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
+        if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
+        return (parts.length ? parts.join(" | ") : t('funnel.no_filter')) + `  (${t('funnel.entered')} ${f.prefilter_in})`;
+      })(), color: "text-yellow-300" },
+    { label: t('funnel.llm'),       value: f.llm_assessed ? `${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%` : "—", color: "text-orange-300" },
+    { label: t('funnel.saved'),     value: `${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`, color: "text-green-400 font-semibold" },
+  ];
+  const tableRows = steps.map(s =>
+    `<tr class="border-t border-gray-700/40">
+      <td class="py-1 pr-6 text-gray-500 whitespace-nowrap">${s.label}</td>
+      <td class="py-1 ${s.color} font-mono">${s.value}</td>
+    </tr>`
+  ).join("");
+
+  let srcHtml = "";
+  if (f.by_source && Object.keys(f.by_source).length > 1) {
+    const srcRows = Object.entries(f.by_source).map(([src, st]) =>
+      `<tr class="border-t border-gray-700/30">
+        <td class="py-0.5 pr-6 text-gray-600">${_esc(src)}</td>
+        <td class="py-0.5 text-gray-400 font-mono">${t('funnel.src_in')} ${st.in || 0}  ${t('funnel.src_saved')} ${st.saved || 0}</td>
+      </tr>`
+    ).join("");
+    srcHtml = `<p class="text-gray-500 text-xs mt-2 mb-1">${t('funnel.by_source')}</p><table class="text-xs w-full">${srcRows}</table>`;
+  }
+
+  return `<tr id="funnel-row-${rid}" class="hidden bg-gray-900/60">
+    <td colspan="8" class="px-8 py-3">
+      <table class="text-xs w-full">${tableRows}</table>
+      ${srcHtml}
+    </td>
+  </tr>`;
+}
+
+function _esc(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function _toggleFunnel(rid) {
+  const row = document.getElementById("funnel-row-" + rid);
+  if (row) row.classList.toggle("hidden");
+}
+
 function renderHistoryTable(records) {
   const tbody = document.getElementById("hist-tbody");
   const empty = document.getElementById("hist-empty");
@@ -1190,7 +1391,13 @@ function renderHistoryTable(records) {
     const dt = new Date(r.created_at + "Z").toLocaleString();
     const roles = (r.roles || []).join(", ") || "—";
     const model = r.model ? `${r.provider}/${r.model.split("-").slice(-2).join("-")}` : r.provider;
-    return `<tr class="hover:bg-gray-700/30 transition-colors">
+    const funnelBtn = r.funnel
+      ? `<button onclick="_toggleFunnel(${r.id})" title="${t('funnel.toggle')}"
+           class="text-xs px-2 py-0.5 rounded bg-indigo-900/50 hover:bg-indigo-700/60 text-indigo-300 hover:text-white transition-colors border border-indigo-700/40">
+           📊
+         </button>`
+      : `<span class="text-gray-600 text-xs">—</span>`;
+    const mainRow = `<tr class="hover:bg-gray-700/30 transition-colors">
       <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">${dt}</td>
       <td class="px-4 py-2.5"><span class="text-white">${roles}</span><br>
         <span class="text-gray-500 text-xs">${r.location}</span></td>
@@ -1199,7 +1406,9 @@ function renderHistoryTable(records) {
       <td class="px-4 py-2.5 text-right text-green-300">${_fmtNum(r.tokens_in)}</td>
       <td class="px-4 py-2.5 text-right text-blue-300">${_fmtNum(r.tokens_out)}</td>
       <td class="px-4 py-2.5 text-right text-white font-semibold">${r.jobs_found}</td>
+      <td class="px-4 py-2.5 text-right">${funnelBtn}</td>
     </tr>`;
+    return mainRow + _renderFunnelRow(r.funnel, r.id);
   }).join("");
 }
 
@@ -1233,6 +1442,7 @@ async function clearCache() {
     await api("POST", "/api/cache/clear");
     JOBS = [];
     renderList();
+    clearSearchState();
     showToast(t('cfg.cache_cleared'));
   } catch(e) {
     showToast(`${t('msg.delete_fail')}${e.message}`, true);
@@ -1330,6 +1540,10 @@ function jobMatchesFilters(job) {
     if (dateRange === "today" && diffMs > 86400000)   return false;
     if (dateRange === "week"  && diffMs > 7*86400000) return false;
   }
+  if (scoreMin !== null) {
+    const s = job.score ?? -1;
+    if (s < scoreMin) return false;
+  }
   return true;
 }
 
@@ -1337,7 +1551,7 @@ function sortedJobs() {
   return [...JOBS].filter(jobMatchesFilters).sort((a, b) =>
     sortMode === "score"
       ? (b.score ?? -1) - (a.score ?? -1)
-      : new Date(b.fetched_at) - new Date(a.fetched_at)
+      : (new Date(b.date_posted || b.fetched_at) - new Date(a.date_posted || a.fetched_at))
   );
 }
 
@@ -1351,7 +1565,21 @@ function buildCard(job) {
   card.className = "job-card px-4 py-3 cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700/60 transition-colors";
   card.dataset.key = key;
   const isRemote = (job.location || "").toLowerCase().includes("remote");
-  const dateStr = job.fetched_at ? new Date(job.fetched_at).toLocaleDateString("zh-CN") : "";
+  const dateStr = (() => {
+    if (job.date_posted) {
+      const d = new Date(job.date_posted);
+      if (!isNaN(d)) {
+        const days = Math.floor((Date.now() - d) / 86400000);
+        if (days === 0) return LANG === 'zh' ? '今天' : 'Today';
+        if (days === 1) return LANG === 'zh' ? '昨天' : 'Yesterday';
+        return LANG === 'zh' ? `${days} 天前` : `${days}d ago`;
+      }
+    }
+    return job.fetched_at ? new Date(job.fetched_at).toLocaleDateString("zh-CN") : "";
+  })();
+  const isNew = _newThisSearch.size > 0
+    ? _newThisSearch.has(key)
+    : job.fetched_at && (Date.now() - new Date(job.fetched_at).getTime() < 86400000);
   card.innerHTML = `
     <div class="flex items-center gap-3">
       ${deleteMode ? `<input type="checkbox" data-key="${key}"
@@ -1360,9 +1588,23 @@ function buildCard(job) {
       ${scoreBadge(job.score)}
       <div class="flex-1 min-w-0">
         <div class="font-medium text-sm truncate text-gray-800 dark:text-gray-100">${job.title}</div>
-        <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${job.company}</div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs text-gray-500 dark:text-gray-400 truncate">${job.company}</span>
+          ${isNew ? '<span class="flex-shrink-0 text-[10px] font-semibold px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded">NEW</span>' : ""}
+        </div>
         <div class="flex items-center gap-2 mt-1">
           <span class="text-xs text-gray-400 dark:text-gray-500">${dateStr}</span>
+          ${(job.sources || []).map(s => {
+            const isLinkedIn = s.includes("linkedin");
+            const isIndeed   = s.includes("indeed");
+            const cls = isLinkedIn
+              ? "bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
+              : isIndeed
+              ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+              : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400";
+            const label = isLinkedIn ? "LinkedIn" : isIndeed ? "Indeed" : s;
+            return `<span class="text-[10px] px-1.5 py-0.5 rounded font-medium ${cls}">${label}</span>`;
+          }).join("")}
           ${isRemote ? '<span class="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded">Remote</span>' : ""}
         </div>
       </div>
@@ -1431,6 +1673,45 @@ function refreshDateBtns() {
   });
 }
 refreshDateBtns();
+
+// ─── Score filter ──────────────────────────────────────────────────────────────
+function refreshScoreBtn() {
+  const lbl = document.getElementById("score-filter-label");
+  const btn = document.getElementById("score-filter-btn");
+  if (scoreMin === null) {
+    lbl.textContent = "—";
+    btn.classList.remove("border-blue-400", "text-blue-500", "dark:text-blue-400");
+    btn.classList.add("text-gray-600", "dark:text-gray-300");
+  } else {
+    lbl.textContent = `≥${scoreMin}`;
+    btn.classList.add("border-blue-400", "text-blue-500", "dark:text-blue-400");
+    btn.classList.remove("text-gray-600", "dark:text-gray-300");
+  }
+  // update active option highlight
+  document.querySelectorAll(".score-opt").forEach(o => {
+    const v = o.dataset.min === "null" ? null : parseInt(o.dataset.min);
+    const active = v === scoreMin;
+    o.classList.toggle("bg-blue-50",  active);
+    o.classList.toggle("dark:bg-blue-900/30", active);
+    o.classList.toggle("font-semibold", active);
+  });
+}
+function toggleScoreDropdown() {
+  document.getElementById("score-dropdown").classList.toggle("hidden");
+}
+function setScoreFilter(v) {
+  scoreMin = v;
+  document.getElementById("score-dropdown").classList.add("hidden");
+  refreshScoreBtn();
+  renderList();
+}
+refreshScoreBtn();
+// 点击外部关闭下拉
+document.addEventListener("click", e => {
+  if (!e.target.closest("#score-filter-wrap")) {
+    document.getElementById("score-dropdown").classList.add("hidden");
+  }
+});
 
 document.getElementById("sort-select").addEventListener("change", e => { sortMode = e.target.value; renderList(); });
 document.getElementById("search-input").addEventListener("input", e => { searchText = e.target.value.trim(); renderList(); });
@@ -1537,6 +1818,9 @@ async function handleFileSelect(file) {
     const data = await r.json();
     cvHash   = data.cv_hash;
     cvProfile = data.profile;
+    localStorage.setItem("cv_hash", cvHash);
+    localStorage.setItem("cv_profile", JSON.stringify(cvProfile));
+    localStorage.removeItem("titles_list");
     statusEl.classList.add("hidden");
     showTitlesStep();
   } catch(e) {
@@ -1569,9 +1853,14 @@ function showTitlesStep() {
     }
   }
 
-  // Titles
-  titlesList = [...(cvProfile.preferred_roles || [])];
+  // Titles — 仅在列表为空时用 profile 默认值初始化，避免覆盖 localStorage 恢复的数据
+  if (titlesList.length === 0) {
+    titlesList = [...(cvProfile.preferred_roles || [])];
+  }
   renderTitles();
+
+  // 有 CV 时隐藏上传区
+  document.getElementById("step-upload").style.display = "none";
 }
 
 function renderTitles() {
@@ -1587,6 +1876,7 @@ function renderTitles() {
         </svg>
       </button>
     </div>`).join("");
+  localStorage.setItem("titles_list", JSON.stringify(titlesList));
 }
 
 function addTitle() {
@@ -1600,21 +1890,25 @@ function removeTitle(i) { titlesList.splice(i, 1); renderTitles(); }
 
 async function discoverTitles() {
   if (!cvHash) return;
-  const btn = document.getElementById("discover-btn");
-  const btnSpan = btn.querySelector('[data-i18n]');
+  const btn      = document.getElementById("discover-btn");
+  const btnSpan  = btn.querySelector('[data-i18n]');
+  const progress = document.getElementById("discover-progress");
   if (btnSpan) btnSpan.textContent = t('msg.discovering');
   btn.disabled = true;
+  progress.classList.remove("hidden");
   const provider = cfgData?.default_provider || "gemini";
   const model    = cfgData?.default_model    || "";
   try {
-    const r = await api("POST", "/api/titles/discover", { cv_hash: cvHash, provider, model });
+    const r = await api("POST", "/api/titles/discover", { cv_hash: cvHash, provider, model, profile: cvProfile });
     const discovered = (r.titles || []).map(t => t.canonical || t.name || t);
-    discovered.forEach(t => { if (!titlesList.includes(t)) titlesList.push(t); });
+    const added = discovered.filter(t => !titlesList.includes(t));
+    added.forEach(t => titlesList.push(t));
     renderTitles();
-    showToast(t('msg.discover_done', discovered.length));
+    showToast(t('msg.discover_done', added.length));
   } catch(e) {
     showToast(`${t('msg.discover_fail')}${e.message}`, true);
   } finally {
+    progress.classList.add("hidden");
     if (btnSpan) btnSpan.textContent = t('titles.discover');
     btn.disabled = false;
   }
@@ -1628,7 +1922,16 @@ async function startSearch() {
   const location      = document.getElementById("location-select").value;
   const provider      = cfgData?.default_provider || "gemini";
   const model         = cfgData?.default_model    || "";
-  const limitPerRole  = Math.min(500, Math.max(10, parseInt(document.getElementById("limit-per-role").value) || 200));
+  const indeedEnabled        = document.getElementById("source-indeed").checked;
+  const linkedinEnabled      = document.getElementById("source-linkedin").checked;
+  if (!indeedEnabled && !linkedinEnabled) {
+    showToast(t('msg.source_required'), true);
+    return;
+  }
+  const limitPerRole         = indeedEnabled  ? Math.min(500, Math.max(10,  parseInt(document.getElementById("limit-per-role").value)         || 200)) : 0;
+  const linkedinLimitPerRole = linkedinEnabled ? Math.min(200, Math.max(5,   parseInt(document.getElementById("linkedin-limit-per-role").value) || 30))  : 0;
+  const hoursOldVal = parseInt(document.getElementById("hours-old").value);
+  const hoursOld    = hoursOldVal > 0 ? hoursOldVal : null;
 
   // Switch to progress view
   document.getElementById("step-titles").classList.add("hidden");
@@ -1636,16 +1939,20 @@ async function startSearch() {
   document.getElementById("step-progress").classList.add("active");
   document.getElementById("step-done").classList.add("hidden");
   document.getElementById("done-stats").classList.add("hidden");
+  document.getElementById("done-funnel").classList.add("hidden");
   document.getElementById("progress-log").innerHTML = "";
   document.getElementById("progress-title").textContent = t('progress.title');
   startSearchTimer();
+  // 搜索前快照已有 key，用于后续区分新旧
+  _prevSearchKeys = new Set(JOBS.map(j => j.dedup_key));
+  _newThisSearch  = new Set();
   // 清空旧列表，本次搜索结果会通过 SSE job 事件逐条填入
   JOBS = [];
   activeKey = null;
   renderList();
 
   try {
-    await api("POST", "/api/search", { cv_hash: cvHash, roles: titlesList, location, provider, model, language: LANG, limit_per_role: limitPerRole });
+    await api("POST", "/api/search", { cv_hash: cvHash, roles: titlesList, location, provider, model, language: LANG, limit_per_role: limitPerRole, linkedin_limit_per_role: linkedinLimitPerRole, hours_old: hoursOld });
     listenProgress();
   } catch(e) {
     document.getElementById("step-progress").classList.remove("active");
@@ -1691,6 +1998,7 @@ function listenProgress() {
       const existing = JOBS.findIndex(j => j.dedup_key === job.dedup_key);
       if (existing >= 0) JOBS[existing] = job;
       else JOBS.push(job);
+      if (!_prevSearchKeys.has(job.dedup_key)) _newThisSearch.add(job.dedup_key);
       renderList();
       const p = document.createElement("p");
       const score = job.score !== null ? ` [${job.score}分]` : "";
@@ -1705,7 +2013,12 @@ function listenProgress() {
       es.close();
       document.getElementById("step-progress").classList.remove("active");
       document.getElementById("step-done").classList.remove("hidden");
-      document.getElementById("done-msg").textContent = t('msg.search_done', data.count);
+      const newCount   = _newThisSearch.size;
+      const cacheCount = data.count - newCount;
+      document.getElementById("done-msg").textContent =
+        _prevSearchKeys.size > 0
+          ? t('msg.search_done_diff', newCount, cacheCount)
+          : t('msg.search_done', data.count);
 
       // 耗时 + token 汇总
       if (data.elapsed != null) {
@@ -1718,6 +2031,62 @@ function listenProgress() {
         document.getElementById("done-tokens").textContent = t('done.tokens', tokIn, tokOut);
         document.getElementById("done-stats").classList.remove("hidden");
         updateSessionTokens(data.tokens_in || 0, data.tokens_out || 0);
+      }
+
+      // 搜索管道统计：写入进度日志 + 完成卡片
+      if (data.pipeline_stats) {
+        const f = data.pipeline_stats;
+        const log = document.getElementById("progress-log");
+
+        // 进度日志追加漏斗摘要
+        const lines = [
+          t('funnel.header'),
+          `${t('funnel.scraped')}  Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total} (${t('funnel.merged')})`,
+          f.title_filter_in
+            ? `${t('funnel.title')}  ${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out} (${f.llm_title_pass_rate}%)`
+            : null,
+          (() => {
+            const parts = [];
+            if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
+            if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
+            if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
+            if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
+            if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
+            if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
+            if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
+            if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
+            return `${t('funnel.prefilter')}  ${f.prefilter_in} ${t('funnel.entered')}` + (parts.length ? `  (${parts.join(' | ')})` : '');
+          })(),
+          f.llm_assessed
+            ? `${t('funnel.llm')}  ${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%`
+            : null,
+          `✦ ${t('funnel.saved')}  ${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`,
+        ].filter(Boolean);
+
+        lines.forEach(text => {
+          const p = document.createElement("p");
+          p.textContent = text;
+          p.style.color = text.startsWith("✦") ? "#4ade80"
+            : text.startsWith("━") ? "#94a3b8"
+            : "#64748b";
+          p.style.fontFamily = "monospace";
+          p.style.fontSize = "0.75rem";
+          log.appendChild(p);
+        });
+        log.scrollTop = log.scrollHeight;
+
+        // 完成卡片：漏斗迷你表
+        const funnelEl = document.getElementById("done-funnel");
+        if (funnelEl) {
+          funnelEl.innerHTML = `
+            <div class="text-xs font-mono text-left space-y-0.5 mt-2 pt-2 border-t border-gray-600/50">
+              <p class="text-gray-500">Indeed <span class="text-blue-300">${f.scraped_indeed}</span>  LinkedIn <span class="text-blue-300">${f.scraped_linkedin}</span>  ${t('funnel.merged')} <span class="text-blue-300">${f.scraped_total}</span></p>
+              ${f.title_filter_in ? `<p class="text-gray-500">${t('funnel.title')} ${t('funnel.out')} <span class="text-purple-300">${f.title_filter_out}</span></p>` : ''}
+              <p class="text-gray-500">${t('funnel.llm')} ${t('funnel.rejected')} <span class="text-orange-300">${f.llm_rejected}</span></p>
+              <p class="text-gray-400">${t('funnel.filter_rate_label')} <span class="text-green-400 font-semibold">${f.filter_rate}%</span></p>
+            </div>`;
+          funnelEl.classList.remove("hidden");
+        }
       }
 
       JOBS.sort((a, b) => ((b.score ?? -1) - (a.score ?? -1)));
@@ -1751,11 +2120,63 @@ function listenProgress() {
 function resetSearchPanel() {
   document.getElementById("step-done").classList.add("hidden");
   document.getElementById("step-progress").classList.remove("active");
-  document.getElementById("step-titles").classList.add("hidden");
-  document.getElementById("step-upload").style.display = "";
+  if (cvHash && cvProfile) {
+    // 保留 CV 状态，回到 Step 2 继续搜索
+    document.getElementById("step-titles").classList.remove("hidden");
+    document.getElementById("step-upload").style.display = "none";
+  } else {
+    document.getElementById("step-titles").classList.add("hidden");
+    document.getElementById("step-upload").style.display = "";
+  }
+}
+
+function onHoursOldChange() {
+  const val = parseInt(document.getElementById("hours-old").value);
+  const sel = document.getElementById("sort-select");
+  if (val === 0) {
+    sortMode = "date";
+    if (sel) sel.value = "date";
+  } else {
+    sortMode = "score";
+    if (sel) sel.value = "score";
+  }
+  renderList();
+}
+
+function toggleSource(source) {
+  const inputId = source === "indeed" ? "limit-per-role" : "linkedin-limit-per-role";
+  const checked = document.getElementById(`source-${source}`).checked;
+  const input   = document.getElementById(inputId);
+  input.disabled = !checked;
+  input.classList.toggle("opacity-40", !checked);
+}
+
+function swapCV() {
+  // 清除 CV 状态，显示上传区，保留已有职位列表不受影响
   cvHash = null;
   cvProfile = null;
   titlesList = [];
+  localStorage.removeItem("cv_hash");
+  localStorage.removeItem("cv_profile");
+  localStorage.removeItem("titles_list");
+  document.getElementById("step-titles").classList.add("hidden");
+  document.getElementById("step-done").classList.add("hidden");
+  document.getElementById("step-progress").classList.remove("active");
+  document.getElementById("step-upload").style.display = "";
+  document.getElementById("cv-file-input").value = "";
+}
+
+function clearSearchState() {
+  cvHash = null;
+  cvProfile = null;
+  titlesList = [];
+  localStorage.removeItem("cv_hash");
+  localStorage.removeItem("cv_profile");
+  localStorage.removeItem("titles_list");
+  document.getElementById("step-done").classList.add("hidden");
+  document.getElementById("step-progress").classList.remove("active");
+  document.getElementById("step-titles").classList.add("hidden");
+  document.getElementById("step-upload").style.display = "";
   document.getElementById("cv-file-input").value = "";
 }
 
@@ -1895,6 +2316,37 @@ async function init() {
   applyLang();
   await loadConfig();
   await loadJobs();
+
+  // 恢复 CV 状态（刷新/跳转后复原）
+  const savedHash    = localStorage.getItem("cv_hash");
+  const savedProfile = localStorage.getItem("cv_profile");
+  if (savedHash && savedProfile) {
+    try {
+      cvHash    = savedHash;
+      cvProfile = JSON.parse(savedProfile);
+      const savedTitles = localStorage.getItem("titles_list");
+      if (savedTitles) titlesList = JSON.parse(savedTitles);
+      showTitlesStep();
+
+      // 若刷新时搜索仍在进行，重连 SSE 进度流
+      try {
+        const status = await api("GET", "/api/search/status");
+        if (status.running) {
+          document.getElementById("step-titles").classList.add("hidden");
+          document.getElementById("step-upload").style.display = "none";
+          document.getElementById("step-progress").classList.add("active");
+          document.getElementById("step-done").classList.add("hidden");
+          document.getElementById("progress-log").innerHTML = "";
+          document.getElementById("progress-title").textContent = t("progress.title");
+          listenProgress();
+        }
+      } catch(_) {}
+    } catch(_) {
+      localStorage.removeItem("cv_hash");
+      localStorage.removeItem("cv_profile");
+      localStorage.removeItem("titles_list");
+    }
+  }
 }
 
 init();

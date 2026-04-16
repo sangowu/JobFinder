@@ -103,6 +103,7 @@ class JobResult(BaseModel):
     url: str
     description_snippet: str = ""
     sources: list[str] = Field(default_factory=list)
+    date_posted: str = ""          # JobSpy 返回的原始发布日期，如 "2024-04-10"
     fetched_at: datetime = Field(default_factory=datetime.utcnow)
     expires_at: datetime | None = None
     is_complete: bool = True  # False 表示有字段缺失
@@ -137,6 +138,7 @@ class SearchSession(BaseModel):
     location: str
     seniority: str
     search_language: str
+    sources: list[str] = Field(default_factory=lambda: ["indeed"])
     job_dedup_keys: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -147,6 +149,7 @@ class SearchSession(BaseModel):
             "roles": sorted(self.roles),
             "location": self.location.lower().strip(),
             "seniority": self.seniority,
+            "sources": sorted(self.sources),
         }
         return hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
 

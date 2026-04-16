@@ -236,6 +236,7 @@ def write_cache(job_data: dict, session_key: str | None = None) -> str:
         url=url,
         description_snippet=job_data.get("description_snippet", ""),
         sources=sources,
+        date_posted=job_data.get("date_posted", ""),
         expires_at=_parse_date(job_data.get("expires_at")),
         is_complete=job_data.get("is_complete", True),
         assessment=assessment,

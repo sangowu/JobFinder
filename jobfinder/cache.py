@@ -99,6 +99,8 @@ def _conn():
         for migration in (
             "ALTER TABLE job_cache ADD COLUMN assessment TEXT",
             "ALTER TABLE job_cache ADD COLUMN company_profile TEXT",
+            "ALTER TABLE job_cache ADD COLUMN date_posted TEXT DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN funnel_json TEXT",
         ):
             try:
                 con.execute(migration)
@@ -142,8 +144,8 @@ def _insert_job(job: JobResult) -> None:
             """
             INSERT INTO job_cache
               (dedup_key, title, company, location, description_snippet,
-               url, sources, fetched_at, expires_at, is_complete, assessment, company_profile)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               url, sources, date_posted, fetched_at, expires_at, is_complete, assessment, company_profile)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.dedup_key,
@@ -153,6 +155,7 @@ def _insert_job(job: JobResult) -> None:
                 job.description_snippet,
                 job.url,
                 json.dumps(job.sources),
+                job.date_posted,
                 job.fetched_at.isoformat(),
                 job.expires_at.isoformat() if job.expires_at else None,
                 int(job.is_complete),
@@ -184,6 +187,23 @@ def _merge_job(existing: JobResult, new: JobResult) -> None:
                 existing.dedup_key,
             ),
         )
+
+
+def merge_job_source(dedup_key: str, source: str) -> None:
+    """将新来源追加到已存在的 job_cache 记录中（幂等）。"""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT sources FROM job_cache WHERE dedup_key = ?", (dedup_key,)
+        ).fetchone()
+        if row is None:
+            return
+        existing = json.loads(row["sources"] or "[]")
+        if source not in existing:
+            existing.append(source)
+            con.execute(
+                "UPDATE job_cache SET sources = ? WHERE dedup_key = ?",
+                (json.dumps(existing), dedup_key),
+            )
 
 
 def get_recent_jobs(limit: int = 50) -> list[JobResult]:
@@ -232,6 +252,7 @@ def _row_to_job(row: sqlite3.Row) -> JobResult:
         url=row["url"],
         description_snippet=row["description_snippet"] or "",
         sources=json.loads(row["sources"] or "[]"),
+        date_posted=row["date_posted"] if "date_posted" in row.keys() and row["date_posted"] else "",
         fetched_at=datetime.fromisoformat(row["fetched_at"]),
         expires_at=datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None,
         is_complete=bool(row["is_complete"]),
@@ -529,13 +550,14 @@ def save_search_stats(
     tokens_in: int,
     tokens_out: int,
     jobs_found: int,
-) -> None:
-    """记录一次搜索的耗时和 token 消耗。"""
+    funnel: dict | None = None,
+) -> int:
+    """记录一次搜索的耗时和 token 消耗，返回插入行的 id。"""
     with _conn() as con:
-        con.execute(
+        cur = con.execute(
             """INSERT INTO search_stats
-               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, funnel_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 datetime.utcnow().isoformat(),
                 location,
@@ -546,8 +568,10 @@ def save_search_stats(
                 tokens_in,
                 tokens_out,
                 jobs_found,
+                json.dumps(funnel, ensure_ascii=False) if funnel else None,
             ),
         )
+        return cur.lastrowid or 0
 
 
 def get_search_stats(limit: int = 50) -> list[dict]:
@@ -559,6 +583,8 @@ def get_search_stats(limit: int = 50) -> list[dict]:
         ).fetchall()
     result = []
     for row in rows:
+        keys = row.keys()
+        raw_funnel = row["funnel_json"] if "funnel_json" in keys else None
         result.append({
             "id":         row["id"],
             "created_at": row["created_at"],
@@ -570,6 +596,7 @@ def get_search_stats(limit: int = 50) -> list[dict]:
             "tokens_in":  row["tokens_in"],
             "tokens_out": row["tokens_out"],
             "jobs_found": row["jobs_found"],
+            "funnel":     json.loads(raw_funnel) if raw_funnel else None,
         })
     return result
 
