@@ -21,7 +21,8 @@ import hashlib
 import json
 
 from jobfinder import cache
-from jobfinder.agent import _batch_assess_jds, run_search
+from jobfinder.agent import run_search
+from jobfinder.assessment import batch_assess_jds
 from jobfinder.cv_extractor import extract_cv_profile
 from jobfinder.cv_reader import read_cv
 from jobfinder.llm_backend import LLMConfig
@@ -49,11 +50,27 @@ from jobfinder.llm_backend import (
 
 load_dotenv()
 
+from jobfinder import __version__
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"jobfinder v{__version__}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     name="jobfinder",
     help="根据你的 CV 自动搜索匹配职位",
     no_args_is_help=True,
 )
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(False, "--version", "-V", callback=_version_callback, is_eager=True, help="显示版本号"),
+) -> None:
+    pass
 cache_app = typer.Typer(help="缓存管理命令")
 app.add_typer(cache_app, name="cache")
 
@@ -525,7 +542,7 @@ def assess(
         if profile is None:
             console.print("[red]缓存中没有 CVProfile，请提供 CV 文件路径。[/red]")
             raise typer.Exit(1)
-        console.print(f"[dim]使用缓存的 CVProfile：{profile.name}（{profile.seniority}）[/dim]")
+        console.print(f"[dim]使用缓存的 CVProfile：{profile.summary[:40]}（{profile.seniority}）[/dim]")
 
     # Step 2：加载未评估的 JD 并批量评估
     unassessed = cache.get_unassessed_jobs(limit=limit)
@@ -537,7 +554,7 @@ def assess(
         with Progress(SpinnerColumn(), TextColumn("{task.description}"), transient=True) as p:
             p.add_task(f"批量评估（每批 8 条，共 {len(unassessed)} 条）...", total=None)
             with telemetry.timer("JD 批量评估"):
-                assessments = _batch_assess_jds(job_inputs, profile, llm)
+                assessments = batch_assess_jds(job_inputs, profile, llm)
 
         for job, jda in zip(unassessed, assessments):
             cache.update_job_assessment(job.dedup_key, jda.to_job_assessment())

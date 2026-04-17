@@ -7,21 +7,18 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from typing import Callable
 
-from pydantic import BaseModel
-
 from jobfinder import cache
+from jobfinder.assessment import JDAssessment, batch_assess_jds
 from jobfinder.filters import is_seniority_ok
 from jobfinder.logger import get_logger
-from jobfinder.llm_backend import DEFAULT_MODELS, LLMConfig, Provider, complete_structured
+from jobfinder.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
 from jobfinder.pipeline_stats import PipelineStats
-from jobfinder.schemas import CVProfile, JobAssessment, SearchSession, is_closed_posting, make_dedup_key
-from jobfinder.scrapers_jobspy import scrape_sources
-from jobfinder.tools import (
-    record_failed_url,
-    write_cache,
-)
+from jobfinder.schemas import CVProfile, is_closed_posting, make_dedup_key, SearchSession
+from jobfinder.scraping import scrape_sources
+from jobfinder.tools import record_failed_url, write_cache
 
 logger = get_logger(__name__)
 
@@ -99,7 +96,7 @@ def run_search(
         )
         logger.info("Scraped %d jobs, starting filter & LLM assessment...", len(scraped))
         role_keywords = _build_role_keywords(profile.preferred_roles)
-        keys = _write_scraped(  # noqa: E501
+        keys = _write_scraped(
             scraped, seen_urls, _cb,
             role_keywords=role_keywords,
             profile=profile,
@@ -136,7 +133,21 @@ def run_search(
 
 # 上下文限定的截止日期正则：必须有"截止语义词 + 日期"的组合，避免误匹配其他数字
 _DEADLINE_PATTERN = re.compile(
-    r"(?:closing\s+date|apply\s+by|deadline|applications?\s+close[sd]?|closes?\s+on)"
+    r"(?:"
+    r"closing\s+date"
+    r"|apply\s+by"
+    r"|applied\s+by"
+    r"|deadline"
+    r"|applications?\s+close[sd]?"
+    r"|closes?\s+on"
+    r"|expir(?:es?|ing)\s+on"
+    r"|last\s+(?:date\s+to\s+apply|day\s+to\s+apply|application\s+date)"
+    r"|position\s+closes?"
+    r"|vacancy\s+closes?"
+    r"|accepting\s+applications?\s+until"
+    r"|applications?\s+accepted\s+until"
+    r"|submit\s+(?:your\s+)?application\s+by"
+    r")"
     r"[\s:–\-]*"
     r"(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}"   # 30/04/2026 或 30-04-26
     r"|\d{1,2}\s+\w+\s+\d{4}"                     # 30 April 2026
@@ -152,8 +163,7 @@ _ROLE_STOPWORDS = {
     "and", "or", "the", "of", "in", "at", "ii", "iii", "i",
 }
 
-
-
+_SS_KEYS = ("in", "dup", "seniority", "irrelevant", "cache_hit", "no_desc", "closed", "exp", "skill", "llm_rejected", "saved")
 
 
 def _build_role_keywords(roles: list[str]) -> set[str]:
@@ -166,12 +176,257 @@ def _build_role_keywords(roles: list[str]) -> set[str]:
     return keywords
 
 
-
-
 def _is_title_relevant(title: str, role_keywords: set[str]) -> bool:
     """判断职位标题是否包含目标角色关键词。"""
     title_words = set(re.split(r"[\s/\-,|@().]+", title.lower()))
     return bool(title_words & role_keywords)
+
+
+def _over_experience_limit(snippet: str, max_years: int) -> bool:
+    matches = re.findall(
+        r"(\d+)\+?\s*years?\s*(?:of\s+)?(?:experience|exp\b)",
+        snippet,
+        re.IGNORECASE,
+    )
+    return any(int(m) > max_years for m in matches)
+
+
+def _collect_all_sources(jobs: list[dict]) -> dict[str, list[dict]]:
+    """预计算每个 dedup_key 对应的全部来源（用于多来源写入）。"""
+    result: dict[str, list[dict]] = {}
+    for j in jobs:
+        dk = make_dedup_key((j.get("company") or "").strip(), (j.get("title") or "").strip())
+        entry = {
+            "source": j.get("source") or "unknown",
+            "url": j.get("url") or "",
+            "date_posted": j.get("date_posted") or "",
+        }
+        if dk not in result:
+            result[dk] = []
+        if not any(e["source"] == entry["source"] for e in result[dk]):
+            result[dk].append(entry)
+    return result
+
+
+@dataclass
+class _PrefilterResult:
+    immediate_keys: list[str] = field(default_factory=list)
+    pending: list[tuple[dict, str, str | None]] = field(default_factory=list)   # (job, content, expires_at)
+    patch_pending: list[tuple[object, str]] = field(default_factory=list)        # (cached_job, content)
+    total: int = 0
+    skip_dup: int = 0
+    skip_seniority: int = 0
+    skip_irrelevant: int = 0
+    cache_hit: int = 0
+    cache_patch: int = 0
+    skip_no_desc: int = 0
+    skip_closed: int = 0
+    skip_exp: int = 0
+    skip_skill: int = 0
+    source_stats: dict[str, dict[str, int]] = field(default_factory=dict)
+
+
+def _prefilter(
+    jobs: list[dict],
+    seen_urls: set[str],
+    cb: Callable[[str], None],
+    role_keywords: set[str] | None,
+    seniority: str,
+    max_years: int,
+    skill_keywords: set[str],
+    cv_summary: str,
+    cv_skills: list[str],
+) -> _PrefilterResult:
+    """7 步预过滤漏斗，返回分类后的三个列表及统计数据。"""
+    r = _PrefilterResult()
+    seen_dedup_keys: set[str] = set()
+
+    for job in jobs:
+        r.total += 1
+        src = job.get("source") or "unknown"
+        ss = r.source_stats.setdefault(src, {k: 0 for k in _SS_KEYS})
+        ss["in"] += 1
+
+        url = job.get("url", "")
+        if not url or url in seen_urls:
+            ss["dup"] += 1; r.skip_dup += 1; continue
+        seen_urls.add(url)
+
+        title = (job.get("title") or "").strip()
+        if not title:
+            ss["dup"] += 1; r.skip_dup += 1; continue
+
+        # 1a. 跨来源 dedup
+        company = (job.get("company") or "").strip()
+        dedup_key = make_dedup_key(company, title)
+        if dedup_key in seen_dedup_keys:
+            logger.debug("Skip (cross-source dedup): %s @ %s", title, company)
+            ss["dup"] += 1; r.skip_dup += 1; continue
+        seen_dedup_keys.add(dedup_key)
+
+        # 1b. 年资过滤
+        if seniority and not is_seniority_ok(title, seniority):
+            logger.debug("Skip (seniority mismatch): %s", title)
+            cb(f"Skip (seniority mismatch): {title[:60]}")
+            ss["seniority"] += 1; r.skip_seniority += 1; continue
+
+        # 2. 相关性过滤
+        if role_keywords and not _is_title_relevant(title, role_keywords):
+            logger.debug("Skip (irrelevant title): %s", title)
+            cb(f"Skip (irrelevant title): {title[:60]}")
+            ss["irrelevant"] += 1; r.skip_irrelevant += 1; continue
+
+        # 3. URL 缓存命中检查
+        cached_job = cache.get_job_by_url(url)
+        if cached_job is not None and not cached_job.is_expired:
+            if cached_job.assessment is not None:
+                if not cached_job.assessment.is_relevant:
+                    logger.debug("URL cache hit (rejected), skip: %s", title)
+                    ss["cache_hit"] += 1; r.cache_hit += 1; continue
+                logger.debug("URL cache hit, skip fetch+LLM: %s", title)
+                r.immediate_keys.append(cached_job.dedup_key)
+                ss["cache_hit"] += 1; r.cache_hit += 1; continue
+            if not (cv_summary and cv_skills):
+                r.immediate_keys.append(cached_job.dedup_key)
+                ss["cache_hit"] += 1; r.cache_hit += 1; continue
+            logger.debug("URL cache hit, pending LLM re-assess: %s", title)
+            r.patch_pending.append((cached_job, cached_job.description_snippet))
+            r.cache_patch += 1; continue
+
+        # 4. 获取 JD 内容
+        content = (job.get("description_snippet") or "").strip()
+        if not content:
+            logger.debug("Skip (no description): %s", title)
+            cb(f"Skip (no description): {title[:50]}")
+            ss["no_desc"] += 1; r.skip_no_desc += 1; continue
+
+        # 5. 关闭检测
+        if is_closed_posting(content):
+            record_failed_url(url, "posting_closed")
+            cb(f"Skip (posting closed): {url[:70]}")
+            logger.info("Posting closed: %s", url)
+            ss["closed"] += 1; r.skip_closed += 1; continue
+
+        # 6. 经验年限检查
+        if _over_experience_limit(content, max_years):
+            cb(f"Skip (experience requirement too high): {title[:60]}")
+            logger.debug("Experience requirement too high: %s", title)
+            ss["exp"] += 1; r.skip_exp += 1; continue
+
+        # 7. 技能关键词预筛
+        if skill_keywords and not any(s in content.lower() for s in skill_keywords):
+            cb(f"Skip (skill mismatch): {title[:60]}")
+            logger.debug("Skill mismatch: %s", title)
+            ss["skill"] += 1; r.skip_skill += 1; continue
+
+        expires_at = job.get("expires_at")
+        if not expires_at:
+            m = _DEADLINE_PATTERN.search(content[:1000])
+            if m:
+                expires_at = m.group(1).strip()
+
+        r.pending.append((job, content, expires_at))
+
+    return r
+
+
+def _flush_assessments(
+    pf: _PrefilterResult,
+    job_all_sources: dict[str, list[dict]],
+    profile: CVProfile,
+    llm: LLMConfig | None,
+    cb: Callable[[str], None],
+    on_job: Callable[[str], None] | None,
+    language: str,
+) -> tuple[list[str], int]:
+    """
+    运行 LLM 评估并写缓存，返回 (saved_keys, llm_rejected_count)。
+    """
+    has_cv = bool(profile.summary and profile.skills)
+    keys: list[str] = []
+    llm_rejected = 0
+
+    for k in pf.immediate_keys:
+        keys.append(k)
+        if on_job:
+            on_job(k)
+
+    # patch：缓存命中但缺 assessment
+    if pf.patch_pending and has_cv and llm:
+        cb(f"Re-assessing {len(pf.patch_pending)} cached jobs...")
+        patch_inputs = [(cj.title, cj.description_snippet) for cj, _ in pf.patch_pending]
+        patch_assessments = batch_assess_jds(patch_inputs, profile, llm, language=language)
+        for (cached_job, _), assessment in zip(pf.patch_pending, patch_assessments):
+            if not assessment.relevant:
+                cb(f"Skip (not relevant): {cached_job.title[:50]} — {assessment.reason}")
+                logger.info("LLM re-assess rejected: %s | %s", cached_job.title, assessment.reason)
+                llm_rejected += 1
+            write_cache({
+                "title": cached_job.title,
+                "company": cached_job.company,
+                "location": cached_job.location,
+                "url": cached_job.url,
+                "description_snippet": cached_job.description_snippet,
+                "expires_at": cached_job.expires_at,
+                "is_complete": cached_job.is_complete,
+                "assessment": assessment.to_job_assessment(),
+            })
+            if assessment.relevant:
+                keys.append(cached_job.dedup_key)
+                if on_job:
+                    on_job(cached_job.dedup_key)
+
+    # 新抓取职位批量评估
+    if pf.pending:
+        if has_cv and llm:
+            cb(f"LLM assessing {len(pf.pending)} jobs...")
+            batch_inputs = [(job.get("title", ""), content) for job, content, _ in pf.pending]
+            assessments = batch_assess_jds(batch_inputs, profile, llm, language=language)
+        else:
+            assessments = [
+                JDAssessment(
+                    relevant=True, reason="无 CV 信息，默认保留",
+                    score=0, strengths=[], weaknesses=[], matched_keywords=[],
+                )
+                for _ in pf.pending
+            ]
+
+        for (job, content, expires_at), assessment in zip(pf.pending, assessments):
+            title = (job.get("title") or "").strip()
+            job_src = job.get("source") or "unknown"
+            job_ss = pf.source_stats.setdefault(job_src, {k: 0 for k in _SS_KEYS})
+            if not assessment.relevant:
+                cb(f"Skip (not relevant): {title[:50]} — {assessment.reason}")
+                logger.info("LLM assess rejected: %s | %s", title, assessment.reason)
+                job_ss["llm_rejected"] += 1
+                llm_rejected += 1
+            else:
+                logger.debug("LLM assess matched: %s | score=%d", title, assessment.score)
+
+            job_assessment = assessment.to_job_assessment() if has_cv else None
+            dedup_key = make_dedup_key(job.get("company", ""), title)
+            raw_srcs = job_all_sources.get(dedup_key, [{"source": job_src, "url": job.get("url", ""), "date_posted": job.get("date_posted", "")}])
+            key = write_cache({
+                "title": title,
+                "company": job.get("company", ""),
+                "location": job.get("location", ""),
+                "url": job.get("url", ""),
+                "description_snippet": content,
+                "date_posted": job.get("date_posted", ""),
+                "expires_at": expires_at,
+                "is_complete": job.get("is_complete", True),
+                "assessment": job_assessment,
+                "sources": [e["source"] for e in raw_srcs],
+                "raw_sources": raw_srcs,
+            })
+            if assessment.relevant:
+                job_ss["saved"] += 1
+                keys.append(key)
+                if on_job:
+                    on_job(key)
+                cb(f"Saved: {title} @ {job.get('company', '?')} [{job_src}]")
+
+    return keys, llm_rejected
 
 
 def _write_scraped(
@@ -191,424 +446,83 @@ def _write_scraped(
     cv_summary: str = "",
 ) -> list[str]:
     """
-    将浏览器直接抓取的结构化职位写入缓存。
-    两阶段处理：
-      阶段一  pre-filter（年资/相关性/缓存命中/fetch/关闭/经验/技能）→ 收集待评估列表
-      阶段二  批量 LLM 评估（每批 _BATCH_SIZE 条，system prompt 只发一次）→ 写缓存
+    将抓取的结构化职位写入缓存。
+    阶段一：_prefilter（7 步漏斗）
+    阶段二：_flush_assessments（LLM 批量评估 + 写缓存）
+    阶段三：多来源合并
     """
-    # 统一从 profile 取值，兼容旧参数传入
-    _seniority = profile.seniority if profile else seniority
-    _max_years = profile.years_of_experience if profile else max_years
-    _cv_skills = profile.skills if profile else (cv_skills or [])
-    _cv_summary = profile.summary if profile else cv_summary
+    _seniority  = profile.seniority          if profile else seniority
+    _max_years  = profile.years_of_experience if profile else max_years
+    _cv_skills  = profile.skills             if profile else (cv_skills or [])
+    _cv_summary = profile.summary            if profile else cv_summary
 
-    # 构建技能关键词集合（用于快速预筛）
     skill_keywords: set[str] = set()
     for s in _cv_skills:
         skill_keywords.update(w.lower() for w in re.split(r"[\s/\-,]+", s) if len(w) > 1)
 
-    # ── 阶段一：pre-filter ────────────────────────────────────────────────────
-    # immediate_keys: URL 缓存命中且已有 assessment，直接复用
-    immediate_keys: list[str] = []
-    # pending: (job_dict, content, expires_at)，通过所有 pre-filter 待 LLM 评估
-    pending: list[tuple[dict, str, str | None]] = []
-    # patch_keys: URL 缓存命中但缺少 assessment，需补跑 LLM，暂存 cached_job
-    patch_pending: list[tuple[object, str]] = []  # (cached_job, content)
-    # 跨来源 dedup_key 去重：防止同一职位在 Indeed + LinkedIn 都出现时重复 LLM 消耗
-    seen_dedup_keys: set[str] = set()
+    job_all_sources = _collect_all_sources(jobs)
 
-    # 过滤漏斗计数器
-    _total = 0
-    _skip_dup = 0
-    _skip_seniority = 0
-    _skip_irrelevant = 0
-    _cache_hit = 0
-    _cache_patch = 0
-    _skip_no_desc = 0
-    _skip_closed = 0
-    _skip_exp = 0
-    _skip_skill = 0
-
-    # 分源统计：{source: {step: count}}
-    _SS_KEYS = ("in","dup","seniority","irrelevant","cache_hit","no_desc","closed","exp","skill","llm_rejected","saved")
-    _source_stats: dict[str, dict[str, int]] = {}
-
-    # 预计算每个 dedup_key 对应的全部来源（跨平台去重前收集，用于多来源写入）
-    _job_all_sources: dict[str, list[str]] = {}
-    for _j in jobs:
-        _dk = make_dedup_key((_j.get("company") or "").strip(), (_j.get("title") or "").strip())
-        _s = _j.get("source") or "unknown"
-        if _dk not in _job_all_sources:
-            _job_all_sources[_dk] = []
-        if _s not in _job_all_sources[_dk]:
-            _job_all_sources[_dk].append(_s)
-
-    for job in jobs:
-        _total += 1
-        _src = job.get("source") or "unknown"
-        _ss = _source_stats.setdefault(_src, {k: 0 for k in _SS_KEYS})
-        _ss["in"] += 1
-
-        url = job.get("url", "")
-        if not url or url in seen_urls:
-            _ss["dup"] += 1
-            _skip_dup += 1
-            continue
-        seen_urls.add(url)
-
-        title = (job.get("title") or "").strip()
-        if not title:
-            _ss["dup"] += 1
-            _skip_dup += 1
-            continue
-
-        # 1a. 跨来源 dedup（同一公司+职位名已在本轮处理中，跳过重复 LLM）
-        company = (job.get("company") or "").strip()
-        _dedup_key = make_dedup_key(company, title)
-        if _dedup_key in seen_dedup_keys:
-            logger.debug("Skip (cross-source dedup): %s @ %s", title, company)
-            _ss["dup"] += 1
-            _skip_dup += 1
-            continue
-        seen_dedup_keys.add(_dedup_key)
-
-        # 1b. 年资过滤（零成本，title 即可判断）
-        if _seniority and not is_seniority_ok(title, _seniority):
-            logger.debug("Skip (seniority mismatch): %s", title)
-            cb(f"Skip (seniority mismatch): {title[:60]}")
-            _ss["seniority"] += 1
-            _skip_seniority += 1
-            continue
-
-        # 2. 相关性过滤（标题关键词）
-        if role_keywords and not _is_title_relevant(title, role_keywords):
-            logger.debug("Skip (irrelevant title): %s", title)
-            cb(f"Skip (irrelevant title): {title[:60]}")
-            _ss["irrelevant"] += 1
-            _skip_irrelevant += 1
-            continue
-
-        # 3. URL 缓存命中检查
-        cached_job = cache.get_job_by_url(url)
-        if cached_job is not None and not cached_job.is_expired:
-            if cached_job.assessment is not None or not (_cv_summary and _cv_skills):
-                logger.debug("URL cache hit, skip fetch+LLM: %s", title)
-                immediate_keys.append(cached_job.dedup_key)
-                _ss["cache_hit"] += 1
-                _cache_hit += 1
-                continue
-            else:
-                logger.debug("URL cache hit, pending LLM re-assess: %s", title)
-                patch_pending.append((cached_job, cached_job.description_snippet))
-                _cache_patch += 1
-                continue
-
-        # 4. 获取 JD 内容（直接使用 JobSpy 返回的描述，无 Jina 回退）
-        content = (job.get("description_snippet") or "").strip()
-        if not content:
-            logger.debug("Skip (no description): %s", title)
-            cb(f"Skip (no description): {title[:50]}")
-            _ss["no_desc"] += 1
-            _skip_no_desc += 1
-            continue
-
-        # 5. 关闭检测
-        if is_closed_posting(content):
-            record_failed_url(url, "posting_closed")
-            cb(f"Skip (posting closed): {url[:70]}")
-            logger.info("Posting closed: %s", url)
-            _ss["closed"] += 1
-            _skip_closed += 1
-            continue
-
-        # 6. 经验年限检查
-        if _over_experience_limit(content, _max_years):
-            cb(f"Skip (experience requirement too high): {title[:60]}")
-            logger.debug("Experience requirement too high: %s", title)
-            _ss["exp"] += 1
-            _skip_exp += 1
-            continue
-
-        # 7. 技能关键词预筛（至少匹配 1 个）
-        if skill_keywords:
-            if not any(s in content.lower() for s in skill_keywords):
-                cb(f"Skip (skill mismatch): {title[:60]}")
-                logger.debug("Skill mismatch: %s", title)
-                _ss["skill"] += 1
-                _skip_skill += 1
-                continue
-
-        # 截止日期提取（scraper 优先，兜底扫文本）
-        expires_at = job.get("expires_at")
-        if not expires_at:
-            m = _DEADLINE_PATTERN.search(content[:1000])
-            if m:
-                expires_at = m.group(1).strip()
-
-        pending.append((job, content, expires_at))
-
-    # ── 阶段二：批量 LLM 评估 ────────────────────────────────────────────────
-    logger.info(
-        "Pre-filter done: cache hit %d | pending LLM %d (new %d + re-assess %d)",
-        _cache_hit, len(pending) + len(patch_pending), len(pending), len(patch_pending),
+    pf = _prefilter(
+        jobs, seen_urls, cb,
+        role_keywords=role_keywords,
+        seniority=_seniority,
+        max_years=_max_years,
+        skill_keywords=skill_keywords,
+        cv_summary=_cv_summary,
+        cv_skills=_cv_skills,
     )
-    keys: list[str] = []
-    # 缓存命中的职位也触发 on_job（前端可立即展示）
-    for k in immediate_keys:
-        keys.append(k)
-        if on_job:
-            on_job(k)
 
-    # 2a. patch：URL 缓存命中但缺 assessment 的条目
-    _llm_rejected = 0
-    if patch_pending and _cv_summary and _cv_skills and profile and llm:
-        cb(f"Re-assessing {len(patch_pending)} cached jobs...")
-        patch_inputs = [(cj.title, cj.description_snippet) for cj, _ in patch_pending]
-        patch_assessments = _batch_assess_jds(patch_inputs, profile, llm, language=language)
-        for (cached_job, _), assessment in zip(patch_pending, patch_assessments):
-            if not assessment.relevant:
-                cb(f"Skip (not relevant): {cached_job.title[:50]} — {assessment.reason}")
-                logger.info("LLM re-assess rejected: %s | %s", cached_job.title, assessment.reason)
-                _llm_rejected += 1
-                continue
-            key = write_cache({
-                "title": cached_job.title,
-                "company": cached_job.company,
-                "location": cached_job.location,
-                "url": cached_job.url,
-                "description_snippet": cached_job.description_snippet,
-                "expires_at": cached_job.expires_at,
-                "is_complete": cached_job.is_complete,
-                "assessment": assessment.to_job_assessment(),
-            })
-            keys.append(key)
-            if on_job:
-                on_job(key)
+    _profile = profile or CVProfile(
+        summary=_cv_summary, skills=_cv_skills,
+        seniority=_seniority, years_of_experience=_max_years,
+        preferred_roles=[], search_language="en",
+    )
+    keys, llm_rejected = _flush_assessments(pf, job_all_sources, _profile, llm, cb, on_job, language)
 
-    # 2b. 新抓取的职位批量评估
-    if pending:
-        if _cv_summary and _cv_skills and profile and llm:
-            cb(f"LLM assessing {len(pending)} jobs (batch size {_BATCH_SIZE})...")
-            batch_inputs = [(job.get("title", ""), content) for job, content, _ in pending]
-            assessments = _batch_assess_jds(batch_inputs, profile, llm, language=language)
-        else:
-            # 无 CV 信息时不评估，全部保留
-            assessments = [
-                _JDAssessment(
-                    relevant=True, reason="无 CV 信息，默认保留",
-                    score=0, strengths=[], weaknesses=[], matched_keywords=[],
-                )
-                for _ in pending
-            ]
-
-        for (job, content, expires_at), assessment in zip(pending, assessments):
-            title = (job.get("title") or "").strip()
-            _job_src = job.get("source") or "unknown"
-            _job_ss = _source_stats.setdefault(_job_src, {k: 0 for k in _SS_KEYS})
-            if not assessment.relevant:
-                cb(f"Skip (not relevant): {title[:50]} — {assessment.reason}")
-                logger.info("LLM assess rejected: %s | %s", title, assessment.reason)
-                _job_ss["llm_rejected"] += 1
-                _llm_rejected += 1
-                continue
-            logger.debug("LLM assess matched: %s | score=%d", title, assessment.score)
-
-            job_assessment = assessment.to_job_assessment() if (_cv_summary and _cv_skills) else None
-            _dedup_key = make_dedup_key(job.get("company", ""), title)
-            key = write_cache({
-                "title": title,
-                "company": job.get("company", ""),
-                "location": job.get("location", ""),
-                "url": job.get("url", ""),
-                "description_snippet": content,
-                "date_posted": job.get("date_posted", ""),
-                "expires_at": expires_at,
-                "is_complete": job.get("is_complete", True),
-                "assessment": job_assessment,
-                "sources": _job_all_sources.get(_dedup_key, [_job_src]),
-            })
-            _job_ss["saved"] += 1
-            keys.append(key)
-            if on_job:
-                on_job(key)
-            cb(f"Saved: {title} @ {job.get('company', '?')} [{_job_src}]")
-
-    # ── 阶段三：多来源合并（跨平台重复职位补全 sources 字段）────────────────────
-    for dk, srcs in _job_all_sources.items():
+    # 阶段三：多来源合并（跨平台重复职位补全 sources 字段）
+    for dk, srcs in job_all_sources.items():
         if len(srcs) > 1:
             for s in srcs:
                 cache.merge_job_source(dk, s)
 
-    # ── 填充管道统计 ──────────────────────────────────────────────────────────
+    # 填充管道统计
     if stats is not None:
-        stats.prefilter_in    = _total
-        stats.skip_dup        = _skip_dup
-        stats.skip_seniority  = _skip_seniority
-        stats.skip_irrelevant = _skip_irrelevant
-        stats.cache_hit       = _cache_hit
-        stats.cache_patch     = _cache_patch
-        stats.skip_no_desc    = _skip_no_desc
-        stats.skip_closed     = _skip_closed
-        stats.skip_exp        = _skip_exp
-        stats.skip_skill      = _skip_skill
-        stats.llm_assessed    = len(pending) + len(patch_pending)
-        stats.llm_rejected    = _llm_rejected
+        stats.prefilter_in    = pf.total
+        stats.skip_dup        = pf.skip_dup
+        stats.skip_seniority  = pf.skip_seniority
+        stats.skip_irrelevant = pf.skip_irrelevant
+        stats.cache_hit       = pf.cache_hit
+        stats.cache_patch     = pf.cache_patch
+        stats.skip_no_desc    = pf.skip_no_desc
+        stats.skip_closed     = pf.skip_closed
+        stats.skip_exp        = pf.skip_exp
+        stats.skip_skill      = pf.skip_skill
+        stats.llm_assessed    = len(pf.pending) + len(pf.patch_pending)
+        stats.llm_rejected    = llm_rejected
         stats.saved           = len(keys)
-        stats.by_source       = {src: dict(st) for src, st in _source_stats.items()}
+        stats.by_source       = {src: dict(st) for src, st in pf.source_stats.items()}
 
-    # ── 汇总日志 ─────────────────────────────────────────────────────────────
-    _saved = len(keys)
+    # 汇总日志
+    saved = len(keys)
     logger.info(
         "Filter funnel | input=%d dup_skip=%d seniority=%d irrelevant=%d cache_hit=%d cache_patch=%d "
         "no_desc=%d closed=%d exp_limit=%d skill_mismatch=%d llm_in=%d llm_rejected=%d saved=%d",
-        _total, _skip_dup, _skip_seniority, _skip_irrelevant,
-        _cache_hit, _cache_patch, _skip_no_desc, _skip_closed,
-        _skip_exp, _skip_skill, len(pending) + len(patch_pending),
-        _llm_rejected, _saved,
+        pf.total, pf.skip_dup, pf.skip_seniority, pf.skip_irrelevant,
+        pf.cache_hit, pf.cache_patch, pf.skip_no_desc, pf.skip_closed,
+        pf.skip_exp, pf.skip_skill, len(pf.pending) + len(pf.patch_pending),
+        llm_rejected, saved,
     )
     cb(
-        f"Summary: {_total} in → seniority {_skip_seniority} | irrelevant {_skip_irrelevant} | "
-        f"cache hit {_cache_hit} | no description {_skip_no_desc} | closed {_skip_closed} | "
-        f"exp limit {_skip_exp} | skill mismatch {_skip_skill} | LLM rejected {_llm_rejected} → saved {_saved}"
+        f"Summary: {pf.total} in → seniority {pf.skip_seniority} | irrelevant {pf.skip_irrelevant} | "
+        f"cache hit {pf.cache_hit} | no description {pf.skip_no_desc} | closed {pf.skip_closed} | "
+        f"exp limit {pf.skip_exp} | skill mismatch {pf.skip_skill} | LLM rejected {llm_rejected} → saved {saved}"
     )
-    if _source_stats:
-        for src, st in sorted(_source_stats.items()):
-            parts = []
-            for step in ("dup", "seniority", "irrelevant", "cache_hit", "no_desc", "closed", "exp", "skill", "llm_rejected"):
-                v = st.get(step, 0)
-                if v:
-                    parts.append(f"{step}={v}")
+    if pf.source_stats:
+        for src, st in sorted(pf.source_stats.items()):
+            parts = [f"{step}={st[step]}" for step in ("dup", "seniority", "irrelevant", "cache_hit", "no_desc", "closed", "exp", "skill", "llm_rejected") if st.get(step)]
             detail = f"({', '.join(parts)})" if parts else ""
             logger.info("Source [%s]: %d in → %d saved %s", src, st["in"], st["saved"], detail)
-        src_summary = " | ".join(
-            f"{src} {st['in']} in → {st['saved']} saved"
-            for src, st in sorted(_source_stats.items())
-        )
+        src_summary = " | ".join(f"{src} {st['in']} in → {st['saved']} saved" for src, st in sorted(pf.source_stats.items()))
         cb(f"Source breakdown: {src_summary}")
 
     return keys
-
-
-class _JDAssessment(BaseModel):
-    relevant: bool
-    reason: str                  # 一句话说明原因（用于日志/过滤）
-    score: int                   # CV 与 JD 整体匹配分 0~10
-    strengths: list[str]         # CV 相对于该 JD 的优势（2~4 条）
-    weaknesses: list[str]        # CV 相对于该 JD 的劣势（2~4 条）
-    matched_keywords: list[str]  # CV 与 JD 重叠的具体技能/关键词
-
-    def to_job_assessment(self) -> JobAssessment:
-        """转换为持久化用的 JobAssessment（丢弃 relevant/reason 过滤字段）。"""
-        return JobAssessment(
-            score=self.score,
-            strengths=self.strengths,
-            weaknesses=self.weaknesses,
-            matched_keywords=self.matched_keywords,
-        )
-
-
-class _BatchAssessmentResult(BaseModel):
-    results: list[_JDAssessment]
-
-
-_BATCH_SIZE = 8   # 每批 JD 数量，兼顾 context 长度与 token 节省
-
-
-_LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
-
-def _batch_assess_jds(
-    jobs: list[tuple[str, str]],   # (title, jd_content)
-    profile: CVProfile,
-    llm: LLMConfig,
-    language: str = "zh",
-) -> list[_JDAssessment]:
-    """
-    批量评估 JD 列表，返回与输入等长的评估结果列表。
-    每批最多 _BATCH_SIZE 条，system prompt 只发一次，节省约 60% token。
-    任意一批失败时对应条目默认 relevant=True（保守保留）。
-    """
-    if not jobs:
-        return []
-
-    skills_str = ", ".join(profile.skills[:20])
-    leniency_note = ""
-    if profile.seniority in ("new_grad", "intern", "junior"):
-        leniency_note = (
-            "\n注意：relevant 判断应偏宽松——只要职位方向与候选人专业有实质关联即可标记为 relevant。"
-            "但 strengths/weaknesses 必须客观如实，不受此宽松原则影响。"
-        )
-
-    lang_name = _LANGUAGE_NAMES.get(language, "中文")
-    system = f"你是招聘筛选助手，只返回 JSON，不要额外解释。无论职位描述使用何种语言，所有文字字段必须用 {lang_name} 输出。"
-    results: list[_JDAssessment] = []
-
-    for batch_start in range(0, len(jobs), _BATCH_SIZE):
-        batch = jobs[batch_start: batch_start + _BATCH_SIZE]
-
-        jd_blocks = []
-        for idx, (title, content) in enumerate(batch, 1):
-            jd_blocks.append(f"[{idx}] 职位：{title}\n{content[:4000]}")
-        jd_section = "\n\n---\n\n".join(jd_blocks)
-
-        prompt = f"""【输出语言：{lang_name}，所有文字字段必须用 {lang_name} 撰写】
-
-根据候选人信息，批量评估以下 {len(batch)} 个职位与候选人的匹配程度。
-
-候选人摘要：{profile.summary}
-候选人技能：{skills_str}
-候选人资历：{profile.seniority or "未知"}，实际工作年限：{profile.years_of_experience} 年{leniency_note}
-
-判断标准：
-- 职位要求的核心技能与候选人技能有实质重叠
-- 职位要求的经验年限在候选人能力范围内
-- 职位类型与候选人目标方向吻合
-
-职位列表（共 {len(batch)} 个，按编号 [1]~[{len(batch)}] 排列）：
-
-{jd_section}
-
-请按编号顺序，在 results 数组中返回每个职位的评估，字段：
-- relevant：bool，职位是否值得投递
-- reason：一句话说明 relevant 判断的理由（用 {lang_name}）
-- score：整数 0~10，综合匹配分
-- strengths：list[str]，候选人申请该职位的真实优势，0~5 条；若无实质优势则返回空列表（用 {lang_name}）
-- weaknesses：list[str]，候选人申请该职位的真实劣势，0~5 条；若无实质劣势则返回空列表；
-  若 JD 明确要求的工作年限超过候选人实际年限，必须在此列出（用 {lang_name}）
-- matched_keywords：list[str]，CV 技能与 JD 要求中重叠的具体关键词（3~8 个，保留原始技术词汇）
-
-results 数组长度必须等于 {len(batch)}，顺序与编号一一对应。"""
-
-        _default = _JDAssessment(
-            relevant=True, reason="评估失败，默认保留",
-            score=0, strengths=[], weaknesses=[], matched_keywords=[],
-        )
-        try:
-            batch_result = complete_structured(
-                prompt=prompt,
-                response_schema=_BatchAssessmentResult,
-                provider=llm.provider,
-                model=llm.model,
-                system=system,
-                _step="JD 批量评估",
-            )
-            assessments = batch_result.results
-            while len(assessments) < len(batch):
-                assessments.append(_default)
-            results.extend(assessments[: len(batch)])
-            logger.info("Batch assess: batch %d, %d jobs done", batch_start // _BATCH_SIZE + 1, len(batch))
-        except Exception as e:
-            logger.warning("Batch JD assess failed (batch %d), defaulting all to keep: %s", batch_start // _BATCH_SIZE + 1, e)
-            results.extend([_default for _ in batch])
-
-    return results
-
-
-def _over_experience_limit(snippet: str, max_years: int) -> bool:
-    matches = re.findall(
-        r"(\d+)\+?\s*years?\s*(?:of\s+)?(?:experience|exp\b)",
-        snippet,
-        re.IGNORECASE,
-    )
-    return any(int(m) > max_years for m in matches)
-
-

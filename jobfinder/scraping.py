@@ -1,23 +1,18 @@
-"""
-JobSpy 抓取接口，输出与现有 SCRAPER_REGISTRY 相同的 list[dict] 格式。
-
-包含：
-  - scrape_indeed_jobspy        单关键词抓取
-  - scrape_indeed_jobspy_multi  多role串行抓取（含限速）
-  - _filter_cards_by_llm        LLM 批量标题评分过滤
-"""
+"""JobSpy 抓取层：Indeed + LinkedIn 抓取实现 + LLM 标题过滤 + 公开入口 scrape_sources。"""
 from __future__ import annotations
 
 import random
 import re
 import time
-from typing import TYPE_CHECKING, Callable  # noqa: F401
+from typing import TYPE_CHECKING, Callable
 
 from pydantic import BaseModel
 
 from jobfinder.logger import get_logger
 
 if TYPE_CHECKING:
+    from jobfinder.llm_backend import LLMConfig
+    from jobfinder.pipeline_stats import PipelineStats
     from jobfinder.schemas import CVProfile
 
 logger = get_logger(__name__)
@@ -41,10 +36,7 @@ def _filter_cards_by_llm(
     model: str,
     threshold: float = 0.6,
 ) -> set[int]:
-    """
-    单次 LLM 调用对所有卡片批量打分，返回 score >= threshold 的 id 集合。
-    失败时保留全部（降级）。
-    """
+    """单次 LLM 调用批量打分，返回 score >= threshold 的 id 集合；失败时保留全部。"""
     from jobfinder.llm_backend import complete_structured
 
     roles_str  = ", ".join(cv_profile.preferred_roles[:10])
@@ -84,21 +76,19 @@ def _filter_cards_by_llm(
             _step="",
         )
         passed = {s.id for s in result.scores if s.score >= threshold}
-        logger.debug(
-            "LLM 卡片过滤：%d/%d 通过（threshold=%.1f）",
-            len(passed), len(cards_meta), threshold,
-        )
+        logger.debug("LLM 卡片过滤：%d/%d 通过（threshold=%.1f）", len(passed), len(cards_meta), threshold)
         return passed
     except Exception as e:
         logger.warning("Card LLM filter failed, keeping all: %s", e)
         return {c["id"] for c in cards_meta}
 
 
+# ── 文本清洗工具 ──────────────────────────────────────────────────────────────
+
 def _html_to_text(html: str) -> str:
     """BeautifulSoup 剥离 HTML 标签，保留段落换行。"""
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
-    # 在块级元素前后插入换行
     for tag in soup.find_all(["p", "li", "br", "h1", "h2", "h3", "h4"]):
         tag.insert_before("\n")
     return re.sub(r"\n{3,}", "\n\n", soup.get_text()).strip()
@@ -106,7 +96,8 @@ def _html_to_text(html: str) -> str:
 
 # location 清洗：'DUBLIN 2, D, IE' → 'Dublin 2, Ireland'
 _COUNTRY_CODE = re.compile(r",\s*[A-Z]{2}\s*$")
-_STATE_CODE    = re.compile(r",\s*[A-Z]\s*(?=,)")
+_STATE_CODE   = re.compile(r",\s*[A-Z]\s*(?=,)")
+
 
 def _clean_location(raw: str) -> str:
     if not raw:
@@ -116,20 +107,34 @@ def _clean_location(raw: str) -> str:
     return loc.title().strip()
 
 
+# ── 速率限制常量 ──────────────────────────────────────────────────────────────
+
+_INDEED_DELAY_MIN   = 2.0
+_INDEED_DELAY_MAX   = 4.0
+_LINKEDIN_DELAY_MIN = 3.0
+_LINKEDIN_DELAY_MAX = 5.0
+
+# location 首单词 → LinkedIn 需要的城市全称
+_LINKEDIN_LOCATION: dict[str, str] = {
+    "ireland":   "Dublin, Ireland",
+    "uk":        "London, United Kingdom",
+    "usa":       "United States",
+    "canada":    "Toronto, Canada",
+    "australia": "Sydney, Australia",
+    "singapore": "Singapore",
+    "remote":    "",
+}
+
+
+# ── Indeed 抓取 ───────────────────────────────────────────────────────────────
+
 def scrape_indeed_jobspy(
     keyword: str,
     limit: int = 20,
     country: str = "ireland",
     hours_old: int | None = 72,
 ) -> list[dict]:
-    """
-    用 JobSpy 抓取 Indeed，返回与现有 scraper 相同格式的 list[dict]。
-
-    输出字段：
-        title, company, location, url, apply_url,
-        source, is_complete, description_snippet,
-        date_posted, is_remote
-    """
+    """用 JobSpy 抓取 Indeed，返回标准化 list[dict]。"""
     try:
         import jobspy
     except ImportError:
@@ -164,22 +169,20 @@ def scrape_indeed_jobspy(
         job_url = str(row.get("job_url") or "").strip()
         if not title or not job_url:
             continue
-
-        raw_desc    = str(row.get("description") or "").strip()
-        description = _html_to_text(raw_desc) if raw_desc else ""
         company = str(row.get("company") or "").strip()
         if not company or company.lower() == "nan":
             continue
+        raw_desc    = str(row.get("description") or "").strip()
+        description = _html_to_text(raw_desc) if raw_desc else ""
         results.append({
             "title":               title,
             "company":             company,
             "location":            _clean_location(str(row.get("location") or "")),
             "url":                 job_url,
-            "apply_url":           str(row.get("job_url_direct")  or job_url).strip(),
+            "apply_url":           str(row.get("job_url_direct") or job_url).strip(),
             "source":              "indeed.ie",
             "is_complete":         bool(description),
             "description_snippet": description[:15000],
-            # 现有实现没有的额外字段
             "date_posted":         str(row.get("date_posted") or ""),
             "is_remote":           bool(row.get("is_remote")),
         })
@@ -188,22 +191,41 @@ def scrape_indeed_jobspy(
     return results
 
 
-_INDEED_DELAY_MIN   = 2.0   # Indeed 每个 role 间隔下限（秒）
-_INDEED_DELAY_MAX   = 4.0   # Indeed 每个 role 间隔上限（秒）
-_LINKEDIN_DELAY_MIN = 3.0   # LinkedIn 每个 role 间隔下限（秒）
-_LINKEDIN_DELAY_MAX = 5.0   # LinkedIn 每个 role 间隔上限（秒）
+def scrape_indeed_jobspy_multi(
+    roles: list[str],
+    limit_per_role: int = 200,
+    country: str = "ireland",
+    hours_old: int = 72,
+    cb: Callable[[str], None] | None = None,
+) -> list[dict]:
+    """多 role 串行抓取 Indeed（含限速），URL 去重后返回。"""
+    if cb:
+        cb(f"JobSpy scraping (indeed.ie): {roles}")
 
-# location 首单词 → LinkedIn 需要的城市全称
-_LINKEDIN_LOCATION: dict[str, str] = {
-    "ireland":   "Dublin, Ireland",
-    "uk":        "London, United Kingdom",
-    "usa":       "United States",
-    "canada":    "Toronto, Canada",
-    "australia": "Sydney, Australia",
-    "singapore": "Singapore",
-    "remote":    "",
-}
+    seen: set[str] = set()
+    jobs: list[dict] = []
 
+    for i, role in enumerate(roles):
+        if i > 0:
+            delay = random.uniform(_INDEED_DELAY_MIN, _INDEED_DELAY_MAX)
+            logger.debug("Indeed inter-role delay: %.1fs", delay)
+            time.sleep(delay)
+        batch = scrape_indeed_jobspy(role, limit_per_role, country, hours_old)
+        for job in batch:
+            url = job.get("url", "")
+            if url and url not in seen:
+                seen.add(url)
+                jobs.append(job)
+        if cb:
+            cb(f"  [{i+1}/{len(roles)}] {role!r} → {len(batch)} results")
+
+    logger.info("JobSpy indeed 全部 role 完成：%d 条（URL 去重后）", len(jobs))
+    if cb:
+        cb(f"JobSpy done: {len(jobs)} jobs (after dedup)")
+    return jobs
+
+
+# ── LinkedIn 抓取 ─────────────────────────────────────────────────────────────
 
 def scrape_linkedin_jobspy(
     keyword: str,
@@ -211,10 +233,7 @@ def scrape_linkedin_jobspy(
     location: str = "Dublin, Ireland",
     hours_old: int | None = 72,
 ) -> list[dict]:
-    """
-    用 JobSpy 抓取 LinkedIn，返回与 scrape_indeed_jobspy 相同格式的 list[dict]。
-    LinkedIn 不支持 country_indeed 参数，location 需要城市全称。
-    """
+    """用 JobSpy 抓取 LinkedIn，返回标准化 list[dict]。"""
     try:
         import jobspy
     except ImportError:
@@ -252,7 +271,6 @@ def scrape_linkedin_jobspy(
         if not company or company.lower() == "nan":
             continue
         raw_desc    = str(row.get("description") or "").strip()
-        # LinkedIn 返回 markdown，无需 HTML 清洗
         description = re.sub(r"\n{3,}", "\n\n", raw_desc).strip() if raw_desc else ""
         results.append({
             "title":               title,
@@ -278,7 +296,7 @@ def scrape_linkedin_jobspy_multi(
     hours_old: int = 72,
     cb: Callable[[str], None] | None = None,
 ) -> list[dict]:
-    """多 role 串行抓取 LinkedIn（含限速），去重后返回。"""
+    """多 role 串行抓取 LinkedIn（含限速），URL 去重后返回。"""
     if cb:
         cb(f"JobSpy scraping (linkedin.com): {roles}")
 
@@ -305,40 +323,92 @@ def scrape_linkedin_jobspy_multi(
     return jobs
 
 
-def scrape_indeed_jobspy_multi(
+# ── 公开入口 ──────────────────────────────────────────────────────────────────
+
+def scrape_sources(
     roles: list[str],
-    limit_per_role: int = 200,
-    country: str = "ireland",
-    hours_old: int = 72,
+    location: str,
     cb: Callable[[str], None] | None = None,
+    limit_per_query: int = 200,
+    cv_profile: "CVProfile | None" = None,
+    llm: "LLMConfig | None" = None,
+    provider: str = "gemini",
+    model: str = "gemini-2.5-flash",
+    linkedin_limit_per_role: int = 30,
+    hours_old: int | None = 72,
+    stats: "PipelineStats | None" = None,
 ) -> list[dict]:
-    """
-    多 role 串行抓取（含限速），去重后返回。
-
-    串行而非并发，避免 Indeed 因短时高频请求触发限流。
-    每个 role 之间等待 _INTER_ROLE_DELAY 秒。
-    """
-    if cb:
-        cb(f"JobSpy scraping (indeed.ie): {roles}")
-
-    seen: set[str] = set()
-    jobs: list[dict] = []
-
-    for i, role in enumerate(roles):
-        if i > 0:
-            delay = random.uniform(_INDEED_DELAY_MIN, _INDEED_DELAY_MAX)
-            logger.debug("Indeed inter-role delay: %.1fs", delay)
-            time.sleep(delay)
-        batch = scrape_indeed_jobspy(role, limit_per_role, country, hours_old)
-        for job in batch:
-            url = job.get("url", "")
-            if url and url not in seen:
-                seen.add(url)
-                jobs.append(job)
+    """抓取 Indeed + LinkedIn，LLM 标题过滤后合并返回。"""
+    def _cb(msg: str) -> None:
         if cb:
-            cb(f"  [{i+1}/{len(roles)}] {role!r} → {len(batch)} results")
+            cb(msg)
 
-    logger.info("JobSpy indeed 全部 role 完成：%d 条（URL 去重后）", len(jobs))
-    if cb:
-        cb(f"JobSpy done: {len(jobs)} jobs (after dedup)")
-    return jobs
+    _provider = llm.provider if llm is not None else provider
+    _model    = llm.model    if llm is not None else model
+
+    country = location.strip().split()[0].lower() if location else "ireland"
+    linkedin_location = _LINKEDIN_LOCATION.get(country, f"{location.title()}")
+
+    # Indeed
+    raw_indeed: list[dict] = []
+    if limit_per_query > 0:
+        raw_indeed = scrape_indeed_jobspy_multi(
+            roles=roles, limit_per_role=limit_per_query,
+            country=country, hours_old=hours_old, cb=cb,
+        )
+    else:
+        _cb("Indeed scraping skipped (limit=0)")
+
+    # LinkedIn
+    raw_linkedin: list[dict] = []
+    if linkedin_limit_per_role > 0 and linkedin_location:
+        raw_linkedin = scrape_linkedin_jobspy_multi(
+            roles=roles, limit_per_role=linkedin_limit_per_role,
+            location=linkedin_location, hours_old=hours_old, cb=cb,
+        )
+    elif linkedin_limit_per_role > 0:
+        _cb("LinkedIn scraping skipped: no location mapping for remote")
+
+    # URL 级合并去重
+    seen: set[str] = {j["url"] for j in raw_indeed}
+    raw = list(raw_indeed)
+    for job in raw_linkedin:
+        if job["url"] not in seen:
+            seen.add(job["url"])
+            raw.append(job)
+    _cb(f"Merged: {len(raw_indeed)} indeed + {len(raw_linkedin)} linkedin = {len(raw)} total")
+
+    if stats is not None:
+        stats.scraped_indeed   = len(raw_indeed)
+        stats.scraped_linkedin = len(raw_linkedin)
+        stats.scraped_total    = len(raw)
+
+    if not raw:
+        _cb("JobSpy: no results returned")
+        return []
+
+    # LLM 标题过滤
+    if cv_profile is not None:
+        cards_meta = [
+            {"id": i, "title": j["title"], "company": j["company"], "location": j["location"]}
+            for i, j in enumerate(raw)
+        ]
+        logger.info("LLM 标题过滤：共 %d 条待评分", len(cards_meta))
+        passing_ids = _filter_cards_by_llm(cards_meta, cv_profile, _provider, _model)
+        before = len(raw)
+        raw = [j for i, j in enumerate(raw) if i in passing_ids]
+        logger.info("LLM title filter done: %d → %d jobs", before, len(raw))
+        _cb(f"LLM title filter: {before} → {len(raw)} jobs")
+        if stats is not None:
+            stats.title_filter_in      = before
+            stats.title_filter_passed  = len(raw)
+            stats.title_filter_out     = before - len(raw)
+    else:
+        logger.info("LLM title filter skipped (no CVProfile), keeping %d jobs", len(raw))
+        _cb(f"LLM title filter skipped (no CVProfile): keeping {len(raw)} jobs")
+        if stats is not None:
+            stats.title_filter_in     = len(raw)
+            stats.title_filter_passed = len(raw)
+            stats.title_filter_out    = 0
+
+    return raw
