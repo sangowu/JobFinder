@@ -103,6 +103,12 @@ After every search, stats are automatically written to the `reports/` directory:
 - **All data is stored locally**: parsed CV profiles and job listings are stored in a local SQLite database (`jobfinder_cache.db`) and are never uploaded to any third-party server.
 - **Log file** (`jobfinder.log`) records search terms and timestamps only — it does not contain CV personal data or API keys, and is excluded from git via `.gitignore`.
 
+## Roadmap
+
+- **Smarter LLM Assessment** — Stabilise strengths/weaknesses output: ensure experience-gap mismatches consistently surface as weaknesses, and reduce variance across repeated evaluations of the same JD
+- **CV Tailoring** — One-click CV rewrite optimised for a specific JD, highlighting the most relevant experience and keywords
+- **Cover Letter Generator** — Auto-generate a tailored cover letter per JD, ready to copy-paste or export
+
 ## Legal Disclaimer
 
 This tool scrapes publicly available job data from Indeed and other platforms via [python-jobspy](https://github.com/cullenwatson/JobSpy).
