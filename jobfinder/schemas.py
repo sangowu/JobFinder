@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field
 
-DEFAULT_TTL_DAYS = 7
+DEFAULT_TTL_DAYS = 14
 
 # 检测职位已关闭的关键词模式
 _CLOSED_PATTERN = re.compile(
@@ -17,10 +17,13 @@ _CLOSED_PATTERN = re.compile(
     r"applications?\s+(are\s+)?(now\s+)?(closed|ended|no longer accepted)"
     r"|no longer (accepting|available|open)"
     r"|position (has been |is )?(filled|closed|removed)"
-    r"|this (job|position|vacancy|role) (is|has been) (closed|expired|filled|removed)"
+    r"|this (job|position|vacancy|role) (is|has been|has) (closed|expired|filled|removed)"
     r"|job (is\s+)?no longer available"
     r"|vacancy (is\s+)?(closed|filled)"
     r"|(posting|listing|advert|advertisement)\s+(has\s+)?(expired|been removed)"
+    r"|expired on indeed"
+    r"|this exact role may not be open"
+    r"|posting is to advertise potential job opportunities"
     r")\b",
     re.IGNORECASE,
 )
@@ -58,7 +61,6 @@ def is_closed_posting(text: str) -> bool:
 
 
 class CVProfile(BaseModel):
-    name: str
     summary: str = Field(description="一句话专业定位")
     skills: list[str] = Field(default_factory=list)
     years_of_experience: int = Field(ge=0)
@@ -83,17 +85,7 @@ class JobAssessment(BaseModel):
     strengths: list[str] = Field(default_factory=list, description="CV 相对于该 JD 的优势")
     weaknesses: list[str] = Field(default_factory=list, description="CV 相对于该 JD 的劣势")
     matched_keywords: list[str] = Field(default_factory=list, description="CV 与 JD 重叠的具体技能/关键词")
-
-
-# ─── CompanyProfile ───────────────────────────────────────────────────────────
-
-
-class CompanyProfile(BaseModel):
-    size: Literal["startup", "sme", "enterprise", "unknown"] = "unknown"
-    industry: str = Field(default="", description="所属行业，如 Technology / AI")
-    hq_location: str = Field(default="", description="总部城市（英文）")
-    overview: str = Field(default="", description="一到两句话的公司概述（中文）")
-    career_page_url: str = Field(default="", description="公司招聘页 URL（若找到）")
+    is_relevant: bool = Field(default=True, description="LLM 判断是否值得投递，False 表示已拒绝")
 
 
 class JobResult(BaseModel):
@@ -103,12 +95,15 @@ class JobResult(BaseModel):
     url: str
     description_snippet: str = ""
     sources: list[str] = Field(default_factory=list)
+    raw_sources: list[dict] = Field(
+        default_factory=list,
+        description="每个来源的原始记录：[{source, url, date_posted}]",
+    )
     date_posted: str = ""          # JobSpy 返回的原始发布日期，如 "2024-04-10"
     fetched_at: datetime = Field(default_factory=datetime.utcnow)
     expires_at: datetime | None = None
     is_complete: bool = True  # False 表示有字段缺失
     assessment: JobAssessment | None = None
-    company_profile: CompanyProfile | None = None
 
     @computed_field
     @property

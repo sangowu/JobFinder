@@ -280,6 +280,7 @@
 <header class="h-14 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center px-6 gap-4 shadow-sm z-10 relative">
   <span class="text-lg font-bold text-blue-600 dark:text-blue-400 cursor-pointer select-none"
     onclick="location.reload()">JobFinder</span>
+  <span id="app-version" class="text-xs text-gray-400 dark:text-gray-600 font-mono select-none"></span>
   <span id="summary" class="text-sm text-gray-400 dark:text-gray-500"></span>
   <div class="ml-auto flex items-center gap-3">
     <button onclick="openConfigPage()"
@@ -632,6 +633,7 @@
             <p id="done-tokens"></p>
           </div>
           <div id="done-funnel" class="hidden text-gray-400 dark:text-gray-500"></div>
+          <div id="done-dedup" class="hidden text-xs font-mono mt-1"></div>
           <button onclick="resetSearchPanel()"
             class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
             data-i18n="done.restart">
@@ -745,6 +747,8 @@ const I18N = {
     'funnel.skip_irrelevant': '不相关', 'funnel.skip_cache': '缓存命中',
     'funnel.skip_no_desc': '无描述', 'funnel.skip_closed': '已关闭',
     'funnel.skip_exp': '经验超限', 'funnel.skip_skill': '技能不符',
+    'dedup.header': '去重验证', 'dedup.pass': '全部通过', 'dedup.warn': '发现问题',
+    'dedup.exact': '精确重复', 'dedup.url': 'URL冲突',
     'tip.view_logs': '查看日志', 'tip.session_tokens': '本次会话 token 消耗',
     'tip.refresh_logs': '手动刷新', 'tip.clear_log_view': '清空视图',
     'tip.resize_log': '拖动调整高度', 'tip.close_log': '关闭',
@@ -820,6 +824,8 @@ const I18N = {
     'funnel.skip_irrelevant': 'irrelevant', 'funnel.skip_cache': 'cache hit',
     'funnel.skip_no_desc': 'no desc', 'funnel.skip_closed': 'closed',
     'funnel.skip_exp': 'exp limit', 'funnel.skip_skill': 'skill miss',
+    'dedup.header': 'Dedup check', 'dedup.pass': 'All pass', 'dedup.warn': 'Issues found',
+    'dedup.exact': 'exact dup', 'dedup.url': 'URL conflict',
     'tip.view_logs': 'View logs', 'tip.session_tokens': 'Session token usage',
     'tip.refresh_logs': 'Refresh', 'tip.clear_log_view': 'Clear view',
     'tip.resize_log': 'Drag to resize', 'tip.close_log': 'Close',
@@ -895,6 +901,8 @@ const I18N = {
     'funnel.skip_irrelevant': 'irrelevante', 'funnel.skip_cache': 'caché',
     'funnel.skip_no_desc': 'sin desc', 'funnel.skip_closed': 'cerrado',
     'funnel.skip_exp': 'exp. excedida', 'funnel.skip_skill': 'sin habilidad',
+    'dedup.header': 'Verificación dedup', 'dedup.pass': 'Todo correcto', 'dedup.warn': 'Problemas detectados',
+    'dedup.exact': 'dup exacto', 'dedup.url': 'conflicto URL',
     'tip.view_logs': 'Ver registros', 'tip.session_tokens': 'Tokens de sesión',
     'tip.refresh_logs': 'Actualizar', 'tip.clear_log_view': 'Limpiar vista',
     'tip.resize_log': 'Arrastrar para redimensionar', 'tip.close_log': 'Cerrar',
@@ -1037,6 +1045,10 @@ async function api(method, path, body) {
 async function loadConfig() {
   cfgData = await api("GET", "/api/config");
   renderConfigPage();
+  if (cfgData.version) {
+    const el = document.getElementById("app-version");
+    if (el) el.textContent = `v${cfgData.version}`;
+  }
   // Show mock badge and restore-models button if mock mode is on
   if (cfgData.mock_mode) {
     document.getElementById("mock-badge").classList.remove("hidden");
@@ -1594,16 +1606,20 @@ function buildCard(job) {
         </div>
         <div class="flex items-center gap-2 mt-1">
           <span class="text-xs text-gray-400 dark:text-gray-500">${dateStr}</span>
-          ${(job.sources || []).map(s => {
+          ${(job.raw_sources || job.sources || []).map(rs => {
+            const s = rs.source || rs;
+            const url = rs.url || job.url;
             const isLinkedIn = s.includes("linkedin");
             const isIndeed   = s.includes("indeed");
             const cls = isLinkedIn
-              ? "bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
+              ? "bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:opacity-70"
               : isIndeed
-              ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
-              : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400";
+              ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:opacity-70"
+              : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:opacity-70";
             const label = isLinkedIn ? "LinkedIn" : isIndeed ? "Indeed" : s;
-            return `<span class="text-[10px] px-1.5 py-0.5 rounded font-medium ${cls}">${label}</span>`;
+            return `<a href="${url}" target="_blank" rel="noopener"
+              class="text-[10px] px-1.5 py-0.5 rounded font-medium ${cls} transition-opacity"
+              onclick="event.stopPropagation()">${label}</a>`;
           }).join("")}
           ${isRemote ? '<span class="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded">Remote</span>' : ""}
         </div>
@@ -1733,6 +1749,36 @@ function showJobDetail(job) {
   const scoreVal = job.score !== null && job.score !== undefined ? job.score : "—";
   const scoreClr = scoreColor(job.score);
   const sources  = (job.sources || []).join(", ");
+  const rawSources = job.raw_sources || [];
+
+  const applyBtn = rawSources.length > 1
+    ? `<div class="relative flex-shrink-0" id="apply-dropdown-wrap">
+        <button onclick="toggleApplyDropdown(event)"
+          class="flex items-center gap-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">
+          ${t('detail.apply')}
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+        <div id="apply-dropdown"
+          class="hidden absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 min-w-[160px] overflow-hidden">
+          ${rawSources.map(rs => {
+            const isLinkedIn = rs.source.includes("linkedin");
+            const isIndeed   = rs.source.includes("indeed");
+            const label = isLinkedIn ? "LinkedIn" : isIndeed ? "Indeed" : rs.source;
+            const dot = isLinkedIn
+              ? "bg-blue-500" : isIndeed ? "bg-indigo-500" : "bg-gray-400";
+            return `<a href="${rs.url}" target="_blank" rel="noopener"
+              class="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
+              <span class="w-2 h-2 rounded-full flex-shrink-0 ${dot}"></span>${label}
+            </a>`;
+          }).join("")}
+        </div>
+      </div>`
+    : `<a href="${job.url}" target="_blank" rel="noopener"
+        class="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">
+        ${t('detail.apply')}
+      </a>`;
 
   let assessHtml = "";
   if (job.score !== null && job.score !== undefined) {
@@ -1774,10 +1820,7 @@ function showJobDetail(job) {
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">${job.company} · ${job.location || ""}</p>
         <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('detail.source', sources)}</p>
       </div>
-      <a href="${job.url}" target="_blank" rel="noopener"
-        class="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">
-        ${t('detail.apply')}
-      </a>
+      ${applyBtn}
     </div>
     ${assessHtml}
     <div>
@@ -1940,6 +1983,7 @@ async function startSearch() {
   document.getElementById("step-done").classList.add("hidden");
   document.getElementById("done-stats").classList.add("hidden");
   document.getElementById("done-funnel").classList.add("hidden");
+  document.getElementById("done-dedup").classList.add("hidden");
   document.getElementById("progress-log").innerHTML = "";
   document.getElementById("progress-title").textContent = t('progress.title');
   startSearchTimer();
@@ -2089,6 +2133,30 @@ function listenProgress() {
         }
       }
 
+      // 去重验证报告
+      if (data.dedup != null) {
+        const d = data.dedup;
+        const dedupEl = document.getElementById("done-dedup");
+        if (dedupEl) {
+          const allPass = d.l1 === 0 && d.l2 === 0;
+          const statusColor = allPass ? "#4ade80" : "#fb923c";
+          const statusText  = allPass ? t('dedup.pass') : t('dedup.warn');
+          let html = `<div class="mt-2 pt-2 border-t border-gray-600/50 text-left space-y-0.5">
+            <p style="color:#94a3b8">${t('dedup.header')} <span style="color:${statusColor};font-weight:600">${statusText}</span></p>
+            <p style="color:#64748b">L1 ${t('dedup.exact')} <span style="color:${d.l1 ? '#fb923c' : '#4ade80'}">${d.l1}</span> &nbsp; L2 ${t('dedup.url')} <span style="color:${d.l2 ? '#fb923c' : '#4ade80'}">${d.l2}</span></p>`;
+          if (d.l2_items && d.l2_items.length > 0) {
+            d.l2_items.slice(0, 3).forEach(item => {
+              html += `<p style="color:#475569;padding-left:8px">${item.url.slice(0, 60)}${item.url.length > 60 ? '...' : ''}</p>`;
+              item.dedup_keys.forEach(k => { html += `<p style="color:#374151;padding-left:16px">-> ${k}</p>`; });
+            });
+            if (d.l2_items.length > 3) html += `<p style="color:#475569;padding-left:8px">... +${d.l2_items.length - 3} more</p>`;
+          }
+          html += `</div>`;
+          dedupEl.innerHTML = html;
+          dedupEl.classList.remove("hidden");
+        }
+      }
+
       JOBS.sort((a, b) => ((b.score ?? -1) - (a.score ?? -1)));
       renderList();
 
@@ -2181,6 +2249,16 @@ function clearSearchState() {
 }
 
 // ─── Collapse back to two-panel (full-width search panel) ─────────────────────
+function toggleApplyDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById("apply-dropdown");
+  if (!dd) return;
+  dd.classList.toggle("hidden");
+  // 点击其他地方关闭
+  const close = ev => { dd.classList.add("hidden"); document.removeEventListener("click", close); };
+  if (!dd.classList.contains("hidden")) setTimeout(() => document.addEventListener("click", close), 0);
+}
+
 function showSearchPanel() {
   activeKey = null;
   document.getElementById("main-area").classList.remove("detail-active");

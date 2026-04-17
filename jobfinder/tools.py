@@ -155,9 +155,12 @@ _INACTIVE_PATTERN = re.compile(
     r"|applications?\s+(are\s+)?(now\s+)?(closed|no longer being accepted)"
     r"|no longer (accepting|taking)\s+applications?"
     r"|(position|vacancy|role)\s+(has been\s+)?(filled|closed|removed)"
-    r"|this\s+(role|position|job)\s+has\s+(been\s+)?(filled|closed)"
+    r"|this\s+(role|position|job)\s+has\s+(been\s+)?(filled|closed|expired)"
     r"|sorry[^.]*no longer available"
     r"|recruitment\s+(for\s+this\s+(role|position)\s+)?(has\s+)?(closed|ended|finished)"
+    r"|expired on indeed"
+    r"|this exact role may not be open"
+    r"|posting is to advertise potential job opportunities"
     r")\b",
     re.IGNORECASE,
 )
@@ -229,6 +232,11 @@ def write_cache(job_data: dict, session_key: str | None = None) -> str:
         # 兼容 _JDAssessment 等 Pydantic 子类（含额外字段，model_validate 自动忽略）
         assessment = JobAssessment.model_validate(raw_assessment.model_dump())
 
+    raw_sources = job_data.get("raw_sources") or []
+    # 若无 raw_sources，从第一个 source + url 构建兜底记录
+    if not raw_sources and sources:
+        raw_sources = [{"source": sources[0], "url": url, "date_posted": job_data.get("date_posted", "")}]
+
     job = JobResult(
         title=job_data.get("title", ""),
         company=job_data.get("company", ""),
@@ -236,6 +244,7 @@ def write_cache(job_data: dict, session_key: str | None = None) -> str:
         url=url,
         description_snippet=job_data.get("description_snippet", ""),
         sources=sources,
+        raw_sources=raw_sources,
         date_posted=job_data.get("date_posted", ""),
         expires_at=_parse_date(job_data.get("expires_at")),
         is_complete=job_data.get("is_complete", True),

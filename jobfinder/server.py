@@ -24,7 +24,8 @@ from pydantic import BaseModel
 
 from dotenv import load_dotenv
 
-from jobfinder import cache
+from jobfinder import __version__, cache
+from jobfinder.dedup_check import run_dedup_check
 from jobfinder.cv_extractor import extract_cv_profile
 from jobfinder.cv_reader import read_cv
 from jobfinder.logger import get_logger
@@ -137,6 +138,7 @@ def get_config() -> dict:
         "available_models": AVAILABLE_MODELS,
         "default_models": DEFAULT_MODELS,
         "mock_mode": MOCK_MODE,
+        "version": __version__,
         "providers_extra": {
             "adzuna_id":  bool(os.getenv("ADZUNA_APP_ID")),
             "adzuna_key": bool(os.getenv("ADZUNA_APP_KEY")),
@@ -204,6 +206,7 @@ def _job_to_dict(j) -> dict:
 @app.get("/api/jobs")
 def get_jobs(limit: int = 200) -> list[dict]:
     jobs = cache.get_recent_jobs(limit)
+    jobs = [j for j in jobs if not (j.assessment and not j.assessment.is_relevant)]
     jobs.sort(key=lambda j: (j.assessment.score if j.assessment else -1), reverse=True)
     return [_job_to_dict(j) for j in jobs]
 
@@ -444,11 +447,18 @@ async def _run_search_task(req: SearchRequest) -> None:
                 tokens_out=tokens_out,
                 jobs_found=len(dedup_keys),
                 funnel=pipeline_stats.to_dict(),
+                cv_hash=req.cv_hash,
             )
+            try:
+                dedup_report = run_dedup_check(list(dedup_keys))
+            except Exception as _de:
+                logger.warning("Dedup check failed: %s", _de)
+                dedup_report = {"total": 0, "l1": 0, "l2": 0, "l2_items": []}
             _emit("done", count=len(dedup_keys),
                   elapsed=round(elapsed, 1),
                   tokens_in=tokens_in, tokens_out=tokens_out,
-                  pipeline_stats=pipeline_stats.to_dict())
+                  pipeline_stats=pipeline_stats.to_dict(),
+                  dedup=dedup_report)
         except Exception as e:
             logger.error("Search failed | error=%s", e, exc_info=True)
             _emit("error", msg=str(e))

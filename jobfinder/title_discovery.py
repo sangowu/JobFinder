@@ -30,10 +30,6 @@ _MIN_INTERVAL = 1.2  # 秒
 
 # ── 搜索关键词选择 ────────────────────────────────────────────────────────────
 
-class _KeywordResult(BaseModel):
-    keywords: list[str]
-
-
 class _MixedKeywords(BaseModel):
     role_phrases: list[str]   # 角色级短语，用于捕获主流高频 title
     tech_terms: list[str]     # 技术词，用于捕获新兴小众 title
@@ -87,46 +83,6 @@ def _generate_search_keywords(
         return keywords
     except Exception as e:
         logger.warning("Keyword generation failed, falling back to raw skills: %s", e)
-        return skills[:n]
-
-
-def _select_search_keywords(
-    skills: list[str],
-    cv_summary: str,
-    provider: Provider,
-    model: str,
-    n: int = 5,
-) -> list[str]:
-    """
-    让 LLM 从 CV 技能中挑选最能代表候选人专业方向的搜索关键词。
-    避免使用 Python/AWS 等过于宽泛的通用词，优先选 AI/ML 专属技术词。
-    """
-    skills_text = ", ".join(skills[:30])
-    prompt = f"""候选人背景：{cv_summary}
-候选人技能列表：{skills_text}
-
-从以上技能中选出 {n} 个最能体现候选人 AI/ML 专业方向的搜索关键词，用于在招聘网站搜索职位。
-
-要求：
-- 优先选择 AI/ML 专属技术词（如 LLM、RAG、PyTorch、LangChain、Transformer）
-- 避免选择过于通用的语言或工具（如 Python、AWS、Docker、Git、Linux）
-- 如果专属技术词不足 {n} 个，再补充通用词
-- 返回的关键词将直接用于 Adzuna 职位搜索，每个词应能独立产生有意义的搜索结果
-
-只返回 JSON。"""
-    try:
-        result = complete_structured(
-            prompt=prompt,
-            response_schema=_KeywordResult,
-            provider=provider,
-            model=model,
-            system="你是招聘关键词专家，只返回 JSON。",
-            _step="搜索关键词选择（旧版）",
-        )
-        logger.info("Selected search keywords: %s", result.keywords)
-        return result.keywords[:n]
-    except Exception as e:
-        logger.warning("Keyword selection failed, falling back to raw skills: %s", e)
         return skills[:n]
 
 
@@ -289,29 +245,28 @@ def _cluster_titles(
 
 归并规则（严格执行）：
 1. 核心角色相同的 title 必须合并，count 相加。归并时剥离以下修饰语：
-   - 括号内的技术词：(AWS)、(Python)、(GCP) 等
-   - "with X" 后缀：with Security Clearance、with AI Experience 等
+   - 括号内的技术词：(AWS)、(Python)、(Remote) 等
+   - "with X" 后缀：with Security Clearance、with X Experience 等
    - 逗号后的专向描述：Software Engineer, Full Stack → Software Engineer
-   - 技术栈前缀：AWS Python Developer → Python Developer
+   - 技术栈前缀：AWS Backend Developer → Backend Developer
    例：
-   "Python Developer" + "Python Developer with Security Clearance" + "AWS Python Developer" + "Python FastAPI Developer"
-   → canonical="Python Developer", count=全部相加
+   "Backend Developer" + "Backend Developer with Security Clearance" + "AWS Backend Developer" + "Node.js Backend Developer"
+   → canonical="Backend Developer", count=全部相加
 
 2. 跨技术栈但核心角色相同的也要合并：
-   "ML Engineer" + "Machine Learning Engineer" + "AI/ML Engineer"
-   → canonical="Machine Learning Engineer"
-   "AI/ML Engineer" 中的斜杠表示同义缩写，整体归入 "Machine Learning Engineer"，不单独成组
+   "Frontend Engineer" + "Front End Engineer" + "Front-End Engineer"
+   → canonical="Frontend Engineer"
 
 3. slash（/）组合 title 按以下规则处理：
    a. 两侧是不同角色时，拆分后分别归入对应组：
-      "Generative AI Engineer / LLM Engineer" → 分别计入 "Generative AI Engineer" 和 "LLM Engineer"
+      "Product Designer / UX Designer" → 分别计入 "Product Designer" 和 "UX Designer"
    b. 两侧是同义缩写时，归入其中一个 canonical 不拆分：
-      "AI/ML Engineer" → 归入 "Machine Learning Engineer"
+      "UI/UX Designer" → 归入 "UX Designer"
 
 4. 资历前缀合并：Junior / Associate / Trainee / Graduate / Entry-level 前缀的 title
    归入对应的无前缀 canonical，count 相加：
-   "Junior AI Engineer" + "Associate AI Engineer" + "Trainee AI Engineer" + "AI Engineer"
-   → canonical="AI Engineer", count=全部相加
+   "Junior Data Analyst" + "Associate Data Analyst" + "Graduate Data Analyst" + "Data Analyst"
+   → canonical="Data Analyst", count=全部相加
 
 5. 删除与候选人专业背景明显不相关的 title（根据候选人技能和背景判断，不要预设特定行业）
 

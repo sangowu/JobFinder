@@ -1,5 +1,101 @@
 # Changelog
 
+## [Unreleased]
+
+### New Features
+
+- **动态版本号**（`__init__.py` / `cli.py` / `server.py` / `index.html`）
+  `jobfinder/__init__.py` 通过 `importlib.metadata.version()` 动态读取版本，唯一真相源为 `pyproject.toml`。
+  CLI 新增 `--version` / `-V` 选项，打印 `jobfinder vX.Y.Z` 后退出。
+  `/api/config` 响应新增 `version` 字段；Web UI 导航栏 "JobFinder" 旁显示当前版本号。
+
+- **LLM 拒绝职位写入缓存**（`schemas.py` / `agent.py`）
+  `JobAssessment` 新增 `is_relevant: bool`（默认 `True`）字段持久化 LLM 的 relevant 判断。
+  被拒绝的职位（`is_relevant=False`）现在也写入缓存；下次命中该 URL 时直接跳过，不再重复评估。
+  `/api/jobs` 和 SSE job 推送过滤掉 `is_relevant=False` 的条目，UI 不显示被拒绝的职位。
+
+- **搜索后去重验证**（`jobfinder/dedup_check.py` / `server.py` / `index.html`）
+  新增 `dedup_check.py` 模块，搜索完成后自动对本次结果运行字段级去重验证：
+  - L1：`dedup_key` 精确重复（PRIMARY KEY 保证，验证用）
+  - L2：同一 URL 出现在不同 `dedup_key` 下（跨来源合并漏洞）
+  结果附在 SSE `done` 事件的 `dedup` 字段，完成卡片漏斗统计下方展示。
+  `scripts/verify_dedup.py` 也可单独运行对全量缓存做检查。
+
+### Improvements
+
+- **JD 内容截断上限从 4000 → 8000 字符**（`agent.py`）
+  实测缓存数据中 61% 的 JD 超过 4000 字符，中位数 4384，均值 4646，最长 8368。
+  将 `_batch_assess_jds` 中的 `content[:4000]` 改为 `content[:8000]`，覆盖绝大多数完整 JD。
+
+### Documentation
+
+- **README 拆分为三个语言文件**
+  原单文件三语 README 拆分为 `README.md`（英文，GitHub 首页默认）、`README.zh.md`（中文）、`README.es.md`（西班牙文）。
+  每个文件顶部均有三语切换链接，当前语言加粗显示。
+
+- **`BUGFIX_LOG.md` 新建**
+  记录每次 bug 的错误现象、根本原因、解决方案和修复结果。
+
+### Bug Fixes
+
+- **`cache.py` SyntaxError：SQL 注释语法混入 Python 字符串**（详见 BUGFIX_LOG BUG-001）
+- **`_row_to_job` Pydantic ValidationError：`sources` 列混入 dict 对象**（详见 BUGFIX_LOG BUG-002）
+
+---
+
+## [0.2.0] — 2026-04-17
+
+### New Features
+
+- **多来源原始记录（`raw_sources`）**（schemas.py / cache.py / agent.py / tools.py）
+  `job_cache` 新增 `raw_sources` 列，存储每个来源的原始记录 `[{source, url, date_posted}]`。
+  同一职位在 Indeed 和 LinkedIn 均出现时，两条来源 URL 均被保留，支持后续多来源跳转。
+  `agent.py` 的 `_job_all_sources` 从 `list[str]` 改为 `list[dict]`，预计算阶段同时收集 URL 和发布日期。
+
+- **卡片来源徽标可点击**（index.html）
+  职位卡片上的 Indeed / LinkedIn 徽标改为 `<a>` 标签，点击直接跳转对应来源 URL（来自 `raw_sources`）。
+  点击徽标不触发卡片选中（`stopPropagation`）。
+
+- **详情页 Apply 多来源下拉**（index.html）
+  单来源时 Apply 保持普通按钮；多来源时变为下拉按钮，展开后列出每个来源（含彩色圆点区分 Indeed/LinkedIn），点击跳转对应平台。
+  点击其他区域自动收起下拉菜单。
+
+- **搜索统计记录 `cv_hash`**（cache.py / server.py）
+  `search_stats` 表新增 `cv_hash` 列，每次搜索记录所用 CV 的哈希值，支持按 CV 版本分组统计。
+
+### Improvements
+
+- **年资过滤支持罗马数字等级**（filters.py）
+  新增对 `I / II / III / IV / V` 罗马数字职级的识别，对应 junior / mid / senior / staff+ 等级。
+  每个 seniority 可见当前及下一级职位（向下兼容），不可见更高级职位。
+  `junior` 从 `new_grad/intern` 分组独立出来单独处理（junior 可见 II，new_grad/intern 不可见 II）。
+
+- **CV 解析 prompt 优化**（cv_extractor.py）
+  移除 PII 字段 `name`，改为从 `summary` 隐式描述（"不包含姓名"）。
+  `seniority` 字段移至 `preferred_roles` 前，确保 LLM 生成职位时已知资历级别。
+  `preferred_roles` 删除"变体层"，改为精准→宽泛两层梯度，避免父词已覆盖时产生重复搜索。
+  英语市场 `search_terms` 三条规则合并为一条，让模型根据 `preferred_locations` 自行选词。
+
+- **关闭检测正则扩充**（schemas.py / tools.py）
+  新增 `expired on indeed`、`this exact role may not be open`、`posting is to advertise potential job opportunities` 三个 Indeed 特有的关闭信号。
+  修复 `has been` → `has been|has` 漏判（如 "This job has expired"）。
+
+- **截止日期正则扩充**（agent.py）
+  新增 8 个触发词：`expiring/expires on`、`last date/day to apply`、`last application date`、`position/vacancy closes`、`accepting applications until`、`applications accepted until`、`submit application by`。
+
+- **职位缓存 TTL 延长至 14 天**（schemas.py）
+  `DEFAULT_TTL_DAYS` 从 7 → 14，减少频繁重新抓取。
+
+- **`title_discovery.py` 去除 AI/ML 硬编码偏见**（title_discovery.py）
+  删除死代码 `_select_search_keywords`（含硬编码 "优先选 AI/ML 专属技术词" 指令）及其关联的 `_KeywordResult` 类。
+  `_cluster_titles` prompt 中的归并示例改为领域中性示例（Backend Developer / Frontend Engineer / UX Designer）。
+
+### Removed
+
+- **`company_lookup.py` 删除**（company_lookup.py）
+  公司信息查询功能（DDG 搜索 + Jina Reader + LLM → CompanyProfile）依赖链脆弱且无评分数据，正式移除。
+  级联清理：`CompanyProfile` 类（schemas.py）、`company_cache` 表及相关函数（cache.py）、CLI 显示列（display.py）、`--enrich` 命令引用。
+
 ## [Unreleased] — 2026-04-15 (continued 2)
 
 ### New Features

@@ -3,28 +3,38 @@ from __future__ import annotations
 
 import re
 
-# 高级职位词（new_grad / intern / junior 跳过）
-_SKIP_IF_LOW: frozenset[str] = frozenset({
+# intern/new_grad：跳过 mid 及以上（II+）
+_SKIP_IF_NEWGRAD: frozenset[str] = frozenset({
     "senior", "sr", "staff", "lead", "principal", "director", "head",
     "vp", "vice", "president", "distinguished", "fellow", "manager",
     "architect", "cto", "cio", "cso", "founding",
+    "ii", "iii", "iv", "v",
 })
 
-# 极高级词（mid 跳过，不含 senior/lead）
+# junior：可看到 mid（II），跳过 senior 及以上（III+）
+_SKIP_IF_JUNIOR: frozenset[str] = frozenset({
+    "senior", "sr", "staff", "lead", "principal", "director", "head",
+    "vp", "vice", "president", "distinguished", "fellow", "manager",
+    "architect", "cto", "cio", "cso", "founding",
+    "iii", "iv", "v",
+})
+
+# mid：可看到 senior（III），跳过 staff 及以上（IV+）和实习词（I）
 _SKIP_IF_MID_HIGH: frozenset[str] = frozenset({
     "staff", "principal", "director", "vp", "vice", "head",
     "distinguished", "fellow", "cto", "cio", "cso",
+    "iv", "v",
+})
+_SKIP_IF_MID_LOW: frozenset[str] = frozenset({
+    "intern", "internship", "placement", "apprentice", "trainee",
+    "i",
 })
 
-# 初级/实习专项词（senior / lead 跳过）
+# senior/lead：跳过 junior/mid（I/II）及实习词
 _SKIP_IF_HIGH: frozenset[str] = frozenset({
     "intern", "internship", "placement", "apprentice", "trainee",
     "junior", "jr", "associate", "entry",
-})
-
-# mid 跳过的初级词（短语整体匹配）
-_SKIP_IF_MID_LOW: frozenset[str] = frozenset({
-    "intern", "internship", "placement", "apprentice", "trainee",
+    "i", "ii",
 })
 _SKIP_IF_MID_LOW_PHRASES: tuple[str, ...] = (
     "graduate programme", "graduate program", "entry level",
@@ -39,8 +49,11 @@ def is_seniority_ok(title: str, seniority: str) -> bool:
     t = title.lower()
     tokens = set(re.split(r"[\s/\-,|@().]+", t))  # 含 . 避免 "Sr." 漏过
 
-    if seniority in ("new_grad", "intern", "junior"):
-        return not bool(tokens & _SKIP_IF_LOW)
+    if seniority in ("new_grad", "intern"):
+        return not bool(tokens & _SKIP_IF_NEWGRAD)
+
+    if seniority == "junior":
+        return not bool(tokens & _SKIP_IF_JUNIOR)
 
     if seniority == "mid":
         if tokens & _SKIP_IF_MID_HIGH:

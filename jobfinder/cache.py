@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from jobfinder.schemas import CVProfile, CompanyProfile, FailedURL, JobAssessment, JobResult, SearchSession
+from jobfinder.schemas import CVProfile, FailedURL, JobAssessment, JobResult, SearchSession
 
 _DEFAULT_DB_PATH = "jobfinder_cache.db"
 
@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS job_cache (
     location            TEXT,
     description_snippet TEXT,
     url                 TEXT,
-    sources             TEXT,       -- JSON array
+    sources             TEXT,       -- JSON array of source names
+    raw_sources         TEXT NOT NULL DEFAULT '[]',  -- JSON array of {source, url, date_posted}
     fetched_at          TEXT NOT NULL,
     expires_at          TEXT,       -- NULL 表示无截止日期
     is_complete         INTEGER NOT NULL DEFAULT 1,
@@ -62,12 +63,6 @@ CREATE TABLE IF NOT EXISTS url_visits (
     visited_at  TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS company_cache (
-    company_key  TEXT PRIMARY KEY,  -- normalize_company(name)
-    profile_json TEXT NOT NULL,     -- CompanyProfile JSON
-    cached_at    TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS search_stats (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at  TEXT NOT NULL,
@@ -78,13 +73,15 @@ CREATE TABLE IF NOT EXISTS search_stats (
     elapsed     REAL NOT NULL DEFAULT 0,     -- 秒
     tokens_in   INTEGER NOT NULL DEFAULT 0,
     tokens_out  INTEGER NOT NULL DEFAULT 0,
-    jobs_found  INTEGER NOT NULL DEFAULT 0
+    jobs_found  INTEGER NOT NULL DEFAULT 0,
+    cv_hash     TEXT NOT NULL DEFAULT ''
 );
 """
 
 # 迁移语句：对已存在的旧表补加列（IF NOT EXISTS 语法 SQLite ≥ 3.37 支持）
 _MIGRATE_SQL = """
 ALTER TABLE job_cache ADD COLUMN assessment TEXT;
+ALTER TABLE search_stats ADD COLUMN cv_hash TEXT NOT NULL DEFAULT '';
 """
 
 
@@ -98,9 +95,11 @@ def _conn():
         # 迁移：旧库补加 assessment 列（列已存在时 SQLite 会报错，忽略即可）
         for migration in (
             "ALTER TABLE job_cache ADD COLUMN assessment TEXT",
-            "ALTER TABLE job_cache ADD COLUMN company_profile TEXT",
+            "ALTER TABLE job_cache ADD COLUMN company_profile TEXT",  # deprecated, kept for old DB compat
             "ALTER TABLE job_cache ADD COLUMN date_posted TEXT DEFAULT ''",
+            "ALTER TABLE job_cache ADD COLUMN raw_sources TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE search_stats ADD COLUMN funnel_json TEXT",
+            "ALTER TABLE search_stats ADD COLUMN cv_hash TEXT NOT NULL DEFAULT ''",
         ):
             try:
                 con.execute(migration)
@@ -144,7 +143,7 @@ def _insert_job(job: JobResult) -> None:
             """
             INSERT INTO job_cache
               (dedup_key, title, company, location, description_snippet,
-               url, sources, date_posted, fetched_at, expires_at, is_complete, assessment, company_profile)
+               url, sources, raw_sources, date_posted, fetched_at, expires_at, is_complete, assessment)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -155,34 +154,36 @@ def _insert_job(job: JobResult) -> None:
                 job.description_snippet,
                 job.url,
                 json.dumps(job.sources),
+                json.dumps(job.raw_sources),
                 job.date_posted,
                 job.fetched_at.isoformat(),
                 job.expires_at.isoformat() if job.expires_at else None,
                 int(job.is_complete),
                 job.assessment.model_dump_json() if job.assessment else None,
-                job.company_profile.model_dump_json() if job.company_profile else None,
             ),
         )
 
 
 def _merge_job(existing: JobResult, new: JobResult) -> None:
-    """追加新来源；若新记录有 expires_at / company_profile / assessment，则更新。"""
+    """追加新来源；若新记录有 expires_at / assessment，则更新。"""
     merged_sources = list(dict.fromkeys(existing.sources + new.sources))
+    # raw_sources 按 source 去重合并
+    existing_src_names = {r["source"] for r in existing.raw_sources}
+    merged_raw = list(existing.raw_sources) + [r for r in new.raw_sources if r["source"] not in existing_src_names]
     new_expires = new.expires_at or existing.expires_at
-    new_company = new.company_profile or existing.company_profile
     new_assessment = new.assessment or existing.assessment
 
     with _conn() as con:
         con.execute(
             """
             UPDATE job_cache
-            SET sources = ?, expires_at = ?, company_profile = ?, assessment = ?
+            SET sources = ?, raw_sources = ?, expires_at = ?, assessment = ?
             WHERE dedup_key = ?
             """,
             (
                 json.dumps(merged_sources),
+                json.dumps(merged_raw),
                 new_expires.isoformat() if new_expires else None,
-                new_company.model_dump_json() if new_company else None,
                 new_assessment.model_dump_json() if new_assessment else None,
                 existing.dedup_key,
             ),
@@ -242,22 +243,20 @@ def get_jobs_by_keys(dedup_keys: list[str]) -> list[JobResult]:
 def _row_to_job(row: sqlite3.Row) -> JobResult:
     keys = row.keys()
     raw_assessment = row["assessment"] if "assessment" in keys else None
-    raw_company = row["company_profile"] if "company_profile" in keys else None
     assessment = JobAssessment.model_validate_json(raw_assessment) if raw_assessment else None
-    company_profile = CompanyProfile.model_validate_json(raw_company) if raw_company else None
     return JobResult(
         title=row["title"],
         company=row["company"],
         location=row["location"] or "",
         url=row["url"],
         description_snippet=row["description_snippet"] or "",
-        sources=json.loads(row["sources"] or "[]"),
+        sources=[s if isinstance(s, str) else s.get("source", "") for s in json.loads(row["sources"] or "[]")],
+        raw_sources=json.loads(row["raw_sources"] if "raw_sources" in row.keys() and row["raw_sources"] else "[]"),
         date_posted=row["date_posted"] if "date_posted" in row.keys() and row["date_posted"] else "",
         fetched_at=datetime.fromisoformat(row["fetched_at"]),
         expires_at=datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None,
         is_complete=bool(row["is_complete"]),
         assessment=assessment,
-        company_profile=company_profile,
     )
 
 
@@ -451,49 +450,6 @@ def get_latest_cv_profile() -> CVProfile | None:
     return CVProfile.model_validate_json(row["profile_json"])
 
 
-# ─── 公司信息缓存 ─────────────────────────────────────────────────────────────
-
-_COMPANY_CACHE_TTL_DAYS = 30
-
-
-def get_company_profile(company_key: str) -> CompanyProfile | None:
-    """查询公司信息缓存（30天TTL），未命中或过期返回 None。"""
-    with _conn() as con:
-        row = con.execute(
-            "SELECT profile_json, cached_at FROM company_cache WHERE company_key = ?",
-            (company_key,),
-        ).fetchone()
-    if row is None:
-        return None
-    age = (datetime.utcnow() - datetime.fromisoformat(row["cached_at"])).days
-    if age > _COMPANY_CACHE_TTL_DAYS:
-        return None
-    return CompanyProfile.model_validate_json(row["profile_json"])
-
-
-def save_company_profile(company_key: str, profile: CompanyProfile) -> None:
-    """将 CompanyProfile 写入缓存（已存在则覆盖）。"""
-    with _conn() as con:
-        con.execute(
-            """
-            INSERT INTO company_cache (company_key, profile_json, cached_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(company_key) DO UPDATE SET profile_json = excluded.profile_json,
-                                                   cached_at = excluded.cached_at
-            """,
-            (company_key, profile.model_dump_json(), datetime.utcnow().isoformat()),
-        )
-
-
-def update_job_company_profile(dedup_key: str, profile: CompanyProfile) -> None:
-    """单独更新某条 JD 的 company_profile（公司信息异步补充时使用）。"""
-    with _conn() as con:
-        con.execute(
-            "UPDATE job_cache SET company_profile = ? WHERE dedup_key = ?",
-            (profile.model_dump_json(), dedup_key),
-        )
-
-
 def update_job_assessment(dedup_key: str, assessment: JobAssessment) -> None:
     """单独更新某条 JD 的 assessment（独立评估命令使用）。"""
     with _conn() as con:
@@ -551,13 +507,14 @@ def save_search_stats(
     tokens_out: int,
     jobs_found: int,
     funnel: dict | None = None,
+    cv_hash: str = "",
 ) -> int:
     """记录一次搜索的耗时和 token 消耗，返回插入行的 id。"""
     with _conn() as con:
         cur = con.execute(
             """INSERT INTO search_stats
-               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, funnel_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, funnel_json, cv_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 datetime.utcnow().isoformat(),
                 location,
@@ -569,6 +526,7 @@ def save_search_stats(
                 tokens_out,
                 jobs_found,
                 json.dumps(funnel, ensure_ascii=False) if funnel else None,
+                cv_hash,
             ),
         )
         return cur.lastrowid or 0

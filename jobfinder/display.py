@@ -25,7 +25,6 @@ def show_profile(profile: CVProfile) -> None:
     table.add_column("字段", style="bold cyan", width=20)
     table.add_column("值", style="white")
 
-    table.add_row("姓名", profile.name)
     table.add_row("摘要", profile.summary)
     table.add_row("经验年限", str(profile.years_of_experience) + " 年")
     table.add_row("级别", profile.seniority)
@@ -55,7 +54,6 @@ def show_jobs(jobs: list[JobResult]) -> None:
     table.add_column("公司", max_width=18)
     table.add_column("地点", max_width=12)
     table.add_column("分", style="bold cyan", width=4)
-    table.add_column("规模", width=10)
     table.add_column("匹配词", max_width=25)
     table.add_column("来源", style="dim", max_width=12)
     table.add_column("状态", width=6)
@@ -71,10 +69,6 @@ def show_jobs(jobs: list[JobResult]) -> None:
         score_str = str(job.assessment.score) if job.assessment else "-"
         keywords_str = ", ".join(job.assessment.matched_keywords[:4]) if job.assessment else "-"
 
-        cp = job.company_profile
-        size_map = {"startup": "startup", "sme": "SME", "enterprise": "enterprise"}
-        company_size = size_map.get(cp.size, "-") if cp else "-"
-
         sources = ", ".join(job.sources[:2])
         table.add_row(
             str(i),
@@ -82,7 +76,6 @@ def show_jobs(jobs: list[JobResult]) -> None:
             job.company,
             job.location or "-",
             score_str,
-            company_size,
             keywords_str or "-",
             sources or "-",
             status,
@@ -114,18 +107,6 @@ def show_job_detail(job: JobResult) -> None:
         lines.append(f"\n[bold cyan]匹配分：[/bold cyan]{a.score}/10  {bar}")
         if a.matched_keywords:
             lines.append(f"[bold cyan]匹配关键词：[/bold cyan]{', '.join(a.matched_keywords)}")
-
-    if job.company_profile:
-        cp = job.company_profile
-        if cp.overview:
-            lines.append(f"\n[bold cyan]公司概述：[/bold cyan]{cp.overview}")
-        meta = "  ".join(filter(None, [
-            f"规模：{cp.size}" if cp.size != "unknown" else "",
-            f"行业：{cp.industry}" if cp.industry else "",
-            f"总部：{cp.hq_location}" if cp.hq_location else "",
-        ]))
-        if meta:
-            lines.append(f"[bold cyan]{meta}[/bold cyan]")
 
     lines.append("")
     lines.append(job.description_snippet or "（无摘要）")
@@ -164,33 +145,6 @@ def _job_to_markdown(job: JobResult) -> str:
             lines.append(f"- {w}")
     else:
         lines.append("_本职位未进行 CV 匹配评估（无 CV 数据或评估被跳过）。_")
-
-    # 公司信息段落
-    lines += ["", "---", "", "## 公司信息"]
-    cp = job.company_profile
-
-    def _cp_val(v: str) -> str:
-        return "-" if (not v or v == "unknown") else v
-
-    if cp is None:
-        lines.append("_暂无公司信息（未触发查询）。_")
-    elif not cp.overview and cp.size == "unknown" and not cp.industry and not cp.hq_location:
-        lines.append("_公司信息不足（搜索结果不明确，可能为规模较小的本地公司）。_")
-    else:
-        if cp.overview:
-            lines.append(cp.overview)
-            lines.append("")
-        meta = []
-        if cp.size != "unknown":
-            meta.append(f"规模：{cp.size}")
-        if cp.industry:
-            meta.append(f"行业：{cp.industry}")
-        if cp.hq_location:
-            meta.append(f"总部：{cp.hq_location}")
-        if meta:
-            lines.append("  ".join(f"**{m}**" for m in meta))
-        if cp.career_page_url:
-            lines.append(f"**招聘页**：{cp.career_page_url}")
 
     return "\n".join(lines)
 
