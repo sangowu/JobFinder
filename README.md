@@ -103,6 +103,10 @@ After every search, stats are automatically written to the `reports/` directory:
 - **All data is stored locally**: parsed CV profiles and job listings are stored in a local SQLite database (`jobfinder_cache.db`) and are never uploaded to any third-party server.
 - **Log file** (`jobfinder.log`) records search terms and timestamps only — it does not contain CV personal data or API keys, and is excluded from git via `.gitignore`.
 
+## Known Limitations
+
+This is a solo side project maintained in spare time. Some features — particularly **location-based filtering** — may produce inconsistent results depending on the job source. If you run into a bug or unexpected behaviour, feel free to [open an issue](https://github.com/sangowu/JobFinder/issues).
+
 ## Roadmap
 
 - **Smarter LLM Assessment** — Stabilise strengths/weaknesses output: ensure experience-gap mismatches consistently surface as weaknesses, and reduce variance across repeated evaluations of the same JD
