@@ -993,6 +993,8 @@ function setLang(l) {
   applyLang();
   if (typeof renderList === 'function') renderList();
   if (activeJob) showJobDetail(activeJob);
+  renderProviderList();
+  renderAdzunaStatus();
 }
 
 // ─── Dark mode ────────────────────────────────────────────────────────────────
