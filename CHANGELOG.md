@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] — 2026-04-18
+
 ### Breaking Changes
 
 - **项目从 JobFinder 重命名为 JobRadar**

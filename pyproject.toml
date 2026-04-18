@@ -1,6 +1,6 @@
 [project]
 name = "jobradar"
-version = "0.2.0"
+version = "0.3.0"
 description = "Radar-scan the job market against your CV — auto-discover, scrape and LLM-assess matching roles"
 license = {text = "BUSL-1.1"}
 requires-python = ">=3.11"
