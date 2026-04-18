@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **CV 解析错误提示未跟随 UI 语言**（`llm_backend.py` / `index.html`）
+  `llm_backend.py` 中 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 未设置时抛出的 `EnvironmentError` 消息从硬编码中文改为英文（`not set`）。
+  `index.html` 新增三语 i18n key `msg.no_api_key`；CV 上传 catch 块检测到 "not set" 错误时展示本地化友好提示，而非拼接原始英文错误字符串。
+
 ---
 
 ## [0.3.0] — 2026-04-18

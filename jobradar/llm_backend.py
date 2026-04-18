@@ -230,7 +230,7 @@ def _get_anthropic():
     from anthropic import Anthropic
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
-        raise EnvironmentError("ANTHROPIC_API_KEY 未设置")
+        raise EnvironmentError("ANTHROPIC_API_KEY not set")
     return Anthropic(api_key=key)
 
 
@@ -301,7 +301,7 @@ def _get_gemini_client():
     from google import genai
     key = os.getenv("GEMINI_API_KEY")
     if not key:
-        raise EnvironmentError("GEMINI_API_KEY 未设置")
+        raise EnvironmentError("GEMINI_API_KEY not set")
     return genai.Client(api_key=key)
 
 

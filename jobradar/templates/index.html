@@ -801,7 +801,7 @@ const I18N = {
     'modal.title': '确认删除', 'modal.cancel': '取消', 'modal.confirm': '删除',
     'dot.read_on': '已读', 'dot.read_off': '未读', 'dot.applied_on': '已投递', 'dot.applied_off': '未投递',
     'dot.replied_on': '已回复', 'dot.replied_off': '未回复',
-    'msg.parse_fail': 'CV 解析失败：', 'msg.discover_done': '新增 {0} 个 role',
+    'msg.parse_fail': 'CV 解析失败：', 'msg.no_api_key': '未配置任何 LLM API Key，请先前往「API 配置」页面设置。', 'msg.discover_done': '新增 {0} 个 role',
     'msg.discover_fail': '发现失败：', 'msg.discovering': '发现中…',
     'msg.search_require': '请先上传 CV 并确认 title', 'msg.searching': '搜索中…',
     'msg.source_required': '请至少选择一个搜索来源', 'msg.search_fail_start': '搜索启动失败：', 'msg.search_done': '找到 {0} 个匹配职位',
@@ -880,7 +880,7 @@ const I18N = {
     'modal.title': 'Confirm Delete', 'modal.cancel': 'Cancel', 'modal.confirm': 'Delete',
     'dot.read_on': 'Read', 'dot.read_off': 'Unread', 'dot.applied_on': 'Applied', 'dot.applied_off': 'Not Applied',
     'dot.replied_on': 'Replied', 'dot.replied_off': 'No Reply',
-    'msg.parse_fail': 'CV parse failed: ', 'msg.discover_done': '{0} new role(s) added',
+    'msg.parse_fail': 'CV parse failed: ', 'msg.no_api_key': 'No LLM API key configured. Go to API Configuration to set one up.', 'msg.discover_done': '{0} new role(s) added',
     'msg.discover_fail': 'Discovery failed: ', 'msg.discovering': 'Discovering…',
     'msg.search_require': 'Please upload CV and confirm titles first', 'msg.searching': 'Searching…',
     'msg.source_required': 'Please select at least one source', 'msg.search_fail_start': 'Search failed to start: ', 'msg.search_done': 'Found {0} matching jobs',
@@ -959,7 +959,7 @@ const I18N = {
     'modal.title': 'Confirmar eliminación', 'modal.cancel': 'Cancelar', 'modal.confirm': 'Eliminar',
     'dot.read_on': 'Leído', 'dot.read_off': 'No leído', 'dot.applied_on': 'Postulado', 'dot.applied_off': 'Sin postular',
     'dot.replied_on': 'Respondido', 'dot.replied_off': 'Sin respuesta',
-    'msg.parse_fail': 'Error al analizar CV: ', 'msg.discover_done': '{0} rol(es) nuevo(s) añadido(s)',
+    'msg.parse_fail': 'Error al analizar CV: ', 'msg.no_api_key': 'No hay API Key configurada. Ve a Configuración API para añadir una.', 'msg.discover_done': '{0} rol(es) nuevo(s) añadido(s)',
     'msg.discover_fail': 'Error en descubrimiento: ', 'msg.discovering': 'Descubriendo…',
     'msg.search_require': 'Sube el CV y confirma los títulos primero', 'msg.searching': 'Buscando…',
     'msg.source_required': 'Selecciona al menos una fuente', 'msg.search_fail_start': 'Error al iniciar búsqueda: ', 'msg.search_done': 'Se encontraron {0} empleos',
@@ -1884,7 +1884,8 @@ async function handleFileSelect(file) {
     showTitlesStep();
   } catch(e) {
     statusEl.classList.add("hidden");
-    showToast(`${t('msg.parse_fail')}${e.message}`, true);
+    const msg = /not set/i.test(e.message) ? t('msg.no_api_key') : `${t('msg.parse_fail')}${e.message}`;
+    showToast(msg, true);
   }
 }
 
