@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **项目从 JobFinder 重命名为 JobRadar**
+  包目录 `jobfinder/` → `jobradar/`，PyPI 包名、CLI 入口、所有模块导入路径同步更新。
+  `pyproject.toml` 补充 `[build-system]` 块（`setuptools.build_meta`），修复 `uv run jobradar` entry point 无法安装的问题。
+  `.gitignore` 模板路径从 `jobfinder/templates/` 更新为 `jobradar/templates/`。
+
+### Improvements
+
+- **UI 品牌更新**（`index.html`）
+  页面标题、导航栏 Logo、三语 i18n（`cfg.enter`）全部从 JobFinder 更新为 JobRadar。
+
 ### New Features
 
 - **动态版本号**（`__init__.py` / `cli.py` / `server.py` / `index.html`）
