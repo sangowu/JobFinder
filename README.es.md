@@ -7,6 +7,10 @@ Busca automáticamente ofertas de trabajo en todo el mundo basándose en tu CV, 
 ## Inicio Rápido
 
 ```bash
+# Instala uv (omite si ya está instalado)
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
+# Windows (PowerShell): irm https://astral.sh/uv/install.ps1 | iex
+
 git clone https://github.com/sangowu/JobRadar.git
 cd JobRadar
 uv sync

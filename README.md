@@ -7,6 +7,10 @@ Automatically search global job listings based on your CV, score matches with LL
 ## Quick Start
 
 ```bash
+# Install uv (skip if already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
+# Windows (PowerShell): irm https://astral.sh/uv/install.ps1 | iex
+
 git clone https://github.com/sangowu/JobRadar.git
 cd JobRadar
 uv sync

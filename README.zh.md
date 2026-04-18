@@ -7,6 +7,10 @@
 ## 快速开始
 
 ```bash
+# 安装 uv（已安装可跳过）
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
+# Windows（PowerShell）：irm https://astral.sh/uv/install.ps1 | iex
+
 git clone https://github.com/sangowu/JobRadar.git
 cd JobRadar
 uv sync
