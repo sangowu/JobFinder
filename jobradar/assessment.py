@@ -103,7 +103,9 @@ def batch_assess_jds(
 请按编号顺序，在 results 数组中返回每个职位的评估，字段：
 - relevant：bool，职位是否值得投递
 - reason：一句话说明 relevant 判断的理由（用 {lang_name}）
-- score：整数 0~10，综合匹配分
+- score：整数 0~10，综合匹配分；
+  若 JD 明确要求的工作年限超过候选人实际年限，按以下规则限制上限：
+  差距 ≤ 2 年不限制；差距 3~5 年 score 上限为 5；差距 > 5 年 score 上限为 3。
 - strengths：list[str]，候选人申请该职位的真实优势，0~5 条；若无实质优势则返回空列表（用 {lang_name}）
 - weaknesses：list[str]，候选人申请该职位的真实劣势，0~5 条；若无实质劣势则返回空列表；
   若 JD 明确要求的工作年限超过候选人实际年限，必须在此列出（用 {lang_name}）
