@@ -10,15 +10,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 
-from jobfinder import cache
-from jobfinder.assessment import JDAssessment, batch_assess_jds
-from jobfinder.filters import is_seniority_ok
-from jobfinder.logger import get_logger
-from jobfinder.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
-from jobfinder.pipeline_stats import PipelineStats
-from jobfinder.schemas import CVProfile, is_closed_posting, make_dedup_key, SearchSession
-from jobfinder.scraping import scrape_sources
-from jobfinder.tools import record_failed_url, write_cache
+from jobradar import cache
+from jobradar.assessment import JDAssessment, batch_assess_jds
+from jobradar.filters import is_seniority_ok
+from jobradar.logger import get_logger
+from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
+from jobradar.pipeline_stats import PipelineStats
+from jobradar.schemas import CVProfile, is_closed_posting, make_dedup_key, SearchSession
+from jobradar.scraping import scrape_sources
+from jobradar.tools import record_failed_url, write_cache
 
 logger = get_logger(__name__)
 

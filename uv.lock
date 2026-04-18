@@ -638,7 +638,7 @@ wheels = [
 ]
 
 [[package]]
-name = "jobfinder"
+name = "jobradar"
 version = "0.2.0"
 source = { virtual = "." }
 dependencies = [

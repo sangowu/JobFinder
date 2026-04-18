@@ -1,14 +1,14 @@
 """统一日志配置。
 
 使用方式：
-    from jobfinder.logger import get_logger
+    from jobradar.logger import get_logger
     log = get_logger(__name__)
     log.info("消息")
     log.debug("调试信息")
 
 环境变量：
     LOG_LEVEL   日志级别，默认 INFO（可设为 DEBUG 查看详细请求）
-    LOG_FILE    日志文件路径，默认 jobfinder.log（设为空字符串禁用文件日志）
+    LOG_FILE    日志文件路径，默认 jobradar.log（设为空字符串禁用文件日志）
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-_LOG_FILE = os.getenv("LOG_FILE", "jobfinder.log")
+_LOG_FILE = os.getenv("LOG_FILE", "jobradar.log")
 
 _FMT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 _DATE_FMT = "%Y-%m-%d %H:%M:%S"
@@ -32,7 +32,7 @@ def _configure() -> None:
         return
     _configured = True
 
-    root = logging.getLogger("jobfinder")
+    root = logging.getLogger("jobradar")
     root.setLevel(_LOG_LEVEL)
     root.propagate = False
 
@@ -60,7 +60,7 @@ def _configure() -> None:
 def get_logger(name: str) -> logging.Logger:
     """获取模块专属 logger，自动触发全局配置。"""
     _configure()
-    # 将模块路径转为 jobfinder.xxx 命名空间
-    if not name.startswith("jobfinder"):
-        name = f"jobfinder.{name}"
+    # 将模块路径转为 jobradar.xxx 命名空间
+    if not name.startswith("jobradar"):
+        name = f"jobradar.{name}"
     return logging.getLogger(name)

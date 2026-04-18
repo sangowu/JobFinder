@@ -16,20 +16,20 @@ from rich.markup import escape
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from jobfinder import cache
+from jobradar import cache
 import hashlib
 import json
 
-from jobfinder import cache
-from jobfinder.agent import run_search
-from jobfinder.assessment import batch_assess_jds
-from jobfinder.cv_extractor import extract_cv_profile
-from jobfinder.cv_reader import read_cv
-from jobfinder.llm_backend import LLMConfig
-from jobfinder.telemetry import telemetry
-from jobfinder.title_discovery import DiscoverResult, _TitleGroup, discover_titles
-from jobfinder.tools import verify_job_active
-from jobfinder.display import (
+from jobradar import cache
+from jobradar.agent import run_search
+from jobradar.assessment import batch_assess_jds
+from jobradar.cv_extractor import extract_cv_profile
+from jobradar.cv_reader import read_cv
+from jobradar.llm_backend import LLMConfig
+from jobradar.telemetry import telemetry
+from jobradar.title_discovery import DiscoverResult, _TitleGroup, discover_titles
+from jobradar.tools import verify_job_active
+from jobradar.display import (
     console,
     open_job_in_editor,
     prompt_choice,
@@ -38,7 +38,7 @@ from jobfinder.display import (
     show_jobs,
     show_profile,
 )
-from jobfinder.llm_backend import (
+from jobradar.llm_backend import (
     AVAILABLE_MODELS,
     DEFAULT_MODELS,
     Provider,
@@ -50,17 +50,17 @@ from jobfinder.llm_backend import (
 
 load_dotenv()
 
-from jobfinder import __version__
+from jobradar import __version__
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        console.print(f"jobfinder v{__version__}")
+        console.print(f"jobradar v{__version__}")
         raise typer.Exit()
 
 
 app = typer.Typer(
-    name="jobfinder",
+    name="jobradar",
     help="根据你的 CV 自动搜索匹配职位",
     no_args_is_help=True,
 )
@@ -476,7 +476,7 @@ def _interactive_menu(jobs) -> None:
             idx = prompt_choice("选择职位编号", [f"{j.title} @ {j.company}" for j in jobs])
             open_job_in_editor(jobs[idx], editor="obsidian")
         elif choice == 4:
-            out_path = Path("jobfinder_results.json")
+            out_path = Path("jobradar_results.json")
             out_path.write_text(
                 json.dumps([j.model_dump(mode="json") for j in jobs], ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -633,7 +633,7 @@ def serve(
     host: Annotated[str,  typer.Option("--host", help="监听地址")] = "127.0.0.1",
     port: Annotated[int,  typer.Option("--port", "-p", help="监听端口")] = 8765,
     no_browser: Annotated[bool, typer.Option("--no-browser", help="不自动打开浏览器")] = False,
-    mock: Annotated[bool, typer.Option("--mock", help="测试模式：使用独立数据库（jobfinder_test_cache.db），不污染正式缓存")] = False,
+    mock: Annotated[bool, typer.Option("--mock", help="测试模式：使用独立数据库（jobradar_test_cache.db），不污染正式缓存")] = False,
 ) -> None:
     """启动 Web UI（FastAPI + uvicorn），在浏览器中使用 JobFinder。"""
     import threading, time
@@ -641,8 +641,8 @@ def serve(
 
     if mock:
         os.environ["JOBFINDER_MOCK"] = "1"
-        os.environ["CACHE_DB_PATH"] = "jobfinder_test_cache.db"
-        console.print("[yellow]⚠ 测试模式已启用：使用独立数据库 jobfinder_test_cache.db，正式缓存不受影响。[/yellow]")
+        os.environ["CACHE_DB_PATH"] = "jobradar_test_cache.db"
+        console.print("[yellow]⚠ 测试模式已启用：使用独立数据库 jobradar_test_cache.db，正式缓存不受影响。[/yellow]")
 
     url = f"http://{host}:{port}"
     console.print(f"\n[bold green]JobFinder Web UI[/bold green]  →  {url}\n")
@@ -655,7 +655,7 @@ def serve(
         threading.Thread(target=_open, daemon=True).start()
 
     uvicorn.run(
-        "jobfinder.server:app",
+        "jobradar.server:app",
         host=host,
         port=port,
         log_level="warning",

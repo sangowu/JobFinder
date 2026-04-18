@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Callable
 
 from pydantic import BaseModel
 
-from jobfinder.logger import get_logger
+from jobradar.logger import get_logger
 
 if TYPE_CHECKING:
-    from jobfinder.llm_backend import LLMConfig
-    from jobfinder.pipeline_stats import PipelineStats
-    from jobfinder.schemas import CVProfile
+    from jobradar.llm_backend import LLMConfig
+    from jobradar.pipeline_stats import PipelineStats
+    from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
 
@@ -37,7 +37,7 @@ def _filter_cards_by_llm(
     threshold: float = 0.6,
 ) -> set[int]:
     """单次 LLM 调用批量打分，返回 score >= threshold 的 id 集合；失败时保留全部。"""
-    from jobfinder.llm_backend import complete_structured
+    from jobradar.llm_backend import complete_structured
 
     roles_str  = ", ".join(cv_profile.preferred_roles[:10])
     skills_str = ", ".join(cv_profile.skills[:15])

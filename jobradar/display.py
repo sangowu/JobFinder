@@ -14,7 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from jobfinder.schemas import CVProfile, JobResult
+from jobradar.schemas import CVProfile, JobResult
 
 console = Console()
 
@@ -152,7 +152,7 @@ def _job_to_markdown(job: JobResult) -> str:
 def open_job_in_editor(job: JobResult, editor: str = "vscode") -> None:
     """将职位详情写入临时 Markdown 文件并用编辑器打开。"""
     safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in job.title)[:50]
-    tmp_dir = Path(tempfile.gettempdir()) / "jobfinder"
+    tmp_dir = Path(tempfile.gettempdir()) / "jobradar"
     tmp_dir.mkdir(exist_ok=True)
     md_path = tmp_dir / f"{safe_name}.md"
     md_path.write_text(_job_to_markdown(job), encoding="utf-8")

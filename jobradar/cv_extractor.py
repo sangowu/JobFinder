@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import hashlib
 
-from jobfinder import cache
-from jobfinder.llm_backend import DEFAULT_MODELS, LLMConfig, Provider, complete_structured
-from jobfinder.logger import get_logger
-from jobfinder.schemas import CVProfile
+from jobradar import cache
+from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider, complete_structured
+from jobradar.logger import get_logger
+from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
 

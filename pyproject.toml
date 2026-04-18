@@ -1,7 +1,7 @@
 [project]
-name = "jobfinder"
+name = "jobradar"
 version = "0.2.0"
-description = "CLI agent to find jobs matching your CV"
+description = "Radar-scan the job market against your CV — auto-discover, scrape and LLM-assess matching roles"
 license = {text = "BUSL-1.1"}
 requires-python = ">=3.11"
 dependencies = [
@@ -24,7 +24,10 @@ dependencies = [
 ]
 
 [project.scripts]
-jobfinder = "jobfinder.cli:app"
+jobradar = "jobradar.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["jobradar*"]
 
 [dependency-groups]
 dev = [

@@ -1,8 +1,8 @@
 """FastAPI Web 服务器：为 Web UI 提供 REST API 和 SSE 进度流。
 
 启动方式：
-    uv run jobfinder serve            # 正常模式（使用 jobfinder_cache.db）
-    uv run jobfinder serve --mock     # 测试模式（使用 jobfinder_test_cache.db，API 调用真实发生）
+    uv run jobfinder serve            # 正常模式（使用 jobradar_cache.db）
+    uv run jobfinder serve --mock     # 测试模式（使用 jobradar_test_cache.db，API 调用真实发生）
 """
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ from pydantic import BaseModel
 
 from dotenv import load_dotenv
 
-from jobfinder import __version__, cache
-from jobfinder.dedup_check import run_dedup_check
-from jobfinder.cv_extractor import extract_cv_profile
-from jobfinder.cv_reader import read_cv
-from jobfinder.logger import get_logger
-from jobfinder.llm_backend import (
+from jobradar import __version__, cache
+from jobradar.dedup_check import run_dedup_check
+from jobradar.cv_extractor import extract_cv_profile
+from jobradar.cv_reader import read_cv
+from jobradar.logger import get_logger
+from jobradar.llm_backend import (
     AVAILABLE_MODELS,
     DEFAULT_MODELS,
     _COMPAT_PROVIDERS,
@@ -46,7 +46,7 @@ load_dotenv()
 
 logger = get_logger(__name__)
 
-# ─── 测试模式开关（--mock：使用 jobfinder_test_cache.db，所有 API 调用真实发生） ──
+# ─── 测试模式开关（--mock：使用 jobradar_test_cache.db，所有 API 调用真实发生） ──
 
 MOCK_MODE: bool = os.getenv("JOBFINDER_MOCK") == "1"
 # mock 模式下需要保护的运行时 env var，不允许被 load_dotenv(override=True) 覆盖
@@ -81,7 +81,7 @@ _main_loop: asyncio.AbstractEventLoop | None = None
 async def _capture_loop() -> None:
     global _main_loop
     _main_loop = asyncio.get_event_loop()
-    db_path = os.getenv("CACHE_DB_PATH", "jobfinder_cache.db")
+    db_path = os.getenv("CACHE_DB_PATH", "jobradar_cache.db")
     logger.info("JobFinder server started | mock=%s | db=%s", MOCK_MODE, db_path)
 
 
@@ -257,7 +257,7 @@ def reset_models() -> dict:
 @app.post("/api/models/refresh")
 def refresh_models() -> dict:
     """根据已配置的 API Key 拉取各 provider 最新模型列表，更新内存中的 AVAILABLE_MODELS。"""
-    from jobfinder.model_fetcher import fetch_all
+    from jobradar.model_fetcher import fetch_all
     _reload_dotenv()
     fetched = fetch_all(top_n=6)
     updated: dict[str, list[str]] = {}
@@ -319,8 +319,8 @@ class DiscoverTitlesRequest(BaseModel):
 
 @app.post("/api/titles/discover")
 def discover_titles_endpoint(req: DiscoverTitlesRequest) -> dict:
-    from jobfinder.schemas import CVProfile
-    from jobfinder.title_discovery import discover_titles
+    from jobradar.schemas import CVProfile
+    from jobradar.title_discovery import discover_titles
 
     profile = cache.get_cv_profile(req.cv_hash) or cache.get_latest_cv_profile()
     if profile is None and req.profile:
@@ -398,9 +398,9 @@ async def _run_search_task(req: SearchRequest) -> None:
     def run() -> None:
         global _search_running
         import time as _time
-        from jobfinder.telemetry import telemetry
+        from jobradar.telemetry import telemetry
         try:
-            from jobfinder.agent import run_search
+            from jobradar.agent import run_search
 
             profile = cache.get_cv_profile(req.cv_hash)
             if profile is None:
@@ -550,7 +550,7 @@ def delete_stats() -> dict:
 @app.get("/api/logs")
 def get_logs(lines: int = 200, level: str = "") -> dict:
     """返回日志文件最后 N 行，可按 level 过滤（ERROR/WARNING/INFO/DEBUG）。"""
-    from jobfinder.logger import _LOG_FILE
+    from jobradar.logger import _LOG_FILE
     log_path = Path(_LOG_FILE) if _LOG_FILE else None
     if not log_path or not log_path.exists():
         return {"lines": [], "path": str(log_path or "disabled")}

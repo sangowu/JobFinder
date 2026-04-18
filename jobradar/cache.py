@@ -8,9 +8,9 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from jobfinder.schemas import CVProfile, FailedURL, JobAssessment, JobResult, SearchSession
+from jobradar.schemas import CVProfile, FailedURL, JobAssessment, JobResult, SearchSession
 
-_DEFAULT_DB_PATH = "jobfinder_cache.db"
+_DEFAULT_DB_PATH = "jobradar_cache.db"
 
 _INIT_SQL = """
 CREATE TABLE IF NOT EXISTS job_cache (

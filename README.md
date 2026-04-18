@@ -1,4 +1,4 @@
-# JobFinder
+# JobRadar
 
 > [中文](README.zh.md) · **English** · [Español](README.es.md)
 
@@ -8,26 +8,26 @@ Automatically search global job listings based on your CV, score matches with LL
 
 ```bash
 uv sync
-uv run jobfinder serve       # Launch Web UI (http://127.0.0.1:8765)
+uv run jobradar serve       # Launch Web UI (http://127.0.0.1:8765)
 # Open your browser and configure API keys in the "API Config" page
 # Or configure manually via .env:
 cp .env.example .env         # Fill in your API keys
-uv run jobfinder find cv.docx  # CLI mode
+uv run jobradar find cv.docx  # CLI mode
 ```
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `uv run jobfinder serve` | Launch Web UI |
-| `uv run jobfinder serve --mock` | Test mode (isolated DB, won't affect real cache) |
-| `uv run jobfinder find cv.docx` | CLI: parse CV → discover titles → scrape → assess |
-| `uv run jobfinder find cv.docx --refresh` | Force re-search, ignore all caches |
-| `uv run jobfinder results` | Browse cached results from the last search |
-| `uv run jobfinder assess` | Re-run LLM assessment on cached JDs |
-| `uv run jobfinder model` | Interactively choose LLM provider and model |
-| `uv run jobfinder cache clear` | Clear all caches |
-| `uv run jobfinder --version` | Show current version |
+| `uv run jobradar serve` | Launch Web UI |
+| `uv run jobradar serve --mock` | Test mode (isolated DB, won't affect real cache) |
+| `uv run jobradar find cv.docx` | CLI: parse CV → discover titles → scrape → assess |
+| `uv run jobradar find cv.docx --refresh` | Force re-search, ignore all caches |
+| `uv run jobradar results` | Browse cached results from the last search |
+| `uv run jobradar assess` | Re-run LLM assessment on cached JDs |
+| `uv run jobradar model` | Interactively choose LLM provider and model |
+| `uv run jobradar cache clear` | Clear all caches |
+| `uv run jobradar --version` | Show current version |
 
 ## Pipeline Overview
 
@@ -72,7 +72,7 @@ LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 ADZUNA_APP_ID=
 ADZUNA_APP_KEY=
 
-# Default model (auto-written by `jobfinder model`)
+# Default model (auto-written by `jobradar model`)
 DEFAULT_PROVIDER=gemini
 DEFAULT_MODEL=gemini-2.0-flash
 ```
@@ -100,8 +100,8 @@ After every search, stats are automatically written to the `reports/` directory:
 ## Privacy & Security
 
 - **CV content** is sent to your configured LLM API (Anthropic / Google / OpenAI, etc.) for parsing and assessment. Please ensure you trust your chosen provider's data policy.
-- **All data is stored locally**: parsed CV profiles and job listings are stored in a local SQLite database (`jobfinder_cache.db`) and are never uploaded to any third-party server.
-- **Log file** (`jobfinder.log`) records search terms and timestamps only — it does not contain CV personal data or API keys, and is excluded from git via `.gitignore`.
+- **All data is stored locally**: parsed CV profiles and job listings are stored in a local SQLite database (`jobradar_cache.db`) and are never uploaded to any third-party server.
+- **Log file** (`jobradar.log`) records search terms and timestamps only — it does not contain CV personal data or API keys, and is excluded from git via `.gitignore`.
 - **PII in CV**: If you are concerned about sending personal information to an external LLM provider, remove it from your CV before uploading (name, email, phone, address). LinkedIn / GitHub links carry no additional risk.
 - **Prompt injection protection**: Job description content scraped from external sources is wrapped in `<jd_content>` boundary tags, and the system prompt explicitly instructs the LLM to treat tag contents as data only, ignoring any embedded instructions.
 

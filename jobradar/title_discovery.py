@@ -14,8 +14,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from pydantic import BaseModel
 
-from jobfinder.llm_backend import LLMConfig, Provider, complete_structured
-from jobfinder.logger import get_logger
+from jobradar.llm_backend import LLMConfig, Provider, complete_structured
+from jobradar.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -372,7 +372,7 @@ def discover_titles(
     主入口：从 CV 技能中选出最具代表性的关键词 → Adzuna US+UK 抓取真实 title →
     LLM 归纳聚类 → CV 匹配过滤 → 按频次排序返回候选 title 列表。
     """
-    from jobfinder.llm_backend import DEFAULT_MODELS
+    from jobradar.llm_backend import DEFAULT_MODELS
     effective_llm = llm or LLMConfig(provider=provider, model=model)
     _provider, _model = effective_llm.provider, effective_llm.model
 

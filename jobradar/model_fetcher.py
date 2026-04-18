@@ -9,7 +9,7 @@ import re
 
 import requests
 
-from jobfinder.logger import get_logger
+from jobradar.logger import get_logger
 
 logger = get_logger(__name__)
 

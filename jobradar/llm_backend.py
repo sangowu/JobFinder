@@ -140,7 +140,7 @@ def complete_structured(
 ) -> BaseModel:
     """调用 LLM，返回符合 response_schema 的 Pydantic 对象。"""
     import time
-    from jobfinder.telemetry import telemetry
+    from jobradar.telemetry import telemetry
 
     m = model or DEFAULT_MODELS.get(provider, "")
     t0 = time.monotonic()

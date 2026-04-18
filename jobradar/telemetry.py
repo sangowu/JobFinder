@@ -1,7 +1,7 @@
 """
 全局遥测模块：记录每次 LLM 调用的 token 消耗和每个步骤的耗时。
 使用方式：
-    from jobfinder.telemetry import telemetry
+    from jobradar.telemetry import telemetry
     with telemetry.timer("CV 解析"):
         result = extract_cv_profile(...)
     telemetry.print_summary()

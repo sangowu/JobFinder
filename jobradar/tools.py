@@ -9,9 +9,9 @@ from urllib.parse import urlparse
 
 import requests
 
-from jobfinder import cache
-from jobfinder.logger import get_logger
-from jobfinder.schemas import JobAssessment, JobResult, make_dedup_key
+from jobradar import cache
+from jobradar.logger import get_logger
+from jobradar.schemas import JobAssessment, JobResult, make_dedup_key
 
 log = get_logger(__name__)
 

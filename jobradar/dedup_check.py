@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 
-from jobfinder import cache
+from jobradar import cache
 
 
 def run_dedup_check(dedup_keys: list[str]) -> dict:

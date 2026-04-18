@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from jobfinder.llm_backend import LLMConfig, complete_structured
-from jobfinder.logger import get_logger
-from jobfinder.schemas import CVProfile, JobAssessment
+from jobradar.llm_backend import LLMConfig, complete_structured
+from jobradar.logger import get_logger
+from jobradar.schemas import CVProfile, JobAssessment
 
 logger = get_logger(__name__)
 
