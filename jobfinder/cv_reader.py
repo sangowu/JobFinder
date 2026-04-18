@@ -10,12 +10,12 @@ def read_cv(path: str | Path) -> str:
         raise FileNotFoundError(f"CV 文件不存在：{path}")
 
     suffix = p.suffix.lower()
-    if suffix == ".md":
+    if suffix in (".md", ".txt"):
         return p.read_text(encoding="utf-8")
     elif suffix == ".docx":
         return _read_docx(p)
     else:
-        raise ValueError(f"不支持的文件格式：{suffix}，仅支持 .md 和 .docx")
+        raise ValueError(f"不支持的文件格式：{suffix}，仅支持 .docx / .md / .txt")
 
 
 def _read_docx(path: Path) -> str:

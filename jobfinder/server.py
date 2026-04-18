@@ -277,9 +277,17 @@ async def parse_cv(
     provider: str = Form(default="gemini"),
     model: str = Form(default=""),
 ) -> dict:
-    suffix = Path(file.filename or "cv.docx").suffix or ".docx"
+    _ALLOWED_SUFFIXES = {".docx", ".md", ".txt"}
+    _MAX_CV_BYTES = 5 * 1024 * 1024  # 5 MB
+
+    suffix = Path(file.filename or "cv.docx").suffix.lower() or ".docx"
+    if suffix not in _ALLOWED_SUFFIXES:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type '{suffix}'. Allowed: .docx / .md / .txt")
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         content = await file.read()
+        if len(content) > _MAX_CV_BYTES:
+            raise HTTPException(status_code=413, detail="CV file too large (max 5 MB)")
         tmp.write(content)
         tmp_path = Path(tmp.name)
 

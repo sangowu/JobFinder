@@ -477,7 +477,7 @@
             </svg>
             <p class="text-sm text-gray-500 dark:text-gray-400"><span data-i18n="upload.drop"></span><span class="text-blue-500 ml-1" data-i18n="upload.click"></span></p>
             <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" data-i18n="upload.formats"></p>
-            <input id="cv-file-input" type="file" accept=".docx,.md" class="hidden" onchange="handleFileSelect(this.files[0])"/>
+            <input id="cv-file-input" type="file" accept=".docx,.md,.txt" class="hidden" onchange="handleFileSelect(this.files[0])"/>
           </div>
           <div id="parse-status" class="hidden text-sm text-center text-gray-400">
             <svg class="inline w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -781,7 +781,7 @@ const I18N = {
     'list.filter_all': '全部', 'list.filter_today': '今天', 'list.filter_week': '本周', 'list.score_all': '全部分数',
     'list.select_all': '全选', 'list.loading': '加载中…', 'list.empty': '暂无职位数据，请上传 CV 开始搜索', 'list.delete': '删除', 'list.cancel': '取消',
     'upload.title': '上传 CV 开始搜索', 'upload.drop': '拖放 CV 文件至此，或', 'upload.click': '点击选择',
-    'upload.formats': '支持 .docx / .md', 'upload.parsing': '解析 CV…',
+    'upload.formats': '支持 .docx / .md / .txt', 'upload.parsing': '解析 CV…',
     'upload.pii_notice': '您的 CV 内容将发送至您自行配置的 LLM Provider 进行分析。本软件不会将数据传输至任何其他第三方服务器。如有 PII 顾虑，请在上传前手动移除个人信息（LinkedIn / GitHub 等链接除外）。隐私安全责任由用户自行承担。',
     'loc.ireland': '爱尔兰 🇮🇪', 'loc.uk': '英国 🇬🇧', 'loc.usa': '美国 🇺🇸', 'loc.canada': '加拿大 🇨🇦', 'loc.australia': '澳大利亚 🇦🇺', 'loc.germany': '德国 🇩🇪', 'loc.singapore': '新加坡 🇸🇬', 'loc.remote': '全球远程 🌐',
     'titles.location': '目标地区', 'titles.roles': '目标职位', 'titles.discover': '从市场数据发现',
@@ -860,7 +860,7 @@ const I18N = {
     'list.filter_all': 'All', 'list.filter_today': 'Today', 'list.filter_week': 'This Week', 'list.score_all': 'All scores',
     'list.select_all': 'Select All', 'list.loading': 'Loading…', 'list.empty': 'No jobs yet — upload your CV to start', 'list.delete': 'Delete', 'list.cancel': 'Cancel',
     'upload.title': 'Upload CV to Start', 'upload.drop': 'Drop CV here, or', 'upload.click': 'click to select',
-    'upload.formats': 'Supports .docx / .md', 'upload.parsing': 'Parsing CV…',
+    'upload.formats': 'Supports .docx / .md / .txt', 'upload.parsing': 'Parsing CV…',
     'upload.pii_notice': 'Your CV content will be sent to your configured LLM provider for analysis. This app does not transmit data to any other third-party servers. If you have PII concerns, please remove personal information before uploading (LinkedIn / GitHub links may be kept). Privacy responsibility lies with the user.',
     'loc.ireland': 'Ireland 🇮🇪', 'loc.uk': 'United Kingdom 🇬🇧', 'loc.usa': 'United States 🇺🇸', 'loc.canada': 'Canada 🇨🇦', 'loc.australia': 'Australia 🇦🇺', 'loc.germany': 'Germany 🇩🇪', 'loc.singapore': 'Singapore 🇸🇬', 'loc.remote': 'Remote (Global) 🌐',
     'titles.location': 'Target Location', 'titles.roles': 'Target Roles', 'titles.discover': 'Discover from Market',
@@ -939,7 +939,7 @@ const I18N = {
     'list.filter_all': 'Todos', 'list.filter_today': 'Hoy', 'list.filter_week': 'Esta semana', 'list.score_all': 'Todas',
     'list.select_all': 'Selec. todo', 'list.loading': 'Cargando…', 'list.empty': 'Sin empleos — sube tu CV para comenzar', 'list.delete': 'Eliminar', 'list.cancel': 'Cancelar',
     'upload.title': 'Sube tu CV para comenzar', 'upload.drop': 'Arrastra el CV aquí, o', 'upload.click': 'haz clic para seleccionar',
-    'upload.formats': 'Admite .docx / .md', 'upload.parsing': 'Analizando CV…',
+    'upload.formats': 'Admite .docx / .md / .txt', 'upload.parsing': 'Analizando CV…',
     'upload.pii_notice': 'El contenido de tu CV se enviará a tu proveedor de LLM configurado para su análisis. Esta aplicación no transmite datos a ningún otro servidor de terceros. Si tienes dudas sobre PII, elimina la información personal antes de subir el archivo (los enlaces de LinkedIn / GitHub pueden conservarse). La responsabilidad de privacidad recae en el usuario.',
     'loc.ireland': 'Irlanda 🇮🇪', 'loc.uk': 'Reino Unido 🇬🇧', 'loc.usa': 'Estados Unidos 🇺🇸', 'loc.canada': 'Canadá 🇨🇦', 'loc.australia': 'Australia 🇦🇺', 'loc.germany': 'Alemania 🇩🇪', 'loc.singapore': 'Singapur 🇸🇬', 'loc.remote': 'Remoto (Global) 🌐',
     'titles.location': 'Ubicación objetivo', 'titles.roles': 'Puestos objetivo', 'titles.discover': 'Descubrir del mercado',

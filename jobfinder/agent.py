@@ -426,6 +426,15 @@ def _flush_assessments(
                     on_job(key)
                 cb(f"Saved: {title} @ {job.get('company', '?')} [{job_src}]")
 
+    total_assessed = len(pf.pending) + len(pf.patch_pending)
+    if total_assessed >= 5 and llm_rejected / total_assessed >= 0.9:
+        logger.warning(
+            "High LLM rejection rate: %.0f%% (%d/%d rejected) — check CV profile or prompt",
+            llm_rejected / total_assessed * 100,
+            llm_rejected,
+            total_assessed,
+        )
+
     return keys, llm_rejected
 
 
