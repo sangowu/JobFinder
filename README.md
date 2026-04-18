@@ -97,11 +97,13 @@ After every search, stats are automatically written to the `reports/` directory:
 | `pipeline_stats.jsonl` | Append-only log — one JSON line per search, full history preserved |
 | `pipeline_stats_latest.json` | Always overwritten with the most recent search report |
 
-## Privacy
+## Privacy & Security
 
 - **CV content** is sent to your configured LLM API (Anthropic / Google / OpenAI, etc.) for parsing and assessment. Please ensure you trust your chosen provider's data policy.
 - **All data is stored locally**: parsed CV profiles and job listings are stored in a local SQLite database (`jobfinder_cache.db`) and are never uploaded to any third-party server.
 - **Log file** (`jobfinder.log`) records search terms and timestamps only — it does not contain CV personal data or API keys, and is excluded from git via `.gitignore`.
+- **PII in CV**: If you are concerned about sending personal information to an external LLM provider, remove it from your CV before uploading (name, email, phone, address). LinkedIn / GitHub links carry no additional risk.
+- **Prompt injection protection**: Job description content scraped from external sources is wrapped in `<jd_content>` boundary tags, and the system prompt explicitly instructs the LLM to treat tag contents as data only, ignoring any embedded instructions.
 
 ## Known Limitations
 
