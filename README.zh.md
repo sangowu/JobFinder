@@ -105,6 +105,12 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **所有数据本地存储**：CV 解析结果和职位信息存储在本机 SQLite 数据库（`jobradar_cache.db`），不上传至任何第三方服务器。
 - **日志文件**（`jobradar.log`）记录搜索词和操作时间，不包含 CV 个人信息或 API Key，且已加入 `.gitignore`。
 
+## 已知限制
+
+本项目由个人利用业余时间维护。部分功能（尤其是**基于地点的过滤**）可能因职位来源不同而产生不一致的结果。
+
+**LLM Provider 支持**：目前已集成 17 个 Provider，但并非所有 Provider 均经过完整的端到端测试。如果你在使用某个 Provider 或模型时遇到问题，欢迎[提交 Issue](https://github.com/sangowu/JobRadar/issues)，并附上 Provider 名称、模型名称及错误信息。
+
 ## 法律免责声明
 
 本工具通过 [python-jobspy](https://github.com/cullenwatson/JobSpy) 抓取 Indeed 等招聘平台的公开数据。

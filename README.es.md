@@ -105,6 +105,12 @@ Tras cada búsqueda se escriben automáticamente en el directorio `reports/`:
 - **Todos los datos se almacenan localmente**: los perfiles de CV analizados y las ofertas de trabajo se guardan en una base de datos SQLite local (`jobradar_cache.db`) y nunca se suben a ningún servidor externo.
 - **El archivo de log** (`jobradar.log`) solo registra términos de búsqueda y marcas de tiempo — no contiene datos personales del CV ni API Keys, y está excluido de git mediante `.gitignore`.
 
+## Limitaciones Conocidas
+
+Este es un proyecto personal mantenido en tiempo libre. Algunas funciones — en particular el **filtrado por ubicación** — pueden producir resultados inconsistentes según la fuente de empleo.
+
+**Soporte de proveedores LLM**: se han integrado 17 proveedores, pero no todos han sido probados de forma completa. Si encuentras un error con algún proveedor o modelo, por favor [abre un issue](https://github.com/sangowu/JobRadar/issues) indicando el nombre del proveedor, el modelo y el mensaje de error.
+
 ## Aviso Legal
 
 Esta herramienta extrae datos públicos de empleo de Indeed y otras plataformas a través de [python-jobspy](https://github.com/cullenwatson/JobSpy).

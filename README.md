@@ -109,7 +109,9 @@ After every search, stats are automatically written to the `reports/` directory:
 
 ## Known Limitations
 
-This is a solo side project maintained in spare time. Some features — particularly **location-based filtering** — may produce inconsistent results depending on the job source. If you run into a bug or unexpected behaviour, feel free to [open an issue](https://github.com/sangowu/JobFinder/issues).
+This is a solo side project maintained in spare time. Some features — particularly **location-based filtering** — may produce inconsistent results depending on the job source.
+
+**LLM provider support**: 17 providers are integrated, but not all have been fully tested end-to-end. If you encounter a bug with a specific provider or model, please [open an issue](https://github.com/sangowu/JobRadar/issues) and include the provider name, model, and error message.
 
 ## Roadmap
 
