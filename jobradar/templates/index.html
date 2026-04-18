@@ -1043,7 +1043,12 @@ let _prevSearchKeys = new Set();  // 本次搜索开始前的 dedup_key 快照
 let _newThisSearch  = new Set();  // 本次搜索中新增的 dedup_key
 let cfgData     = null; // config fetched from API
 
-const STATUS = {};   // dedup_key → { read, applied, replied }
+const STATUS = (() => {
+  try { return JSON.parse(localStorage.getItem("job_status") || "{}"); } catch { return {}; }
+})();
+function _saveStatus() {
+  try { localStorage.setItem("job_status", JSON.stringify(STATUS)); } catch {}
+}
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 async function api(method, path, body) {
@@ -1650,12 +1655,14 @@ function buildCard(job) {
       e.stopPropagation();
       const dot = dotEl.dataset.dot || dotEl.dataset.label;
       STATUS[key][dot] = !STATUS[key][dot];
+      _saveStatus();
       renderList();
       return;
     }
     if (e.target.closest("input[type='checkbox']")) return;
     if (deleteMode) { toggleSelect(key); return; }
     STATUS[key].read = true;
+    _saveStatus();
     showJobDetail(job);
     renderList();
   });
