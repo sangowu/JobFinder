@@ -70,7 +70,8 @@ DASHSCOPE_API_KEY=
 LLAMACPP_BASE_URL=http://localhost:8080/v1
 LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 
-# Adzuna (descubrimiento de títulos, registro gratuito: developer.adzuna.com)
+# Adzuna — opcional, solo para descubrimiento de títulos y mejorar resultados de búsqueda
+# (registro gratuito: developer.adzuna.com)
 ADZUNA_APP_ID=
 ADZUNA_APP_KEY=
 
