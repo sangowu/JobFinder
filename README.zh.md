@@ -1,4 +1,4 @@
-# JobFinder
+# JobRadar
 
 > **中文** · [English](README.md) · [Español](README.es.md)
 
@@ -7,27 +7,29 @@
 ## 快速开始
 
 ```bash
+git clone https://github.com/sangowu/JobRadar.git
+cd JobRadar
 uv sync
-uv run jobfinder serve       # 启动 Web UI（http://127.0.0.1:8765）
+uv run jobradar serve       # 启动 Web UI（http://127.0.0.1:8765）
 # 浏览器打开后，在「API 配置」页面填入 API Key 即可开始使用
 # 也可手动配置 .env：
 cp .env.example .env         # 填入 API Key
-uv run jobfinder find cv.docx  # CLI 模式
+uv run jobradar find cv.docx  # CLI 模式
 ```
 
 ## 常用命令
 
 | 命令 | 说明 |
 |---|---|
-| `uv run jobfinder serve` | 启动 Web UI |
-| `uv run jobfinder serve --mock` | 测试模式（独立 DB，不污染正式缓存） |
-| `uv run jobfinder find cv.docx` | CLI：解析 CV → 发现 title → 抓取 → 评估 |
-| `uv run jobfinder find cv.docx --refresh` | 忽略缓存，强制重新搜索 |
-| `uv run jobfinder results` | 浏览缓存中最近的搜索结果 |
-| `uv run jobfinder assess` | 对缓存 JD 单独补跑 LLM 评估 |
-| `uv run jobfinder model` | 交互式选择 LLM provider 和模型 |
-| `uv run jobfinder cache clear` | 清空所有缓存 |
-| `uv run jobfinder --version` | 显示当前版本号 |
+| `uv run jobradar serve` | 启动 Web UI |
+| `uv run jobradar serve --mock` | 测试模式（独立 DB，不污染正式缓存） |
+| `uv run jobradar find cv.docx` | CLI：解析 CV → 发现 title → 抓取 → 评估 |
+| `uv run jobradar find cv.docx --refresh` | 忽略缓存，强制重新搜索 |
+| `uv run jobradar results` | 浏览缓存中最近的搜索结果 |
+| `uv run jobradar assess` | 对缓存 JD 单独补跑 LLM 评估 |
+| `uv run jobradar model` | 交互式选择 LLM provider 和模型 |
+| `uv run jobradar cache clear` | 清空所有缓存 |
+| `uv run jobradar --version` | 显示当前版本号 |
 
 ## Pipeline 概览
 
@@ -72,7 +74,7 @@ LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 ADZUNA_APP_ID=
 ADZUNA_APP_KEY=
 
-# 默认模型（由 jobfinder model 命令自动写入）
+# 默认模型（由 jobradar model 命令自动写入）
 DEFAULT_PROVIDER=gemini
 DEFAULT_MODEL=gemini-2.0-flash
 ```
@@ -100,8 +102,8 @@ DEFAULT_MODEL=gemini-2.0-flash
 ## 隐私说明
 
 - **CV 内容**会发送给你配置的 LLM API（Anthropic / Google / OpenAI 等）用于解析和评估。请确认你信任所选 provider 的数据政策。
-- **所有数据本地存储**：CV 解析结果和职位信息存储在本机 SQLite 数据库（`jobfinder_cache.db`），不上传至任何第三方服务器。
-- **日志文件**（`jobfinder.log`）记录搜索词和操作时间，不包含 CV 个人信息或 API Key，且已加入 `.gitignore`。
+- **所有数据本地存储**：CV 解析结果和职位信息存储在本机 SQLite 数据库（`jobradar_cache.db`），不上传至任何第三方服务器。
+- **日志文件**（`jobradar.log`）记录搜索词和操作时间，不包含 CV 个人信息或 API Key，且已加入 `.gitignore`。
 
 ## 法律免责声明
 

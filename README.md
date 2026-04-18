@@ -7,6 +7,8 @@ Automatically search global job listings based on your CV, score matches with LL
 ## Quick Start
 
 ```bash
+git clone https://github.com/sangowu/JobRadar.git
+cd JobRadar
 uv sync
 uv run jobradar serve       # Launch Web UI (http://127.0.0.1:8765)
 # Open your browser and configure API keys in the "API Config" page

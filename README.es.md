@@ -1,4 +1,4 @@
-# JobFinder
+# JobRadar
 
 > [中文](README.zh.md) · [English](README.md) · **Español**
 
@@ -7,27 +7,29 @@ Busca automáticamente ofertas de trabajo en todo el mundo basándose en tu CV, 
 ## Inicio Rápido
 
 ```bash
+git clone https://github.com/sangowu/JobRadar.git
+cd JobRadar
 uv sync
-uv run jobfinder serve       # Lanza la Web UI (http://127.0.0.1:8765)
+uv run jobradar serve       # Lanza la Web UI (http://127.0.0.1:8765)
 # Abre el navegador y configura las API Keys en la página "Config. API"
 # O configura manualmente via .env:
 cp .env.example .env         # Rellena tus API Keys
-uv run jobfinder find cv.docx  # Modo CLI
+uv run jobradar find cv.docx  # Modo CLI
 ```
 
 ## Comandos
 
 | Comando | Descripción |
 |---|---|
-| `uv run jobfinder serve` | Lanza la Web UI |
-| `uv run jobfinder serve --mock` | Modo test (BD aislada, no afecta la caché real) |
-| `uv run jobfinder find cv.docx` | CLI: analiza CV → descubre títulos → extrae → evalúa |
-| `uv run jobfinder find cv.docx --refresh` | Fuerza nueva búsqueda ignorando la caché |
-| `uv run jobfinder results` | Muestra los resultados en caché de la última búsqueda |
-| `uv run jobfinder assess` | Reejecuta la evaluación LLM sobre JDs en caché |
-| `uv run jobfinder model` | Selecciona interactivamente el proveedor y modelo LLM |
-| `uv run jobfinder cache clear` | Limpia toda la caché |
-| `uv run jobfinder --version` | Muestra la versión actual |
+| `uv run jobradar serve` | Lanza la Web UI |
+| `uv run jobradar serve --mock` | Modo test (BD aislada, no afecta la caché real) |
+| `uv run jobradar find cv.docx` | CLI: analiza CV → descubre títulos → extrae → evalúa |
+| `uv run jobradar find cv.docx --refresh` | Fuerza nueva búsqueda ignorando la caché |
+| `uv run jobradar results` | Muestra los resultados en caché de la última búsqueda |
+| `uv run jobradar assess` | Reejecuta la evaluación LLM sobre JDs en caché |
+| `uv run jobradar model` | Selecciona interactivamente el proveedor y modelo LLM |
+| `uv run jobradar cache clear` | Limpia toda la caché |
+| `uv run jobradar --version` | Muestra la versión actual |
 
 ## Visión General del Pipeline
 
@@ -72,7 +74,7 @@ LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 ADZUNA_APP_ID=
 ADZUNA_APP_KEY=
 
-# Modelo predeterminado (escrito automáticamente por `jobfinder model`)
+# Modelo predeterminado (escrito automáticamente por `jobradar model`)
 DEFAULT_PROVIDER=gemini
 DEFAULT_MODEL=gemini-2.0-flash
 ```
@@ -100,8 +102,8 @@ Tras cada búsqueda se escriben automáticamente en el directorio `reports/`:
 ## Privacidad
 
 - **El contenido del CV** se envía a la API LLM que hayas configurado (Anthropic / Google / OpenAI, etc.) para su análisis y evaluación. Asegúrate de confiar en la política de datos de tu proveedor elegido.
-- **Todos los datos se almacenan localmente**: los perfiles de CV analizados y las ofertas de trabajo se guardan en una base de datos SQLite local (`jobfinder_cache.db`) y nunca se suben a ningún servidor externo.
-- **El archivo de log** (`jobfinder.log`) solo registra términos de búsqueda y marcas de tiempo — no contiene datos personales del CV ni API Keys, y está excluido de git mediante `.gitignore`.
+- **Todos los datos se almacenan localmente**: los perfiles de CV analizados y las ofertas de trabajo se guardan en una base de datos SQLite local (`jobradar_cache.db`) y nunca se suben a ningún servidor externo.
+- **El archivo de log** (`jobradar.log`) solo registra términos de búsqueda y marcas de tiempo — no contiene datos personales del CV ni API Keys, y está excluido de git mediante `.gitignore`.
 
 ## Aviso Legal
 
