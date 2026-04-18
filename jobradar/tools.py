@@ -1,8 +1,6 @@
-"""Agent 工具定义：供 Claude tool use 调用的函数集合。"""
+"""职位工具函数：Jina 抓取、关闭检测、缓存读写、失败 URL 管理。"""
 from __future__ import annotations
 
-import asyncio
-import os
 import re
 from datetime import datetime
 from urllib.parse import urlparse
@@ -15,53 +13,7 @@ from jobradar.schemas import JobAssessment, JobResult, make_dedup_key
 
 log = get_logger(__name__)
 
-# ─── Tavily 搜索 ──────────────────────────────────────────────────────────────
-
-_TAVILY_MAX_QUERY = 400
-
-
-def _search_tavily(role: str, query: str, location: str, max_results: int) -> list[dict]:
-    from tavily import TavilyClient  # 懒加载，不强制安装
-    api_key = os.getenv("TAVILY_API_KEY")
-    if not api_key:
-        return []
-    client = TavilyClient(api_key=api_key)
-    base = f"{role} jobs in {location} "
-    remaining = _TAVILY_MAX_QUERY - len(base)
-    trimmed_query = query[:max(0, remaining)].strip()
-    full_query = (base + trimmed_query).strip()
-    try:
-        log.debug("Tavily 搜索：%s", full_query)
-        response = client.search(
-            query=full_query,
-            search_depth="basic",
-            max_results=max_results,
-            include_answer=False,
-        )
-        results = response.get("results", [])
-        log.info("Tavily: %s @ %s → %d 条", role, location, len(results))
-        return results
-    except Exception as e:
-        log.warning("Tavily 搜索失败：%s", e)
-        return []
-
-
-# ─── 搜索入口（仅 Tavily）────────────────────────────────────────────────────
-
-
-def search_jobs(
-    query: str,
-    location: str,
-    role: str,
-    max_results: int = 10,
-    graduate: bool = False,
-) -> list[dict]:
-    """调用 Tavily 搜索职位，返回结果列表。"""
-    return _search_tavily(role, query, location, max_results)
-
-
 # ─── Jina Reader 抓取全文 ─────────────────────────────────────────────────────
-
 
 _VERIFICATION_SIGNALS = (
     "just a moment",
@@ -80,45 +32,6 @@ def is_verification_page(content: str) -> bool:
         return True
     sample = content[:1000].lower()
     return sum(sig in sample for sig in _VERIFICATION_SIGNALS) >= 2
-
-
-_PLAYWRIGHT_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-
-
-async def _fetch_with_playwright(url: str) -> str:
-    """用 Playwright 无头浏览器抓取需要 JS 的页面（如 Indeed 详情页）。"""
-    try:
-        from playwright.async_api import async_playwright
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            ctx = await browser.new_context(user_agent=_PLAYWRIGHT_UA)
-            page = await ctx.new_page()
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_timeout(2000)
-            text = await page.inner_text("body")
-            await browser.close()
-            return text[:15000]
-    except Exception as e:
-        log.warning("Playwright fetch 失败：%s - %s", url, e)
-        return ""
-
-
-def fetch_page_playwright(url: str) -> str:
-    """同步封装：用 Playwright 抓取受 Cloudflare 保护的页面。"""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                return ex.submit(asyncio.run, _fetch_with_playwright(url)).result()
-        return asyncio.run(_fetch_with_playwright(url))
-    except Exception as e:
-        log.warning("fetch_page_playwright 异常：%s - %s", url, e)
-        return ""
 
 
 def fetch_page(url: str, timeout: int = 15) -> str:
@@ -216,7 +129,6 @@ def write_cache(job_data: dict, session_key: str | None = None) -> str:
     """
     url = job_data.get("url", "")
     sources = job_data.get("sources") or []
-    # 自动从 URL 提取域名作为来源（agent 不传时兜底）
     if not sources and url:
         domain = _extract_domain(url)
         if domain:
@@ -229,11 +141,9 @@ def write_cache(job_data: dict, session_key: str | None = None) -> str:
     elif isinstance(raw_assessment, dict):
         assessment = JobAssessment.model_validate(raw_assessment)
     elif raw_assessment is not None and hasattr(raw_assessment, "model_dump"):
-        # 兼容 _JDAssessment 等 Pydantic 子类（含额外字段，model_validate 自动忽略）
         assessment = JobAssessment.model_validate(raw_assessment.model_dump())
 
     raw_sources = job_data.get("raw_sources") or []
-    # 若无 raw_sources，从第一个 source + url 构建兜底记录
     if not raw_sources and sources:
         raw_sources = [{"source": sources[0], "url": url, "date_posted": job_data.get("date_posted", "")}]
 
@@ -270,110 +180,3 @@ def _parse_date(value: str | None) -> datetime | None:
         return dateutil_parser.parse(value)
     except Exception:
         return None
-
-
-# ─── Claude tool schema 定义 ──────────────────────────────────────────────────
-# 供 llm_backend.complete_with_tools 使用
-
-TOOL_SCHEMAS = [
-    {
-        "name": "search_jobs",
-        "description": "调用 Tavily 搜索指定角色和地点的职位，返回原始结果列表",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "附加搜索关键词，只选 3-5 个最核心的技能，不要传入完整技能列表，总长度控制在 50 字符以内"},
-                "location": {"type": "string", "description": "目标城市或 Remote"},
-                "role": {"type": "string", "description": "目标职位名称"},
-                "max_results": {"type": "integer", "default": 15},
-            },
-            "required": ["query", "location", "role"],
-        },
-    },
-    {
-        "name": "fetch_page",
-        "description": "通过 Jina Reader 抓取网页完整正文，用于 snippet 信息不足时",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "要抓取的职位页面 URL"},
-            },
-            "required": ["url"],
-        },
-    },
-    {
-        "name": "check_failed_urls",
-        "description": "检查 URL 列表中哪些已在失败黑名单内，返回需跳过的 URL 列表",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "urls": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": ["urls"],
-        },
-    },
-    {
-        "name": "record_failed_url",
-        "description": "将无法解析的 URL 记录到失败黑名单",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "url": {"type": "string"},
-                "reason": {
-                    "type": "string",
-                    "description": "失败原因，如 login_required / page_offline / js_rendered / parse_failed",
-                },
-            },
-            "required": ["url", "reason"],
-        },
-    },
-    {
-        "name": "write_cache",
-        "description": "将解析好的职位信息写入缓存，返回 dedup_key",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "company": {"type": "string"},
-                "location": {"type": "string"},
-                "url": {"type": "string"},
-                "description_snippet": {"type": "string"},
-                "sources": {"type": "array", "items": {"type": "string"}},
-                "expires_at": {"type": "string", "description": "ISO8601 或自然语言日期，可为 null"},
-                "is_complete": {"type": "boolean"},
-            },
-            "required": ["title", "company", "url"],
-        },
-    },
-]
-
-
-# ─── 工具分发函数 ─────────────────────────────────────────────────────────────
-
-
-def dispatch(tool_name: str, tool_input: dict) -> str:
-    """根据工具名调用对应函数，返回 JSON 字符串结果。"""
-    import json
-
-    if tool_name == "search_jobs":
-        results = search_jobs(**tool_input)
-        return json.dumps(results, ensure_ascii=False)
-
-    elif tool_name == "fetch_page":
-        content = fetch_page(tool_input["url"])
-        return json.dumps({"content": content}, ensure_ascii=False)
-
-    elif tool_name == "check_failed_urls":
-        failed = check_failed_urls(tool_input["urls"])
-        return json.dumps({"failed_urls": failed}, ensure_ascii=False)
-
-    elif tool_name == "record_failed_url":
-        record_failed_url(tool_input["url"], tool_input["reason"])
-        return json.dumps({"ok": True})
-
-    elif tool_name == "write_cache":
-        dedup_key = write_cache(tool_input)
-        return json.dumps({"dedup_key": dedup_key}, ensure_ascii=False)
-
-    else:
-        return json.dumps({"error": f"未知工具：{tool_name}"})

@@ -6,11 +6,9 @@ license = {text = "BUSL-1.1"}
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.92.0",
-    "ddgs>=9.13.0",
     "fastapi>=0.115.0",
     "google-genai>=1.71.0",
     "openai>=2.31.0",
-    "playwright>=1.58.0",
     "pydantic>=2.12.5",
     "python-docx>=1.2.0",
     "python-dotenv>=1.2.2",
@@ -18,7 +16,6 @@ dependencies = [
     "python-multipart>=0.0.9",
     "requests>=2.33.1",
     "rich>=14.3.3",
-    "tavily-python>=0.7.23",
     "typer>=0.24.1",
     "uvicorn[standard]>=0.34.0",
 ]
