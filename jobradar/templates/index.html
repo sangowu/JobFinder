@@ -1,0 +1,2561 @@
+<!DOCTYPE html>
+<html lang="zh" class="">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JobRadar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <style>
+    body { height: 100vh; overflow: hidden; }
+    #left-aside { height: calc(100vh - 56px); }
+
+    /* ── Global input focus: blue glow ── */
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #3b82f6 !important;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    }
+    #list { overflow-y: auto; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+
+    /* ── Three-panel layout ── */
+    #main-area {
+      display: flex; flex: 1;
+      height: calc(100vh - 56px);
+      overflow: hidden;
+    }
+    #job-detail-view {
+      display: none; flex: 1;
+      overflow-y: auto;
+      border-right: 1px solid #e5e7eb;
+    }
+    .dark #job-detail-view { border-right-color: #374151; }
+
+    #search-panel {
+      flex: 1;
+      overflow-y: auto;
+      transition: width .25s ease, flex .25s ease;
+    }
+    #search-inner {
+      max-width: 36rem; margin: 0 auto;
+      padding: 2rem;
+      transition: padding .2s ease;
+    }
+
+    /* When a job is selected, detail takes flex-1 and search panel shrinks to sidebar */
+    #main-area.detail-active #job-detail-view {
+      display: block;
+    }
+    #main-area.detail-active #search-panel {
+      flex: none;
+      width: 288px;
+      border-left: 1px solid #e5e7eb;
+    }
+    .dark #main-area.detail-active #search-panel { border-left-color: #374151; }
+    #main-area.detail-active #search-inner {
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 1rem !important;
+    }
+#sel-box {
+      position: fixed; pointer-events: none; z-index: 999;
+      background: rgba(59,130,246,.12);
+      border: 1.5px solid rgba(59,130,246,.55);
+      border-radius: 3px;
+    }
+    .drag-over { border-color: #3b82f6 !important; background: rgba(59,130,246,.08) !important; }
+    #progress-log {
+      overflow-y: auto;
+      max-height: calc(100vh - 56px - 7rem); /* 视口 - 导航栏 - spinner行 - 内外边距 */
+    }
+    #progress-log p { animation: fadeIn .3s ease; }
+    #step-progress { display: none; }
+    #step-progress.active { display: block; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; } }
+    @keyframes discoverSlide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    .animate-discover-slide { animation: discoverSlide 1.2s ease-in-out infinite; }
+
+    /* ── Log panel ── */
+    #log-panel {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+      background: #0f172a;
+      border-top: 1px solid #1e293b;
+      display: flex; flex-direction: column;
+      transform: translateY(100%);
+      transition: transform .25s ease, height .25s ease;
+      height: 300px;
+    }
+    #log-panel.open { transform: translateY(0); }
+    #log-lines { overflow-y: auto; flex: 1; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; padding: 8px 12px; }
+    .log-ERROR   { color: #f87171; }
+    .log-WARNING { color: #fbbf24; }
+    .log-INFO    { color: #94a3b8; }
+    .log-DEBUG   { color: #475569; }
+    .log-unknown { color: #64748b; }
+    #log-panel .log-search-match { background: rgba(250,204,21,.25); border-radius: 2px; }
+
+    /* ── Custom scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    * { scrollbar-width: thin; scrollbar-color: #4b5563 transparent; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 font-sans text-gray-800 dark:text-gray-100 transition-colors duration-200">
+
+<!-- ── API Config Overlay ──────────────────────────────────────────────────── -->
+<!-- ── History Page ─────────────────────────────────────────────────────── -->
+<div id="history-page" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+  <div class="max-w-4xl mx-auto px-4 py-12">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-white" data-i18n="hist.title">搜索历史</h1>
+      <div class="flex items-center gap-3">
+        <button onclick="clearHistory()"
+          class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-800/60 text-red-400 hover:text-red-300 transition-colors border border-red-800/50"
+          data-i18n="hist.clear">清空历史</button>
+        <button onclick="closeHistoryPage()"
+          class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 全量累计 -->
+    <div id="hist-summary" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8"></div>
+
+    <!-- 历史记录表格 -->
+    <div class="bg-gray-800 rounded-xl overflow-hidden">
+      <table class="w-full text-sm text-left">
+        <thead class="text-xs text-gray-400 uppercase bg-gray-700/50">
+          <tr>
+            <th class="px-4 py-3" data-i18n="hist.col_time">时间</th>
+            <th class="px-4 py-3" data-i18n="hist.col_roles">职位 / 地区</th>
+            <th class="px-4 py-3" data-i18n="hist.col_model">模型</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_elapsed">耗时</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_in">输入 tokens</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_out">输出 tokens</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_jobs">职位数</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_funnel">漏斗</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody" class="divide-y divide-gray-700 text-gray-300 font-mono text-xs"></tbody>
+      </table>
+      <p id="hist-empty" class="hidden text-center text-gray-500 py-12 text-sm" data-i18n="hist.empty">暂无搜索记录</p>
+    </div>
+  </div>
+</div>
+
+<div id="config-page" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+  <div class="max-w-2xl mx-auto px-5 py-12">
+    <div class="flex items-start justify-between mb-2">
+      <h1 class="text-2xl font-bold text-white" data-i18n="cfg.title"></h1>
+      <button onclick="closeConfigPage()"
+        class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700 flex-shrink-0 mt-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <p class="text-gray-400 text-sm mb-8" data-i18n="cfg.subtitle"></p>
+
+    <!-- Default provider selector -->
+    <div class="bg-gray-800 rounded-xl p-5 mb-6">
+      <h2 class="text-sm font-semibold text-gray-300 mb-3" data-i18n="cfg.default_model"></h2>
+      <div class="flex gap-3 items-center">
+        <select id="cfg-default-provider"
+          class="w-36 flex-shrink-0 bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm
+                 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        </select>
+        <select id="cfg-default-model"
+          class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm
+                 focus:outline-none focus:ring-1 focus:ring-blue-500 truncate">
+        </select>
+        <button id="cfg-save-default-btn" onclick="saveDefaultModel()" disabled
+          class="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed
+                 text-white text-sm rounded-lg transition-colors whitespace-nowrap opacity-50">
+          <span data-i18n="cfg.save_default"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Model API -->
+    <div class="flex gap-4 mb-8 items-start">
+      <!-- Left: action buttons -->
+      <div class="flex flex-col gap-3 flex-shrink-0 w-32">
+        <button id="refresh-models-btn" onclick="refreshModels()"
+          class="w-full px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded-lg transition-colors flex flex-col items-center gap-1.5">
+          <svg id="refresh-models-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          <span data-i18n="cfg.refresh_models" class="text-center leading-tight"></span>
+        </button>
+        <button onclick="clearCache()"
+          class="w-full px-3 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors flex flex-col items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          <span data-i18n="cfg.cache_clear" class="text-center leading-tight"></span>
+        </button>
+        <button onclick="clearAllApiKeys()"
+          class="w-full px-3 py-2.5 bg-orange-600 hover:bg-orange-700 text-white text-xs rounded-lg transition-colors flex flex-col items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+          </svg>
+          <span data-i18n="cfg.clear_keys" class="text-center leading-tight"></span>
+        </button>
+        <button id="restore-models-btn" onclick="resetModelList()"
+          class="w-full px-3 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-lg transition-colors flex flex-col items-center gap-1.5 hidden">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+          </svg>
+          <span data-i18n="cfg.restore_models" class="text-center leading-tight"></span>
+        </button>
+      </div>
+      <!-- Right: provider list -->
+      <div class="flex-1 min-w-0">
+        <h2 class="text-sm font-semibold text-white mb-3 text-center" data-i18n="cfg.model_api_title"></h2>
+        <div id="cfg-providers" class="space-y-[21px]"></div>
+        <button id="cfg-providers-toggle" onclick="toggleProviderList()"
+          class="mt-3 w-full py-2 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-center gap-1.5">
+          <svg id="cfg-providers-toggle-icon" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+          <span id="cfg-providers-toggle-label"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Job Search API (optional) -->
+    <div class="flex gap-4 mb-8 items-start">
+      <!-- Left: spacer matching model API button column -->
+      <div class="flex-shrink-0 w-32"></div>
+      <!-- Right: Adzuna card -->
+      <div class="flex-1 min-w-0">
+        <h2 class="text-sm font-semibold text-white mb-3 text-center" data-i18n="cfg.job_api_title"></h2>
+        <div class="bg-gray-800 rounded-xl p-4 relative space-y-3">
+        <p class="text-xs text-gray-400" data-i18n="cfg.job_api_desc"></p>
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-sm text-white">Adzuna</span>
+            <span id="status-adzuna" class="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-500"></span>
+          </div>
+          <div class="flex gap-2 items-center">
+            <input type="text" id="key-adzuna-id" placeholder="ADZUNA_APP_ID"
+              class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white text-xs rounded-lg px-3 py-2
+                     focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
+              autocomplete="off"/>
+            <button onclick="saveAdzunaKey()"
+              class="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors whitespace-nowrap">
+              <span data-i18n="cfg.save"></span>
+            </button>
+          </div>
+          <div class="flex gap-2 items-center">
+            <input type="password" id="key-adzuna-key" placeholder="ADZUNA_APP_KEY"
+              class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white text-xs rounded-lg px-3 py-2
+                     focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
+              autocomplete="off"/>
+            <button onclick="saveAdzunaKey()"
+              class="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors whitespace-nowrap opacity-0 pointer-events-none">
+              <span data-i18n="cfg.save"></span>
+            </button>
+          </div>
+          <p id="test-msg-adzuna" class="absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-transparent"></p>
+        </div>
+      </div>
+    </div>
+
+    <button id="cfg-continue"
+      class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed
+             text-white font-semibold rounded-xl transition-colors"
+      onclick="closeConfigPage()">
+      <span data-i18n="cfg.enter"></span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Top bar ────────────────────────────────────────────────────────────── -->
+<header class="h-14 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center px-6 gap-4 shadow-sm z-10 relative">
+  <span class="text-lg font-bold text-blue-600 dark:text-blue-400 cursor-pointer select-none"
+    onclick="location.reload()">JobRadar</span>
+  <span id="app-version" class="text-xs text-gray-400 dark:text-gray-600 font-mono select-none"></span>
+  <span id="summary" class="text-sm text-gray-400 dark:text-gray-500"></span>
+  <div class="ml-auto flex items-center gap-3">
+    <button onclick="openConfigPage()"
+      class="text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 transition-colors flex items-center gap-1">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+      <span data-i18n="nav.config">API 配置</span>
+    </button>
+    <button onclick="openHistoryPage()"
+      class="text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 transition-colors flex items-center gap-1">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span data-i18n="nav.history">历史</span>
+    </button>
+    <button id="log-btn" onclick="toggleLogPanel()" data-i18n-title="tip.view_logs"
+      class="text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 transition-colors flex items-center gap-1">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M9 12h6m-6 4h6M5 8h14M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+      </svg>
+      <span data-i18n="nav.logs">日志</span>
+    </button>
+    <span id="session-tokens" class="hidden text-xs font-mono text-purple-400 dark:text-purple-300"
+      data-i18n-title="tip.session_tokens"></span>
+    <span id="mock-badge" class="hidden text-xs px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 font-medium">TEST</span>
+    <!-- Language toggle -->
+    <div class="flex items-center gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+      <button onclick="setLang('zh')" id="lang-zh"
+        class="lang-btn text-xs px-2 py-0.5 rounded-md transition-colors font-medium">中</button>
+      <button onclick="setLang('en')" id="lang-en"
+        class="lang-btn text-xs px-2 py-0.5 rounded-md transition-colors font-medium">EN</button>
+      <button onclick="setLang('es')" id="lang-es"
+        class="lang-btn text-xs px-2 py-0.5 rounded-md transition-colors font-medium">ES</button>
+    </div>
+  <span class="text-xs text-gray-400 dark:text-gray-500" id="mode-label"></span>
+    <button id="dark-toggle"
+      class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none bg-gray-200 dark:bg-blue-600"
+      aria-label="切换深色模式">
+      <span id="toggle-knob"
+        class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 translate-x-1 dark:translate-x-6"></span>
+    </button>
+    <svg id="icon-sun" class="w-4 h-4 text-yellow-400 hidden dark:block" fill="currentColor" viewBox="0 0 20 20">
+      <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4.22 1.78a1 1 0 011.42 1.42l-.7.7a1 1 0 11-1.42-1.42l.7-.7zM18 9a1 1 0 110 2h-1a1 1 0 110-2h1zM4.22 15.78a1 1 0 001.42-1.42l-.7-.7a1 1 0 00-1.42 1.42l.7.7zM10 16a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM3 10a1 1 0 110 2H2a1 1 0 110-2h1zm13.78-5.78a1 1 0 00-1.42 1.42l.7.7a1 1 0 001.42-1.42l-.7-.7zM6 10a4 4 0 118 0 4 4 0 01-8 0z" clip-rule="evenodd"/>
+    </svg>
+    <svg id="icon-moon" class="w-4 h-4 text-gray-500 block dark:hidden" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+    </svg>
+  </div>
+</header>
+
+<div class="flex h-full">
+
+  <!-- ── Left: Job List ──────────────────────────────────────────────────── -->
+  <aside id="left-aside" class="w-96 min-w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+
+    <!-- Search + Sort -->
+    <div class="px-3 pt-3 pb-2 border-b border-gray-200 dark:border-gray-700 space-y-2">
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1">
+          <svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
+          </svg>
+          <input id="search-input" type="text" data-i18n-ph="list.search_placeholder"
+            class="w-full pl-7 pr-2 py-1.5 text-xs rounded-md border border-gray-200 dark:border-gray-600
+                   bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-100
+                   placeholder-gray-400 dark:placeholder-gray-500
+                   focus:outline-none focus:ring-1 focus:ring-blue-400"/>
+        </div>
+        <div class="relative flex-shrink-0">
+          <select id="sort-select"
+            class="appearance-none pl-2 pr-6 py-1.5 text-xs rounded-md border border-gray-200 dark:border-gray-600
+                   bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200
+                   focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer">
+            <option value="score" data-i18n="list.sort_score"></option>
+            <option value="date" data-i18n="list.sort_date"></option>
+          </select>
+          <svg class="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="flex gap-1 items-center">
+        <div class="flex gap-1 flex-1" id="date-filter">
+          <button data-range="all"   class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_all"></button>
+          <button data-range="today" class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_today"></button>
+          <button data-range="week"  class="date-btn flex-1 text-xs py-1 rounded-md transition-colors" data-i18n="list.filter_week"></button>
+        </div>
+        <!-- Score filter -->
+        <div class="relative flex-shrink-0" id="score-filter-wrap">
+          <button id="score-filter-btn" onclick="toggleScoreDropdown()"
+            class="flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-colors
+                   border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700
+                   text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600">
+            <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/>
+            </svg>
+            <span id="score-filter-label">—</span>
+          </button>
+          <div id="score-dropdown"
+            class="hidden absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800
+                   border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-1 min-w-[90px]">
+            <button data-min="null" onclick="setScoreFilter(null)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200" data-i18n="list.score_all"></button>
+            <button data-min="3" onclick="setScoreFilter(3)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 3</button>
+            <button data-min="5" onclick="setScoreFilter(5)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 5</button>
+            <button data-min="7" onclick="setScoreFilter(7)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 7</button>
+            <button data-min="9" onclick="setScoreFilter(9)"
+              class="score-opt w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
+                     text-gray-700 dark:text-gray-200">≥ 9</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="select-all-row" class="hidden flex items-center gap-2 pt-1">
+        <input id="select-all-cb" type="checkbox"
+          class="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer"/>
+        <label for="select-all-cb" class="text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none" data-i18n="list.select_all"></label>
+        <span id="selected-count" class="ml-auto text-xs text-blue-500 font-medium"></span>
+      </div>
+    </div>
+
+    <div id="list" class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 select-none">
+      <div class="flex items-center justify-center py-8 text-gray-400 text-xs">加载中…</div>
+    </div>
+
+    <div class="border-t border-gray-200 dark:border-gray-700 px-3 py-2 flex items-center gap-2">
+      <button id="delete-btn"
+        class="flex items-center gap-1.5 text-xs text-red-500 dark:text-red-400
+               hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-1.5 rounded-md transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0a1 1 0 00-1-1h-4a1 1 0 00-1 1m-2 0h10"/>
+        </svg>
+        <span data-i18n="list.delete"></span>
+      </button>
+      <button id="cancel-delete-btn"
+        class="hidden text-xs text-gray-500 dark:text-gray-400
+               hover:bg-gray-100 dark:hover:bg-gray-700 px-3 py-1.5 rounded-md transition-colors ml-auto"
+        data-i18n="list.cancel">
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Right: Detail + Search Panel (three-panel when card selected) ──── -->
+  <div id="main-area">
+
+    <!-- Job detail view (hidden by default, flex-1 when active) -->
+    <div id="job-detail-view" class="bg-gray-50 dark:bg-gray-900 px-8 py-6">
+      <div id="job-content" class="max-w-3xl"></div>
+    </div>
+
+    <!-- Search / upload panel (always visible; full-width → sidebar on card select) -->
+    <div id="search-panel" class="bg-gray-50 dark:bg-gray-900">
+
+      <div id="search-inner" class="space-y-6">
+
+        <!-- Step 1: CV Upload -->
+        <div id="step-upload" class="space-y-4">
+          <h2 class="text-lg font-semibold text-gray-700 dark:text-gray-200" data-i18n="upload.title"></h2>
+          <div id="drop-zone"
+            class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-10 text-center
+                   cursor-pointer hover:border-blue-400 transition-colors"
+            onclick="document.getElementById('cv-file-input').click()"
+            ondragover="handleDragOver(event)"
+            ondragleave="handleDragLeave(event)"
+            ondrop="handleDrop(event)">
+            <svg class="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            <p class="text-sm text-gray-500 dark:text-gray-400"><span data-i18n="upload.drop"></span><span class="text-blue-500 ml-1" data-i18n="upload.click"></span></p>
+            <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" data-i18n="upload.formats"></p>
+            <input id="cv-file-input" type="file" accept=".docx,.md,.txt" class="hidden" onchange="handleFileSelect(this.files[0])"/>
+          </div>
+          <div id="parse-status" class="hidden text-sm text-center text-gray-400">
+            <svg class="inline w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+            <span data-i18n="upload.parsing"></span>
+          </div>
+          <p class="text-xs text-gray-400 dark:text-gray-500 leading-relaxed" data-i18n="upload.pii_notice"></p>
+        </div>
+
+        <!-- Step 2: Profile + Title confirmation (hidden until CV parsed) -->
+        <div id="step-titles" class="hidden space-y-4">
+          <div id="profile-card" class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <h3 id="prof-name" class="font-semibold text-gray-800 dark:text-gray-100 text-base"></h3>
+                <p id="prof-summary" class="text-sm text-gray-500 dark:text-gray-400 mt-1"></p>
+              </div>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span id="prof-seniority"
+                  class="px-2.5 py-0.5 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900/40
+                         text-blue-700 dark:text-blue-300 whitespace-nowrap"></span>
+                <button onclick="swapCV()" title="更换 CV"
+                  class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors rounded">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mt-3">
+            </div>
+          </div>
+
+          <!-- Location -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5" data-i18n="titles.location"></label>
+            <select id="location-select"
+              class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                     text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400">
+              <option value="ireland"   data-i18n="loc.ireland">爱尔兰 🇮🇪</option>
+              <option value="uk"        data-i18n="loc.uk">英国 🇬🇧</option>
+              <option value="usa"       data-i18n="loc.usa">美国 🇺🇸</option>
+              <option value="canada"    data-i18n="loc.canada">加拿大 🇨🇦</option>
+              <option value="australia" data-i18n="loc.australia">澳大利亚 🇦🇺</option>
+              <option value="germany"   data-i18n="loc.germany">德国 🇩🇪</option>
+              <option value="singapore" data-i18n="loc.singapore">新加坡 🇸🇬</option>
+              <option value="remote"    data-i18n="loc.remote">全球远程 🌐</option>
+            </select>
+          </div>
+
+          <!-- Titles -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300" data-i18n="titles.roles"></label>
+              <button id="discover-btn" onclick="discoverTitles()"
+                class="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span data-i18n="titles.discover"></span>
+              </button>
+            </div>
+            <!-- 市场发现进度条 -->
+            <div id="discover-progress" class="hidden h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden mb-2">
+              <div class="h-full w-1/3 rounded-full bg-blue-500 animate-discover-slide"></div>
+            </div>
+            <div id="titles-list" class="space-y-1.5"></div>
+            <div class="flex gap-2 mt-2">
+              <input id="add-title-input" type="text" data-i18n-ph="titles.add_placeholder"
+                class="flex-1 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                       rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                onkeydown="if(event.key==='Enter') addTitle()"/>
+              <button onclick="addTitle()"
+                class="px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                data-i18n="titles.add">
+              </button>
+            </div>
+          </div>
+
+          <!-- Source + Limit per role -->
+          <div class="space-y-2">
+            <label class="text-sm text-gray-600 dark:text-gray-400" data-i18n="titles.limit_label"></label>
+            <div class="space-y-1.5">
+              <!-- Indeed row -->
+              <div class="flex items-center gap-3">
+                <input id="source-indeed" type="checkbox" checked
+                  class="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                  onchange="toggleSource('indeed')"/>
+                <label for="source-indeed" class="text-xs text-gray-500 dark:text-gray-400 w-14 cursor-pointer select-none">Indeed</label>
+                <input id="limit-per-role" type="number" min="10" max="500" step="10" value="100"
+                  class="w-20 text-sm text-center bg-white dark:bg-gray-800 border border-gray-200
+                         dark:border-gray-600 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1
+                         focus:ring-blue-400 tabular-nums"/>
+                <span class="text-xs text-gray-400 dark:text-gray-500" data-i18n="titles.limit_unit"></span>
+              </div>
+              <!-- LinkedIn row -->
+              <div class="flex items-center gap-3">
+                <input id="source-linkedin" type="checkbox" checked
+                  class="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                  onchange="toggleSource('linkedin')"/>
+                <label for="source-linkedin" class="text-xs text-gray-500 dark:text-gray-400 w-14 cursor-pointer select-none">LinkedIn</label>
+                <input id="linkedin-limit-per-role" type="number" min="5" max="200" step="5" value="30"
+                  class="w-20 text-sm text-center bg-white dark:bg-gray-800 border border-gray-200
+                         dark:border-gray-600 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1
+                         focus:ring-blue-400 tabular-nums"/>
+                <span class="text-xs text-gray-400 dark:text-gray-500" data-i18n="titles.limit_unit"></span>
+              </div>
+            </div>
+            <p class="text-xs text-amber-500 dark:text-amber-400" data-i18n="titles.linkedin_tip"></p>
+          </div>
+
+          <!-- Date range -->
+          <div class="flex items-center gap-3">
+            <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap" data-i18n="titles.date_range"></label>
+            <select id="hours-old"
+              class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                     text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              onchange="onHoursOldChange()">
+              <option value="24" data-i18n="hours.24h">24h</option>
+              <option value="72" selected data-i18n="hours.3d">3 天</option>
+              <option value="168" data-i18n="hours.7d">7 天</option>
+              <option value="336" data-i18n="hours.14d">14 天</option>
+              <option value="720" data-i18n="hours.30d">30 天</option>
+              <option value="0" data-i18n="hours.unlimited">不限</option>
+            </select>
+          </div>
+
+          <!-- Search button -->
+          <button id="search-btn" onclick="startSearch()"
+            class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
+                   text-white font-semibold rounded-xl transition-colors"
+            data-i18n="titles.search">
+          </button>
+        </div>
+
+        <!-- Step 3: Progress -->
+        <div id="step-progress" class="space-y-3">
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 animate-spin text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+            <span id="progress-title" class="text-sm font-medium text-gray-700 dark:text-gray-300">搜索中…</span>
+            <span id="search-timer" class="ml-auto text-xs font-mono text-blue-400 tabular-nums">0:00</span>
+          </div>
+          <div id="progress-log"
+            class="bg-gray-100 dark:bg-gray-800 rounded-xl p-4 text-xs text-gray-500 dark:text-gray-400 space-y-1 font-mono">
+          </div>
+        </div>
+
+        <!-- Step 4: Done -->
+        <div id="step-done" class="hidden text-center space-y-3 py-4">
+          <div class="text-4xl">✅</div>
+          <p id="done-msg" class="text-sm text-gray-600 dark:text-gray-300 font-medium"></p>
+          <div id="done-stats" class="hidden text-xs text-gray-400 dark:text-gray-500 font-mono space-y-1">
+            <p id="done-elapsed"></p>
+            <p id="done-tokens"></p>
+          </div>
+          <div id="done-funnel" class="hidden text-gray-400 dark:text-gray-500"></div>
+          <div id="done-dedup" class="hidden text-xs font-mono mt-1"></div>
+          <button onclick="resetSearchPanel()"
+            class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            data-i18n="done.restart">
+          </button>
+        </div>
+
+      </div>
+    </div><!-- /#search-panel -->
+
+  </div><!-- /#main-area -->
+</div><!-- /.flex -->
+
+<!-- ── Log Panel ────────────────────────────────────────────────────────── -->
+<div id="log-panel">
+  <!-- toolbar -->
+  <div class="flex items-center gap-2 px-3 py-1.5 border-b border-slate-700 flex-shrink-0">
+    <span class="text-xs font-semibold text-slate-300 select-none" data-i18n="log.title"></span>
+    <span id="log-path" class="text-xs text-slate-500 truncate max-w-xs"></span>
+    <!-- level filter -->
+    <div class="flex gap-1 ml-2">
+      <button data-lvl="" onclick="setLogLevel(this)"
+        class="log-lvl-btn active-lvl text-xs px-2 py-0.5 rounded border border-slate-600 text-slate-300" data-i18n="list.filter_all"></button>
+      <button data-lvl="ERROR" onclick="setLogLevel(this)"
+        class="log-lvl-btn text-xs px-2 py-0.5 rounded border border-slate-700 text-red-400">ERROR</button>
+      <button data-lvl="WARNING" onclick="setLogLevel(this)"
+        class="log-lvl-btn text-xs px-2 py-0.5 rounded border border-slate-700 text-yellow-400">WARN</button>
+      <button data-lvl="INFO" onclick="setLogLevel(this)"
+        class="log-lvl-btn text-xs px-2 py-0.5 rounded border border-slate-700 text-slate-400">INFO</button>
+    </div>
+    <!-- search -->
+    <input id="log-search" type="text" data-i18n-ph="log.filter_placeholder"
+      class="ml-2 text-xs bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-slate-200
+             placeholder-slate-500 focus:outline-none focus:border-blue-500 w-40"
+      oninput="renderLogLines()"/>
+    <!-- line count -->
+    <select id="log-lines-sel" onchange="fetchLogs()"
+      class="ml-1 text-xs bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-slate-300 focus:outline-none">
+      <option value="100" data-i18n="log.lines_100"></option>
+      <option value="200" selected data-i18n="log.lines_200"></option>
+      <option value="500" data-i18n="log.lines_500"></option>
+    </select>
+    <!-- auto-refresh toggle -->
+    <label class="ml-2 flex items-center gap-1 cursor-pointer select-none">
+      <input id="log-auto" type="checkbox" checked class="accent-blue-500 w-3 h-3" onchange="toggleLogAuto()"/>
+      <span class="text-xs text-slate-400" data-i18n="log.auto_refresh"></span>
+    </label>
+    <button onclick="fetchLogs()" data-i18n-title="tip.refresh_logs"
+      class="ml-1 text-slate-400 hover:text-slate-200 transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+    </button>
+    <button onclick="clearLogView()" data-i18n-title="tip.clear_log_view"
+      class="text-slate-500 hover:text-slate-300 transition-colors text-xs" data-i18n="log.clear"></button>
+    <!-- resize handle -->
+    <div id="log-resize" class="ml-auto cursor-ns-resize px-2 text-slate-500 hover:text-slate-300 select-none" data-i18n-title="tip.resize_log">⠿</div>
+    <!-- close -->
+    <button onclick="toggleLogPanel()" class="text-slate-500 hover:text-slate-200 transition-colors" data-i18n-title="tip.close_log">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+  <div id="log-lines"></div>
+</div>
+
+<!-- Rubber band selection box -->
+<div id="sel-box" class="hidden"></div>
+
+<!-- Confirm delete modal -->
+<div id="modal-overlay" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-80 mx-4">
+    <h2 class="text-base font-semibold text-gray-800 dark:text-gray-100 mb-2" data-i18n="modal.title"></h2>
+    <p id="modal-msg" class="text-sm text-gray-500 dark:text-gray-400 mb-6"></p>
+    <div class="flex justify-end gap-3">
+      <button id="modal-cancel"
+        class="px-4 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-600
+               text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        data-i18n="modal.cancel">
+      </button>
+      <button id="modal-confirm"
+        class="px-4 py-1.5 text-sm rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-colors"
+        data-i18n="modal.confirm">
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── i18n ─────────────────────────────────────────────────────────────────────
+const I18N = {
+  zh: {
+    'nav.config': 'API 配置', 'nav.history': '历史', 'nav.logs': '日志', 'nav.light': '浅色', 'nav.dark': '深色',
+    'hist.title': '搜索历史', 'hist.col_time': '时间', 'hist.col_roles': '职位 / 地区', 'hist.col_model': '模型',
+    'hist.col_elapsed': '耗时', 'hist.col_tokens_in': '输入 tokens', 'hist.col_tokens_out': '输出 tokens', 'hist.col_jobs': '职位数',
+    'hist.empty': '暂无搜索记录', 'hist.total_searches': '总搜索次数', 'hist.total_jobs': '累计职位数',
+    'hist.total_tokens': '累计 tokens', 'hist.total_elapsed': '累计耗时',
+    'hist.clear': '清空历史', 'hist.clear_confirm': '确定要清空全部搜索历史吗？此操作不可撤销。',
+    'hist.clear_done': '历史记录已清空', 'hist.col_funnel': '漏斗',
+    'funnel.toggle': '查看管道漏斗统计', 'funnel.scraped': '①抓取',
+    'funnel.title': '②LLM标题', 'funnel.prefilter': '③预筛漏斗',
+    'funnel.llm': '④LLM评估', 'funnel.saved': '最终保存',
+    'funnel.no_filter': '无过滤', 'funnel.by_source': '分来源统计',
+    'funnel.src_in': '进入', 'funnel.src_saved': '保存',
+    'funnel.passed': '通过', 'funnel.out': '淘汰', 'funnel.entered': '进入',
+    'funnel.sent': '送入', 'funnel.rejected': '拒绝', 'funnel.pass_rate': '通过率',
+    'funnel.merged': '合并', 'funnel.filter_rate_label': '过滤无效 JD',
+    'funnel.header': '━━━ 搜索管道统计 ━━━',
+    'funnel.skip_dup': '去重', 'funnel.skip_seniority': '年资',
+    'funnel.skip_irrelevant': '不相关', 'funnel.skip_cache': '缓存命中',
+    'funnel.skip_no_desc': '无描述', 'funnel.skip_closed': '已关闭',
+    'funnel.skip_exp': '经验超限', 'funnel.skip_skill': '技能不符',
+    'dedup.header': '去重验证', 'dedup.pass': '全部通过', 'dedup.warn': '发现问题',
+    'dedup.exact': '精确重复', 'dedup.url': 'URL冲突',
+    'tip.view_logs': '查看日志', 'tip.session_tokens': '本次会话 token 消耗',
+    'tip.refresh_logs': '手动刷新', 'tip.clear_log_view': '清空视图',
+    'tip.resize_log': '拖动调整高度', 'tip.close_log': '关闭',
+    'tip.session_tokens_detail': '本次会话：输入 {0} + 输出 {1}',
+    'cfg.title': 'API 配置', 'cfg.subtitle': '至少配置一个 LLM Provider 后才能开始使用。',
+    'cfg.default_model': '默认模型', 'cfg.save_default': '保存默认', 'cfg.enter': '进入 JobRadar →',
+    'cfg.configured': '已配置', 'cfg.unconfigured': '未配置', 'cfg.no_key': '无需 API Key（本地服务）',
+    'cfg.save': '保存', 'cfg.test': '测试',
+    'cfg.cache_title': '清除缓存', 'cfg.cache_desc': '清除所有职位、搜索会话及 CV 解析缓存，不可撤销',
+    'cfg.cache_clear': '清除缓存', 'cfg.cache_cleared': '缓存已清除',
+    'cfg.clear_keys': '清空所有API', 'cfg.clear_keys_confirm': '确定要清空所有 API Key 吗？此操作不可撤销。', 'cfg.clear_keys_done': '所有 API Key 已清空',
+    'cfg.restore_models': '还原模型列表', 'cfg.restore_models_done': '模型列表已还原',
+    'cfg.refresh_models': '刷新模型列表', 'cfg.refresh_models_desc': '根据已配置的 API Key 从各 provider 官方接口获取最新模型',
+    'cfg.refresh_models_ok': '已更新 {0} 个 provider 的模型列表', 'cfg.refresh_models_none': '无可更新（请先配置 API Key）',
+    'cfg.select_provider': '— 选择 Provider —', 'cfg.select_provider_first': '— 请先选择 Provider —',
+    'cfg.expand': '展开 {0} 个更多', 'cfg.collapse': '收起',
+    'cfg.model_api_title': '模型 API',
+    'cfg.job_api_title': '职位检索 API（可选）',
+    'cfg.job_api_desc': '启用后可检索真实市场上的 role title，增强 JD 检索结果。此功能非必需，效果依赖外部 API，本软件对检索结果不负责。',
+    'cfg.saved_ok': '已保存', 'cfg.test_ok': '{0} / {1} 连接正常',
+    'list.search_placeholder': '搜索职位、公司…', 'list.sort_score': '得分降序', 'list.sort_date': '最新时间',
+    'list.filter_all': '全部', 'list.filter_today': '今天', 'list.filter_week': '本周', 'list.score_all': '全部分数',
+    'list.select_all': '全选', 'list.loading': '加载中…', 'list.empty': '暂无职位数据，请上传 CV 开始搜索', 'list.delete': '删除', 'list.cancel': '取消',
+    'upload.title': '上传 CV 开始搜索', 'upload.drop': '拖放 CV 文件至此，或', 'upload.click': '点击选择',
+    'upload.formats': '支持 .docx / .md / .txt', 'upload.parsing': '解析 CV…',
+    'upload.pii_notice': '您的 CV 内容将发送至您自行配置的 LLM Provider 进行分析。本软件不会将数据传输至任何其他第三方服务器。如有 PII 顾虑，请在上传前手动移除个人信息（LinkedIn / GitHub 等链接除外）。隐私安全责任由用户自行承担。',
+    'loc.ireland': '爱尔兰 🇮🇪', 'loc.uk': '英国 🇬🇧', 'loc.usa': '美国 🇺🇸', 'loc.canada': '加拿大 🇨🇦', 'loc.australia': '澳大利亚 🇦🇺', 'loc.germany': '德国 🇩🇪', 'loc.singapore': '新加坡 🇸🇬', 'loc.remote': '全球远程 🌐',
+    'titles.location': '目标地区', 'titles.roles': '目标职位', 'titles.discover': '从市场数据发现',
+    'titles.add_placeholder': '添加 title…', 'titles.add': '添加', 'titles.search': '开始搜索',
+    'titles.limit_label': '每个职位抓取上限', 'titles.limit_unit': '条/role',
+    'titles.linkedin_tip': 'LinkedIn 建议不超过 100 条/role，否则可能触发限流。设为 0 可跳过 LinkedIn 抓取。',
+    'titles.date_range': '发布时间范围',
+    'hours.24h': '24 小时', 'hours.3d': '3 天', 'hours.7d': '7 天', 'hours.14d': '14 天', 'hours.30d': '30 天', 'hours.unlimited': '不限',
+    'progress.title': '搜索中…', 'done.restart': '重新搜索',
+    'detail.back': '返回搜索', 'detail.source': '来源：{0}', 'detail.apply': '投递 →',
+    'detail.strengths': '优势', 'detail.weaknesses': '待加强', 'detail.no_jd': '暂无 JD 内容',
+    'detail.keywords_label': '技能匹配', 'detail.jd_label': '职位描述',
+    'done.elapsed': '⏱ 总耗时 {0}', 'done.tokens': '🪙 输入 {0} tokens · 输出 {1} tokens',
+    'log.title': '日志', 'log.filter_placeholder': '过滤关键词…',
+    'log.lines_100': '最近100行', 'log.lines_200': '最近200行', 'log.lines_500': '最近500行',
+    'log.auto_refresh': '自动刷新', 'log.clear': '清空',
+    'modal.title': '确认删除', 'modal.cancel': '取消', 'modal.confirm': '删除',
+    'dot.read_on': '已读', 'dot.read_off': '未读', 'dot.applied_on': '已投递', 'dot.applied_off': '未投递',
+    'dot.replied_on': '已回复', 'dot.replied_off': '未回复',
+    'msg.parse_fail': 'CV 解析失败：', 'msg.discover_done': '新增 {0} 个 role',
+    'msg.discover_fail': '发现失败：', 'msg.discovering': '发现中…',
+    'msg.search_require': '请先上传 CV 并确认 title', 'msg.searching': '搜索中…',
+    'msg.source_required': '请至少选择一个搜索来源', 'msg.search_fail_start': '搜索启动失败：', 'msg.search_done': '找到 {0} 个匹配职位',
+    'msg.search_done_diff': '新增 {0} 个职位，复用缓存 {1} 个',
+    'msg.search_fail': '搜索失败：',
+    'msg.sse_disconnect': 'SSE 连接中断，搜索可能仍在后台运行，稍后刷新页面可查看结果',
+    'msg.selected': '已选 {0} 个', 'msg.delete_confirm': '确定要删除选中的 {0} 个职位吗？此操作不可撤销。',
+    'msg.deleted': '已删除 {0} 个职位', 'msg.delete_fail': '删除失败：',
+    'msg.model_saved': '默认模型已保存：', 'msg.testing': '测试中…',
+    'summary.showing': '显示 {0} / {1} 个职位', 'summary.total': '{0} 个职位',
+  },
+  en: {
+    'nav.config': 'API Config', 'nav.history': 'History', 'nav.logs': 'Logs', 'nav.light': 'Light', 'nav.dark': 'Dark',
+    'hist.title': 'Search History', 'hist.col_time': 'Time', 'hist.col_roles': 'Roles / Location', 'hist.col_model': 'Model',
+    'hist.col_elapsed': 'Elapsed', 'hist.col_tokens_in': 'Input tokens', 'hist.col_tokens_out': 'Output tokens', 'hist.col_jobs': 'Jobs',
+    'hist.empty': 'No search history yet', 'hist.total_searches': 'Total Searches', 'hist.total_jobs': 'Total Jobs Found',
+    'hist.total_tokens': 'Total Tokens', 'hist.total_elapsed': 'Total Time',
+    'hist.clear': 'Clear History', 'hist.clear_confirm': 'Clear all search history? This cannot be undone.',
+    'hist.clear_done': 'History cleared', 'hist.col_funnel': 'Funnel',
+    'funnel.toggle': 'View pipeline funnel stats', 'funnel.scraped': '①Scrape',
+    'funnel.title': '②LLM Title', 'funnel.prefilter': '③Pre-filter',
+    'funnel.llm': '④LLM Assess', 'funnel.saved': 'Saved',
+    'funnel.no_filter': 'No filter', 'funnel.by_source': 'By source',
+    'funnel.src_in': 'in', 'funnel.src_saved': 'saved',
+    'funnel.passed': 'passed', 'funnel.out': 'filtered', 'funnel.entered': 'entered',
+    'funnel.sent': 'sent', 'funnel.rejected': 'rejected', 'funnel.pass_rate': 'pass rate',
+    'funnel.merged': 'merged', 'funnel.filter_rate_label': 'invalid JDs filtered',
+    'funnel.header': '━━━ Pipeline Stats ━━━',
+    'funnel.skip_dup': 'dedup', 'funnel.skip_seniority': 'seniority',
+    'funnel.skip_irrelevant': 'irrelevant', 'funnel.skip_cache': 'cache hit',
+    'funnel.skip_no_desc': 'no desc', 'funnel.skip_closed': 'closed',
+    'funnel.skip_exp': 'exp limit', 'funnel.skip_skill': 'skill miss',
+    'dedup.header': 'Dedup check', 'dedup.pass': 'All pass', 'dedup.warn': 'Issues found',
+    'dedup.exact': 'exact dup', 'dedup.url': 'URL conflict',
+    'tip.view_logs': 'View logs', 'tip.session_tokens': 'Session token usage',
+    'tip.refresh_logs': 'Refresh', 'tip.clear_log_view': 'Clear view',
+    'tip.resize_log': 'Drag to resize', 'tip.close_log': 'Close',
+    'tip.session_tokens_detail': 'This session: input {0} + output {1}',
+    'cfg.title': 'API Configuration', 'cfg.subtitle': 'Configure at least one LLM Provider to get started.',
+    'cfg.default_model': 'Default Model', 'cfg.save_default': 'Save Default', 'cfg.enter': 'Enter JobRadar →',
+    'cfg.configured': 'Configured', 'cfg.unconfigured': 'Not configured', 'cfg.no_key': 'No API Key required (local)',
+    'cfg.save': 'Save', 'cfg.test': 'Test',
+    'cfg.cache_title': 'Clear Cache', 'cfg.cache_desc': 'Clear all jobs, sessions and CV parse cache. Cannot be undone.',
+    'cfg.cache_clear': 'Clear Cache', 'cfg.cache_cleared': 'Cache cleared',
+    'cfg.clear_keys': 'Clear All APIs', 'cfg.clear_keys_confirm': 'Clear all API keys? This cannot be undone.', 'cfg.clear_keys_done': 'All API keys cleared',
+    'cfg.restore_models': 'Restore Models', 'cfg.restore_models_done': 'Model list restored',
+    'cfg.refresh_models': 'Refresh Models', 'cfg.refresh_models_desc': 'Fetch latest models from each configured provider',
+    'cfg.refresh_models_ok': 'Updated models for {0} provider(s)', 'cfg.refresh_models_none': 'Nothing updated (configure API keys first)',
+    'cfg.select_provider': '— Select Provider —', 'cfg.select_provider_first': '— Select a provider first —',
+    'cfg.expand': 'Show {0} more', 'cfg.collapse': 'Show less',
+    'cfg.model_api_title': 'Model API',
+    'cfg.job_api_title': 'Job Search API (Optional)',
+    'cfg.job_api_desc': 'When enabled, discovers real market role titles to enhance JD search results. This feature is optional and relies on external APIs. This software is not responsible for search results.',
+    'cfg.saved_ok': 'Saved', 'cfg.test_ok': '{0} / {1} connected',
+    'list.search_placeholder': 'Search jobs, companies…', 'list.sort_score': 'Score ↓', 'list.sort_date': 'Latest',
+    'list.filter_all': 'All', 'list.filter_today': 'Today', 'list.filter_week': 'This Week', 'list.score_all': 'All scores',
+    'list.select_all': 'Select All', 'list.loading': 'Loading…', 'list.empty': 'No jobs yet — upload your CV to start', 'list.delete': 'Delete', 'list.cancel': 'Cancel',
+    'upload.title': 'Upload CV to Start', 'upload.drop': 'Drop CV here, or', 'upload.click': 'click to select',
+    'upload.formats': 'Supports .docx / .md / .txt', 'upload.parsing': 'Parsing CV…',
+    'upload.pii_notice': 'Your CV content will be sent to your configured LLM provider for analysis. This app does not transmit data to any other third-party servers. If you have PII concerns, please remove personal information before uploading (LinkedIn / GitHub links may be kept). Privacy responsibility lies with the user.',
+    'loc.ireland': 'Ireland 🇮🇪', 'loc.uk': 'United Kingdom 🇬🇧', 'loc.usa': 'United States 🇺🇸', 'loc.canada': 'Canada 🇨🇦', 'loc.australia': 'Australia 🇦🇺', 'loc.germany': 'Germany 🇩🇪', 'loc.singapore': 'Singapore 🇸🇬', 'loc.remote': 'Remote (Global) 🌐',
+    'titles.location': 'Target Location', 'titles.roles': 'Target Roles', 'titles.discover': 'Discover from Market',
+    'titles.add_placeholder': 'Add title…', 'titles.add': 'Add', 'titles.search': 'Start Search',
+    'titles.limit_label': 'Results per role', 'titles.limit_unit': 'jobs/role',
+    'titles.linkedin_tip': 'LinkedIn: recommended ≤ 100/role to avoid rate limiting. Set to 0 to skip LinkedIn.',
+    'titles.date_range': 'Date posted',
+    'hours.24h': '24h', 'hours.3d': '3 days', 'hours.7d': '7 days', 'hours.14d': '14 days', 'hours.30d': '30 days', 'hours.unlimited': 'No limit',
+    'progress.title': 'Searching…', 'done.restart': 'Search Again',
+    'detail.back': '← Back', 'detail.source': 'Source: {0}', 'detail.apply': 'Apply →',
+    'detail.strengths': 'Strengths', 'detail.weaknesses': 'Areas to Improve', 'detail.no_jd': 'No JD content available',
+    'detail.keywords_label': 'Matched Skills', 'detail.jd_label': 'Job Description',
+    'done.elapsed': '⏱ Elapsed {0}', 'done.tokens': '🪙 Input {0} tokens · Output {1} tokens',
+    'log.title': 'Logs', 'log.filter_placeholder': 'Filter keywords…',
+    'log.lines_100': 'Last 100 lines', 'log.lines_200': 'Last 200 lines', 'log.lines_500': 'Last 500 lines',
+    'log.auto_refresh': 'Auto Refresh', 'log.clear': 'Clear',
+    'modal.title': 'Confirm Delete', 'modal.cancel': 'Cancel', 'modal.confirm': 'Delete',
+    'dot.read_on': 'Read', 'dot.read_off': 'Unread', 'dot.applied_on': 'Applied', 'dot.applied_off': 'Not Applied',
+    'dot.replied_on': 'Replied', 'dot.replied_off': 'No Reply',
+    'msg.parse_fail': 'CV parse failed: ', 'msg.discover_done': '{0} new role(s) added',
+    'msg.discover_fail': 'Discovery failed: ', 'msg.discovering': 'Discovering…',
+    'msg.search_require': 'Please upload CV and confirm titles first', 'msg.searching': 'Searching…',
+    'msg.source_required': 'Please select at least one source', 'msg.search_fail_start': 'Search failed to start: ', 'msg.search_done': 'Found {0} matching jobs',
+    'msg.search_done_diff': '{0} new jobs, {1} from cache',
+    'msg.search_fail': 'Search failed: ',
+    'msg.sse_disconnect': 'SSE connection lost. Search may still be running. Refresh later to see results.',
+    'msg.selected': '{0} selected', 'msg.delete_confirm': 'Delete {0} selected jobs? This cannot be undone.',
+    'msg.deleted': 'Deleted {0} jobs', 'msg.delete_fail': 'Delete failed: ',
+    'msg.model_saved': 'Default model saved: ', 'msg.testing': 'Testing…',
+    'summary.showing': 'Showing {0} / {1} jobs', 'summary.total': '{0} jobs',
+  },
+  es: {
+    'nav.config': 'Config. API', 'nav.history': 'Historial', 'nav.logs': 'Registros', 'nav.light': 'Claro', 'nav.dark': 'Oscuro',
+    'hist.title': 'Historial de búsquedas', 'hist.col_time': 'Hora', 'hist.col_roles': 'Puestos / Ubicación', 'hist.col_model': 'Modelo',
+    'hist.col_elapsed': 'Duración', 'hist.col_tokens_in': 'Tokens entrada', 'hist.col_tokens_out': 'Tokens salida', 'hist.col_jobs': 'Empleos',
+    'hist.empty': 'Sin historial de búsquedas', 'hist.total_searches': 'Total búsquedas', 'hist.total_jobs': 'Empleos encontrados',
+    'hist.total_tokens': 'Tokens totales', 'hist.total_elapsed': 'Tiempo total',
+    'hist.clear': 'Limpiar historial', 'hist.clear_confirm': '¿Limpiar todo el historial? No se puede deshacer.',
+    'hist.clear_done': 'Historial eliminado', 'hist.col_funnel': 'Embudo',
+    'funnel.toggle': 'Ver estadísticas del embudo', 'funnel.scraped': '①Extracción',
+    'funnel.title': '②Título LLM', 'funnel.prefilter': '③Pre-filtro',
+    'funnel.llm': '④Evaluación LLM', 'funnel.saved': 'Guardados',
+    'funnel.no_filter': 'Sin filtro', 'funnel.by_source': 'Por fuente',
+    'funnel.src_in': 'entrada', 'funnel.src_saved': 'guardados',
+    'funnel.passed': 'aprobados', 'funnel.out': 'filtrados', 'funnel.entered': 'entradas',
+    'funnel.sent': 'enviados', 'funnel.rejected': 'rechazados', 'funnel.pass_rate': 'tasa aprobación',
+    'funnel.merged': 'fusionados', 'funnel.filter_rate_label': 'JDs inválidos filtrados',
+    'funnel.header': '━━━ Estadísticas del pipeline ━━━',
+    'funnel.skip_dup': 'dedup', 'funnel.skip_seniority': 'antigüedad',
+    'funnel.skip_irrelevant': 'irrelevante', 'funnel.skip_cache': 'caché',
+    'funnel.skip_no_desc': 'sin desc', 'funnel.skip_closed': 'cerrado',
+    'funnel.skip_exp': 'exp. excedida', 'funnel.skip_skill': 'sin habilidad',
+    'dedup.header': 'Verificación dedup', 'dedup.pass': 'Todo correcto', 'dedup.warn': 'Problemas detectados',
+    'dedup.exact': 'dup exacto', 'dedup.url': 'conflicto URL',
+    'tip.view_logs': 'Ver registros', 'tip.session_tokens': 'Tokens de sesión',
+    'tip.refresh_logs': 'Actualizar', 'tip.clear_log_view': 'Limpiar vista',
+    'tip.resize_log': 'Arrastrar para redimensionar', 'tip.close_log': 'Cerrar',
+    'tip.session_tokens_detail': 'Esta sesión: entrada {0} + salida {1}',
+    'cfg.title': 'Configuración de API', 'cfg.subtitle': 'Configura al menos un proveedor LLM para comenzar.',
+    'cfg.default_model': 'Modelo predeterminado', 'cfg.save_default': 'Guardar', 'cfg.enter': 'Entrar a JobRadar →',
+    'cfg.configured': 'Configurado', 'cfg.unconfigured': 'Sin configurar', 'cfg.no_key': 'No requiere API Key (local)',
+    'cfg.save': 'Guardar', 'cfg.test': 'Probar',
+    'cfg.cache_title': 'Limpiar caché', 'cfg.cache_desc': 'Elimina empleos, sesiones y caché de CV. No se puede deshacer.',
+    'cfg.cache_clear': 'Limpiar caché', 'cfg.cache_cleared': 'Caché eliminada',
+    'cfg.clear_keys': 'Limpiar APIs', 'cfg.clear_keys_confirm': '¿Limpiar todas las API Keys? No se puede deshacer.', 'cfg.clear_keys_done': 'Todas las API Keys eliminadas',
+    'cfg.restore_models': 'Restaurar modelos', 'cfg.restore_models_done': 'Lista de modelos restaurada',
+    'cfg.refresh_models': 'Actualizar modelos', 'cfg.refresh_models_desc': 'Obtener modelos actualizados de cada proveedor configurado',
+    'cfg.refresh_models_ok': '{0} proveedor(es) actualizados', 'cfg.refresh_models_none': 'Sin actualizaciones (configura las API Keys)',
+    'cfg.select_provider': '— Selecciona proveedor —', 'cfg.select_provider_first': '— Selecciona un proveedor primero —',
+    'cfg.expand': 'Mostrar {0} más', 'cfg.collapse': 'Mostrar menos',
+    'cfg.model_api_title': 'API de modelos',
+    'cfg.job_api_title': 'API de búsqueda de empleo (opcional)',
+    'cfg.job_api_desc': 'Permite descubrir títulos reales del mercado para mejorar los resultados. Esta función es opcional y depende de APIs externas. El software no se responsabiliza de los resultados.',
+    'cfg.saved_ok': 'Guardado', 'cfg.test_ok': '{0} / {1} conectado',
+    'list.search_placeholder': 'Buscar empleos, empresas…', 'list.sort_score': 'Puntuación ↓', 'list.sort_date': 'Reciente',
+    'list.filter_all': 'Todos', 'list.filter_today': 'Hoy', 'list.filter_week': 'Esta semana', 'list.score_all': 'Todas',
+    'list.select_all': 'Selec. todo', 'list.loading': 'Cargando…', 'list.empty': 'Sin empleos — sube tu CV para comenzar', 'list.delete': 'Eliminar', 'list.cancel': 'Cancelar',
+    'upload.title': 'Sube tu CV para comenzar', 'upload.drop': 'Arrastra el CV aquí, o', 'upload.click': 'haz clic para seleccionar',
+    'upload.formats': 'Admite .docx / .md / .txt', 'upload.parsing': 'Analizando CV…',
+    'upload.pii_notice': 'El contenido de tu CV se enviará a tu proveedor de LLM configurado para su análisis. Esta aplicación no transmite datos a ningún otro servidor de terceros. Si tienes dudas sobre PII, elimina la información personal antes de subir el archivo (los enlaces de LinkedIn / GitHub pueden conservarse). La responsabilidad de privacidad recae en el usuario.',
+    'loc.ireland': 'Irlanda 🇮🇪', 'loc.uk': 'Reino Unido 🇬🇧', 'loc.usa': 'Estados Unidos 🇺🇸', 'loc.canada': 'Canadá 🇨🇦', 'loc.australia': 'Australia 🇦🇺', 'loc.germany': 'Alemania 🇩🇪', 'loc.singapore': 'Singapur 🇸🇬', 'loc.remote': 'Remoto (Global) 🌐',
+    'titles.location': 'Ubicación objetivo', 'titles.roles': 'Puestos objetivo', 'titles.discover': 'Descubrir del mercado',
+    'titles.add_placeholder': 'Agregar título…', 'titles.add': 'Agregar', 'titles.search': 'Iniciar búsqueda',
+    'titles.limit_label': 'Resultados por puesto', 'titles.limit_unit': 'empleos/rol',
+    'titles.linkedin_tip': 'LinkedIn: se recomienda ≤ 100/puesto para evitar limitación. Pon 0 para omitir LinkedIn.',
+    'titles.date_range': 'Fecha de publicación',
+    'hours.24h': '24h', 'hours.3d': '3 días', 'hours.7d': '7 días', 'hours.14d': '14 días', 'hours.30d': '30 días', 'hours.unlimited': 'Sin límite',
+    'progress.title': 'Buscando…', 'done.restart': 'Nueva búsqueda',
+    'detail.back': '← Volver', 'detail.source': 'Fuente: {0}', 'detail.apply': 'Postular →',
+    'detail.strengths': 'Fortalezas', 'detail.weaknesses': 'Áreas de mejora', 'detail.no_jd': 'Sin contenido de oferta',
+    'detail.keywords_label': 'Habilidades coincidentes', 'detail.jd_label': 'Descripción del puesto',
+    'done.elapsed': '⏱ Duración {0}', 'done.tokens': '🪙 Entrada {0} tokens · Salida {1} tokens',
+    'log.title': 'Registros', 'log.filter_placeholder': 'Filtrar palabras clave…',
+    'log.lines_100': 'Últimas 100 líneas', 'log.lines_200': 'Últimas 200 líneas', 'log.lines_500': 'Últimas 500 líneas',
+    'log.auto_refresh': 'Actualización auto.', 'log.clear': 'Limpiar',
+    'modal.title': 'Confirmar eliminación', 'modal.cancel': 'Cancelar', 'modal.confirm': 'Eliminar',
+    'dot.read_on': 'Leído', 'dot.read_off': 'No leído', 'dot.applied_on': 'Postulado', 'dot.applied_off': 'Sin postular',
+    'dot.replied_on': 'Respondido', 'dot.replied_off': 'Sin respuesta',
+    'msg.parse_fail': 'Error al analizar CV: ', 'msg.discover_done': '{0} rol(es) nuevo(s) añadido(s)',
+    'msg.discover_fail': 'Error en descubrimiento: ', 'msg.discovering': 'Descubriendo…',
+    'msg.search_require': 'Sube el CV y confirma los títulos primero', 'msg.searching': 'Buscando…',
+    'msg.source_required': 'Selecciona al menos una fuente', 'msg.search_fail_start': 'Error al iniciar búsqueda: ', 'msg.search_done': 'Se encontraron {0} empleos',
+    'msg.search_done_diff': '{0} nuevos empleos, {1} del caché',
+    'msg.search_fail': 'Búsqueda fallida: ',
+    'msg.sse_disconnect': 'Conexión SSE interrumpida. La búsqueda puede seguir en segundo plano.',
+    'msg.selected': '{0} seleccionados', 'msg.delete_confirm': '¿Eliminar {0} empleos? No se puede deshacer.',
+    'msg.deleted': 'Se eliminaron {0} empleos', 'msg.delete_fail': 'Error al eliminar: ',
+    'msg.model_saved': 'Modelo guardado: ', 'msg.testing': 'Probando…',
+    'summary.showing': 'Mostrando {0} / {1} empleos', 'summary.total': '{0} empleos',
+  },
+};
+
+let LANG = localStorage.getItem('lang') || 'zh';
+
+function t(key, ...args) {
+  let s = (I18N[LANG] || I18N.zh)[key] || (I18N.zh[key] || key);
+  args.forEach((v, i) => { s = s.replace(`{${i}}`, v); });
+  return s;
+}
+
+function applyLang() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPh);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+  // lang button highlight
+  ['zh','en','es'].forEach(l => {
+    const btn = document.getElementById(`lang-${l}`);
+    if (btn) btn.className = `lang-btn text-xs px-2 py-0.5 rounded-md transition-colors font-medium ${
+      l === LANG ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-300 shadow-sm'
+                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
+  });
+  document.documentElement.lang = LANG;
+}
+
+function setLang(l) {
+  LANG = l;
+  localStorage.setItem('lang', l);
+  applyLang();
+  if (typeof renderList === 'function') renderList();
+  if (activeJob) showJobDetail(activeJob);
+  renderProviderList();
+  renderAdzunaStatus();
+}
+
+// ─── Dark mode ────────────────────────────────────────────────────────────────
+const html = document.documentElement;
+const toggle = document.getElementById("dark-toggle");
+const label  = document.getElementById("mode-label");
+
+function applyDark(on) {
+  html.classList.toggle("dark", on);
+  label.textContent = on ? t('nav.dark') : t('nav.light');
+  localStorage.setItem("dark", on ? "1" : "0");
+}
+const savedDark = localStorage.getItem("dark");
+applyDark(savedDark === null ? true : savedDark === "1");
+toggle.addEventListener("click", () => applyDark(!html.classList.contains("dark")));
+
+// ─── Global state ─────────────────────────────────────────────────────────────
+let JOBS        = [];
+let isLoading   = true;   // true 直到首次 loadJobs() 完成
+let sortMode    = "score";
+let dateRange   = "all";
+let searchText  = "";
+let scoreMin    = null;   // null = 不过滤
+let deleteMode  = false;
+let selectedKeys = new Set();
+let activeKey   = null;
+let activeJob   = null;
+let cvHash      = null;
+let cvProfile   = null;
+let titlesList  = [];   // confirmed title list
+let _prevSearchKeys = new Set();  // 本次搜索开始前的 dedup_key 快照
+let _newThisSearch  = new Set();  // 本次搜索中新增的 dedup_key
+let cfgData     = null; // config fetched from API
+
+const STATUS = {};   // dedup_key → { read, applied, replied }
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { "Content-Type": "application/json" } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || r.statusText);
+  }
+  return r.json();
+}
+
+// ─── Config page ──────────────────────────────────────────────────────────────
+async function loadConfig() {
+  cfgData = await api("GET", "/api/config");
+  renderConfigPage();
+  if (cfgData.version) {
+    const el = document.getElementById("app-version");
+    if (el) el.textContent = `v${cfgData.version}`;
+  }
+  // Show mock badge and restore-models button if mock mode is on
+  if (cfgData.mock_mode) {
+    document.getElementById("mock-badge").classList.remove("hidden");
+    document.getElementById("restore-models-btn").classList.remove("hidden");
+  }
+  // Show config page if no provider configured (skip in mock mode)
+  if (!cfgData.mock_mode) {
+    const anyConfigured = Object.values(cfgData.providers).some(p => p.configured);
+    if (!anyConfigured) openConfigPage();
+  }
+}
+
+const _PROVIDER_LABELS = {
+  claude: "Anthropic / Claude", gemini: "Google / Gemini", openai: "OpenAI",
+  xai: "xAI / Grok", mistral: "Mistral AI", meta: "Meta / Llama",
+  huggingface: "Hugging Face", openrouter: "OpenRouter",
+  qwen: "Qwen (通义千问)", glm: "GLM (智谱)", kimi: "Kimi (月之暗面)",
+  deepseek: "DeepSeek", minimax: "MiniMax", doubao: "豆包 (字节跳动)",
+  siliconflow: "SiliconFlow", ollama: "llama.cpp (本地)", local: "Local OpenAI-compat (本地)",
+};
+const _PROVIDERS_COLLAPSED_COUNT = 3;
+let _providersExpanded = false;
+
+function renderConfigPage() {
+  if (!cfgData) return;
+
+  // Populate default provider/model selectors
+  const provSel = document.getElementById("cfg-default-provider");
+  const modSel  = document.getElementById("cfg-default-model");
+  // Remove old change listener by replacing the element clone
+  const newProvSel = provSel.cloneNode(false);
+  provSel.parentNode.replaceChild(newProvSel, provSel);
+
+  // Placeholder option
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = t('cfg.select_provider') || "— Select provider —";
+  placeholder.disabled = true;
+  if (!cfgData.default_provider) placeholder.selected = true;
+  newProvSel.appendChild(placeholder);
+
+  Object.keys(cfgData.available_models).forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p;
+    opt.textContent = p;
+    if (p === cfgData.default_provider) opt.selected = true;
+    newProvSel.appendChild(opt);
+  });
+  populateModelSelect(cfgData.default_provider);
+  newProvSel.addEventListener("change", () => populateModelSelect(newProvSel.value));
+
+  // Provider list
+  renderProviderList();
+
+  // Adzuna status
+  renderAdzunaStatus();
+}
+
+function renderProviderList() {
+  const container = document.getElementById("cfg-providers");
+  container.innerHTML = "";
+  const entries = Object.entries(cfgData.providers);
+  const visible = _providersExpanded ? entries : entries.slice(0, _PROVIDERS_COLLAPSED_COUNT);
+  visible.forEach(([provider, info]) => {
+    const div = document.createElement("div");
+    div.className = "bg-gray-800 rounded-xl p-4 relative";
+    div.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-medium text-sm text-white">${_PROVIDER_LABELS[provider] || provider}</span>
+        <span id="status-${provider}" class="text-xs px-2 py-0.5 rounded-full ${info.configured
+          ? "bg-green-900/50 text-green-400" : "bg-gray-700 text-gray-500"}">
+          ${info.configured ? t('cfg.configured') : t('cfg.unconfigured')}
+        </span>
+      </div>
+      ${info.key_env ? `
+      <div class="flex gap-2 items-center">
+        <input type="password" id="key-${provider}" placeholder="${info.key_env}"
+          class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white text-xs rounded-lg px-3 py-2
+                 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
+          autocomplete="off"/>
+        <button onclick="saveProviderKey('${provider}', '${info.key_env}')"
+          class="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors whitespace-nowrap">
+          ${t('cfg.save')}
+        </button>
+        <button onclick="testProvider('${provider}')"
+          class="flex-shrink-0 px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white text-xs rounded-lg transition-colors whitespace-nowrap">
+          ${t('cfg.test')}
+        </button>
+      </div>
+      <p id="test-msg-${provider}" class="absolute left-4 right-4 -bottom-4 text-xs truncate text-transparent leading-none"></p>
+      ` : `<p class="text-xs text-gray-500">${t('cfg.no_key')}</p>`}
+    `;
+    container.appendChild(div);
+  });
+
+  // Update toggle button
+  const toggleBtn   = document.getElementById("cfg-providers-toggle");
+  const toggleIcon  = document.getElementById("cfg-providers-toggle-icon");
+  const toggleLabel = document.getElementById("cfg-providers-toggle-label");
+  if (entries.length <= _PROVIDERS_COLLAPSED_COUNT) {
+    toggleBtn.classList.add("hidden");
+  } else {
+    toggleBtn.classList.remove("hidden");
+    const remaining = entries.length - _PROVIDERS_COLLAPSED_COUNT;
+    toggleLabel.textContent = _providersExpanded
+      ? (t('cfg.collapse') || "Show less")
+      : (t('cfg.expand', remaining) || `Show ${remaining} more`);
+    toggleIcon.style.transform = _providersExpanded ? "rotate(180deg)" : "";
+  }
+}
+
+function toggleProviderList() {
+  _providersExpanded = !_providersExpanded;
+  renderProviderList();
+}
+
+function renderAdzunaStatus() {
+  if (!cfgData) return;
+  const idConfigured  = !!cfgData.providers_extra?.adzuna_id;
+  const keyConfigured = !!cfgData.providers_extra?.adzuna_key;
+  const both = idConfigured && keyConfigured;
+  const el = document.getElementById("status-adzuna");
+  if (!el) return;
+  el.textContent  = both ? t('cfg.configured') : t('cfg.unconfigured');
+  el.className = `text-xs px-2 py-0.5 rounded-full ${both
+    ? "bg-green-900/50 text-green-400"
+    : "bg-gray-700 text-gray-500"}`;
+}
+
+async function saveAdzunaKey() {
+  const idVal  = document.getElementById("key-adzuna-id")?.value.trim();
+  const keyVal = document.getElementById("key-adzuna-key")?.value.trim();
+  const msgEl  = document.getElementById("test-msg-adzuna");
+  if (!idVal && !keyVal) return;
+  try {
+    if (idVal)  await api("POST", "/api/config", { key: "ADZUNA_APP_ID",  value: idVal });
+    if (keyVal) await api("POST", "/api/config", { key: "ADZUNA_APP_KEY", value: keyVal });
+    if (idVal)  document.getElementById("key-adzuna-id").value  = "";
+    if (keyVal) document.getElementById("key-adzuna-key").value = "";
+    if (!cfgData.providers_extra) cfgData.providers_extra = {};
+    if (idVal)  cfgData.providers_extra.adzuna_id  = true;
+    if (keyVal) cfgData.providers_extra.adzuna_key = true;
+    renderAdzunaStatus();
+    if (msgEl) { msgEl.textContent = t('cfg.saved_ok') || "Saved"; msgEl.className = "absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-green-400"; }
+  } catch(e) {
+    if (msgEl) { msgEl.textContent = e.message; msgEl.className = "absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-red-400"; }
+  }
+}
+
+function populateModelSelect(provider) {
+  const modSel  = document.getElementById("cfg-default-model");
+  const saveBtn = document.getElementById("cfg-save-default-btn");
+  if (!modSel || !cfgData) return;
+
+  if (!provider) {
+    modSel.innerHTML = `<option value="" disabled selected>${t('cfg.select_provider_first') || "— Select provider first —"}</option>`;
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add("opacity-50", "cursor-not-allowed"); }
+    return;
+  }
+
+  const models = cfgData.available_models[provider] || [];
+  if (models.length === 0) {
+    // Local / unconfigured provider: use DEFAULT_MODELS fallback as the only option
+    const fallback = (cfgData.default_models || {})[provider] || "";
+    modSel.innerHTML = fallback
+      ? `<option value="${fallback}" selected>${fallback}</option>`
+      : `<option value="" disabled selected>${t('cfg.select_provider_first') || "— No models available —"}</option>`;
+  } else {
+    modSel.innerHTML = models.map(m =>
+      `<option value="${m}" ${m === cfgData.default_model && provider === cfgData.default_provider ? "selected" : ""}>${m}</option>`
+    ).join("");
+  }
+
+  // Enable save only when provider is selected and model select has a real value
+  const hasModel = modSel.value && !modSel.options[modSel.selectedIndex]?.disabled;
+  if (saveBtn) {
+    saveBtn.disabled = !hasModel;
+    saveBtn.classList.toggle("opacity-50",          !hasModel);
+    saveBtn.classList.toggle("cursor-not-allowed",  !hasModel);
+  }
+}
+
+async function saveProviderKey(provider, keyEnv) {
+  const input = document.getElementById(`key-${provider}`);
+  const val = input.value.trim();
+  if (!val) return;
+  await api("POST", "/api/config", { key: keyEnv, value: val });
+  input.value = "";
+  const statusEl = document.getElementById(`status-${provider}`);
+  statusEl.textContent = t('cfg.configured');
+  statusEl.className = "text-xs px-2 py-0.5 rounded-full bg-green-900/50 text-green-400";
+}
+
+async function testProvider(provider) {
+  const msgEl = document.getElementById(`test-msg-${provider}`);
+  const _cls = ok => `absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none ${ok ? "text-green-400" : "text-red-400"}`;
+  msgEl.className = "absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-gray-400";
+  msgEl.textContent = t('msg.testing');
+  try {
+    const r = await api("POST", "/api/config/test", { provider });
+    msgEl.textContent = r.ok
+      ? t('cfg.test_ok', provider, r.model || "")
+      : r.message;
+    msgEl.className = _cls(r.ok);
+  } catch(e) {
+    msgEl.textContent = e.message;
+    msgEl.className = _cls(false);
+  }
+}
+
+async function saveDefaultModel() {
+  const provider = document.getElementById("cfg-default-provider").value;
+  const modSel   = document.getElementById("cfg-default-model");
+  const model    = modSel?.value;
+  if (!provider || !model || modSel?.options[modSel.selectedIndex]?.disabled) return;
+  await api("POST", "/api/config", { key: "DEFAULT_PROVIDER", value: provider });
+  await api("POST", "/api/config", { key: "DEFAULT_MODEL", value: model });
+  cfgData.default_provider = provider;
+  cfgData.default_model = model;
+  showToast(`${t('msg.model_saved')}${provider} / ${model}`);
+}
+
+function openConfigPage()  { document.getElementById("config-page").classList.remove("hidden"); }
+function closeConfigPage() { document.getElementById("config-page").classList.add("hidden"); }
+
+// ── History page ─────────────────────────────────────────────────────────────
+let _sessionTokensIn = 0, _sessionTokensOut = 0, _sessionSearches = 0;
+
+function _fmtElapsed(sec) {
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+function _fmtNum(n) { return (n || 0).toLocaleString(); }
+
+function updateSessionTokens(tokIn, tokOut) {
+  _sessionTokensIn  += tokIn  || 0;
+  _sessionTokensOut += tokOut || 0;
+  _sessionSearches  += 1;
+  const el = document.getElementById("session-tokens");
+  el.classList.remove("hidden");
+  el.textContent = `🪙 ${_fmtNum(_sessionTokensIn + _sessionTokensOut)} tokens (×${_sessionSearches})`;
+  el.title = t('tip.session_tokens_detail', _fmtNum(_sessionTokensIn), _fmtNum(_sessionTokensOut));
+}
+
+async function openHistoryPage() {
+  document.getElementById("history-page").classList.remove("hidden");
+  await loadHistoryData();
+}
+function closeHistoryPage() { document.getElementById("history-page").classList.add("hidden"); }
+
+async function clearHistory() {
+  if (!confirm(t('hist.clear_confirm'))) return;
+  try {
+    await api("DELETE", "/api/stats");
+    showToast(t('hist.clear_done'));
+    await loadHistoryData();
+  } catch(e) {
+    showToast(e.message, true);
+  }
+}
+
+async function loadHistoryData() {
+  try {
+    const data = await api("GET", "/api/stats");
+    renderHistorySummary(data.summary);
+    renderHistoryTable(data.records);
+  } catch(e) {
+    console.error("Failed to load stats:", e);
+  }
+}
+
+function renderHistorySummary(s) {
+  const el = document.getElementById("hist-summary");
+  const cards = [
+    { label: t('hist.total_searches'), value: _fmtNum(s.total_searches), color: "text-blue-400" },
+    { label: t('hist.total_jobs'),     value: _fmtNum(s.total_jobs),     color: "text-green-400" },
+    { label: t('hist.total_tokens'),   value: _fmtNum((s.total_tokens_in||0) + (s.total_tokens_out||0)), color: "text-purple-400" },
+    { label: t('hist.total_elapsed'),  value: _fmtElapsed(s.total_elapsed || 0), color: "text-yellow-400" },
+  ];
+  el.innerHTML = cards.map(c => `
+    <div class="bg-gray-800 rounded-xl p-4 text-center">
+      <p class="text-xs text-gray-500 mb-1">${c.label}</p>
+      <p class="text-xl font-bold font-mono ${c.color}">${c.value}</p>
+    </div>`).join("");
+}
+
+function _renderFunnelRow(f, rid) {
+  if (!f) return "";
+  const steps = [
+    { label: t('funnel.scraped'),   value: `Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total}`, color: "text-blue-300" },
+    { label: t('funnel.title'),     value: f.title_filter_in ? `${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out}  (${f.llm_title_pass_rate}%)` : "—", color: "text-purple-300" },
+    { label: t('funnel.prefilter'), value: (() => {
+        const parts = [];
+        if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
+        if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
+        if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
+        if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
+        if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
+        if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
+        if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
+        if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
+        return (parts.length ? parts.join(" | ") : t('funnel.no_filter')) + `  (${t('funnel.entered')} ${f.prefilter_in})`;
+      })(), color: "text-yellow-300" },
+    { label: t('funnel.llm'),       value: f.llm_assessed ? `${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%` : "—", color: "text-orange-300" },
+    { label: t('funnel.saved'),     value: `${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`, color: "text-green-400 font-semibold" },
+  ];
+  const tableRows = steps.map(s =>
+    `<tr class="border-t border-gray-700/40">
+      <td class="py-1 pr-6 text-gray-500 whitespace-nowrap">${s.label}</td>
+      <td class="py-1 ${s.color} font-mono">${s.value}</td>
+    </tr>`
+  ).join("");
+
+  let srcHtml = "";
+  if (f.by_source && Object.keys(f.by_source).length > 1) {
+    const srcRows = Object.entries(f.by_source).map(([src, st]) =>
+      `<tr class="border-t border-gray-700/30">
+        <td class="py-0.5 pr-6 text-gray-600">${_esc(src)}</td>
+        <td class="py-0.5 text-gray-400 font-mono">${t('funnel.src_in')} ${st.in || 0}  ${t('funnel.src_saved')} ${st.saved || 0}</td>
+      </tr>`
+    ).join("");
+    srcHtml = `<p class="text-gray-500 text-xs mt-2 mb-1">${t('funnel.by_source')}</p><table class="text-xs w-full">${srcRows}</table>`;
+  }
+
+  return `<tr id="funnel-row-${rid}" class="hidden bg-gray-900/60">
+    <td colspan="8" class="px-8 py-3">
+      <table class="text-xs w-full">${tableRows}</table>
+      ${srcHtml}
+    </td>
+  </tr>`;
+}
+
+function _esc(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function _toggleFunnel(rid) {
+  const row = document.getElementById("funnel-row-" + rid);
+  if (row) row.classList.toggle("hidden");
+}
+
+function renderHistoryTable(records) {
+  const tbody = document.getElementById("hist-tbody");
+  const empty = document.getElementById("hist-empty");
+  if (!records || records.length === 0) {
+    tbody.innerHTML = "";
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  tbody.innerHTML = records.map(r => {
+    const dt = new Date(r.created_at + "Z").toLocaleString();
+    const roles = (r.roles || []).join(", ") || "—";
+    const model = r.model ? `${r.provider}/${r.model.split("-").slice(-2).join("-")}` : r.provider;
+    const funnelBtn = r.funnel
+      ? `<button onclick="_toggleFunnel(${r.id})" title="${t('funnel.toggle')}"
+           class="text-xs px-2 py-0.5 rounded bg-indigo-900/50 hover:bg-indigo-700/60 text-indigo-300 hover:text-white transition-colors border border-indigo-700/40">
+           📊
+         </button>`
+      : `<span class="text-gray-600 text-xs">—</span>`;
+    const mainRow = `<tr class="hover:bg-gray-700/30 transition-colors">
+      <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">${dt}</td>
+      <td class="px-4 py-2.5"><span class="text-white">${roles}</span><br>
+        <span class="text-gray-500 text-xs">${r.location}</span></td>
+      <td class="px-4 py-2.5 text-gray-400">${model}</td>
+      <td class="px-4 py-2.5 text-right text-yellow-300">${_fmtElapsed(r.elapsed)}</td>
+      <td class="px-4 py-2.5 text-right text-green-300">${_fmtNum(r.tokens_in)}</td>
+      <td class="px-4 py-2.5 text-right text-blue-300">${_fmtNum(r.tokens_out)}</td>
+      <td class="px-4 py-2.5 text-right text-white font-semibold">${r.jobs_found}</td>
+      <td class="px-4 py-2.5 text-right">${funnelBtn}</td>
+    </tr>`;
+    return mainRow + _renderFunnelRow(r.funnel, r.id);
+  }).join("");
+}
+
+async function refreshModels() {
+  const btn  = document.getElementById("refresh-models-btn");
+  const icon = document.getElementById("refresh-models-icon");
+  btn.disabled = true;
+  icon.classList.add("animate-spin");
+  try {
+    const res = await api("POST", "/api/models/refresh");
+    const count = Object.keys(res.updated || {}).length;
+    if (count === 0) {
+      showToast(t('cfg.refresh_models_none'), true);
+    } else {
+      // 更新内存中的模型列表并重新渲染下拉框
+      Object.assign(cfgData.available_models, res.updated);
+      populateModelSelect(cfgData.default_provider);
+      showToast(t('cfg.refresh_models_ok', count));
+    }
+  } catch(e) {
+    showToast(`${t('cfg.refresh_models')}: ${e.message}`, true);
+  } finally {
+    btn.disabled = false;
+    icon.classList.remove("animate-spin");
+  }
+}
+
+async function clearCache() {
+  if (!confirm(t('cfg.cache_desc'))) return;
+  try {
+    await api("POST", "/api/cache/clear");
+    JOBS = [];
+    renderList();
+    clearSearchState();
+    showToast(t('cfg.cache_cleared'));
+  } catch(e) {
+    showToast(`${t('msg.delete_fail')}${e.message}`, true);
+  }
+}
+
+async function clearAllApiKeys() {
+  if (!confirm(t('cfg.clear_keys_confirm'))) return;
+  try {
+    await api("POST", "/api/config/clear-keys");
+    // Refresh config data to reflect cleared keys
+    cfgData = await api("GET", "/api/config");
+    renderProviderList();
+    renderAdzunaStatus();
+    showToast(t('cfg.clear_keys_done'));
+  } catch(e) {
+    showToast(`${t('cfg.clear_keys')}: ${e.message}`, true);
+  }
+}
+
+async function resetModelList() {
+  try {
+    const res = await api("POST", "/api/models/reset");
+    Object.assign(cfgData.available_models, res.available_models);
+    populateModelSelect(cfgData.default_provider);
+    showToast(t('cfg.restore_models_done'));
+  } catch(e) {
+    showToast(`${t('cfg.restore_models')}: ${e.message}`, true);
+  }
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, isError = false) {
+  const el = document.createElement("div");
+  el.className = `fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3
+    px-5 py-3 rounded-xl text-sm text-white shadow-xl
+    transition-opacity duration-300
+    ${isError ? "bg-red-600" : "bg-green-600"}`;
+  el.innerHTML = `<span class="flex-1">${msg}</span>
+    <button onclick="this.closest('div').remove()"
+      class="ml-2 text-white/70 hover:text-white transition-colors text-base leading-none">✕</button>`;
+  document.body.appendChild(el);
+  const timer = setTimeout(() => {
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 300);
+  }, 5000);
+  el.querySelector("button").addEventListener("click", () => clearTimeout(timer));
+}
+
+// ─── Job list rendering ───────────────────────────────────────────────────────
+function scoreColor(s) {
+  if (s === null || s === undefined) return "bg-gray-400";
+  if (s >= 8) return "bg-green-500";
+  if (s >= 6) return "bg-yellow-400";
+  if (s >= 4) return "bg-orange-400";
+  return "bg-red-400";
+}
+function scoreBadge(s) {
+  const display = s !== null && s !== undefined ? s : "?";
+  return `<span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-sm font-bold flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
+}
+
+function dotClass(on, color) {
+  return `w-2.5 h-2.5 rounded-full transition-colors duration-200 ${on ? color : "bg-gray-300 dark:bg-gray-600"}`;
+}
+
+function renderDots(key) {
+  const s = STATUS[key] || { read: false, applied: false, replied: false };
+  function row(dot, color, onLabel, offLabel, active) {
+    return `
+      <div class="flex items-center gap-1.5">
+        <span data-dot="${dot}" data-key="${key}" class="${dotClass(active, color)} cursor-pointer hover:opacity-75"></span>
+        <span data-label="${dot}" data-key="${key}"
+          class="text-xs cursor-pointer hover:underline w-20 truncate ${active ? "text-gray-600 dark:text-gray-300" : "text-gray-400 dark:text-gray-500"}">
+          ${active ? onLabel : offLabel}
+        </span>
+      </div>`;
+  }
+  return `
+    <div class="flex flex-col gap-1.5 ml-2">
+      ${row("read",    "bg-blue-500",   t('dot.read_on'),    t('dot.read_off'),    s.read)}
+      ${row("applied", "bg-green-500",  t('dot.applied_on'), t('dot.applied_off'), s.applied)}
+      ${row("replied", "bg-yellow-400", t('dot.replied_on'), t('dot.replied_off'), s.replied)}
+    </div>`;
+}
+
+function jobMatchesFilters(job) {
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    if (!job.title.toLowerCase().includes(q) && !job.company.toLowerCase().includes(q)) return false;
+  }
+  if (dateRange !== "all") {
+    const posted = new Date(job.fetched_at);
+    const diffMs = Date.now() - posted;
+    if (dateRange === "today" && diffMs > 86400000)   return false;
+    if (dateRange === "week"  && diffMs > 7*86400000) return false;
+  }
+  if (scoreMin !== null) {
+    const s = job.score ?? -1;
+    if (s < scoreMin) return false;
+  }
+  return true;
+}
+
+function sortedJobs() {
+  return [...JOBS].filter(jobMatchesFilters).sort((a, b) =>
+    sortMode === "score"
+      ? (b.score ?? -1) - (a.score ?? -1)
+      : (new Date(b.date_posted || b.fetched_at) - new Date(a.date_posted || a.fetched_at))
+  );
+}
+
+const listEl    = document.getElementById("list");
+const summaryEl = document.getElementById("summary");
+
+function buildCard(job) {
+  const key = job.dedup_key;
+  if (!STATUS[key]) STATUS[key] = { read: false, applied: false, replied: false };
+  const card = document.createElement("div");
+  card.className = "job-card px-4 py-3 cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700/60 transition-colors";
+  card.dataset.key = key;
+  const isRemote = (job.location || "").toLowerCase().includes("remote");
+  const dateStr = (() => {
+    if (job.date_posted) {
+      const d = new Date(job.date_posted);
+      if (!isNaN(d)) {
+        const days = Math.floor((Date.now() - d) / 86400000);
+        if (days === 0) return LANG === 'zh' ? '今天' : 'Today';
+        if (days === 1) return LANG === 'zh' ? '昨天' : 'Yesterday';
+        return LANG === 'zh' ? `${days} 天前` : `${days}d ago`;
+      }
+    }
+    return job.fetched_at ? new Date(job.fetched_at).toLocaleDateString("zh-CN") : "";
+  })();
+  const isNew = _newThisSearch.size > 0
+    ? _newThisSearch.has(key)
+    : job.fetched_at && (Date.now() - new Date(job.fetched_at).getTime() < 86400000);
+  card.innerHTML = `
+    <div class="flex items-center gap-3">
+      ${deleteMode ? `<input type="checkbox" data-key="${key}"
+        class="self-center w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+        ${selectedKeys.has(key) ? "checked" : ""}/>` : ""}
+      ${scoreBadge(job.score)}
+      <div class="flex-1 min-w-0">
+        <div class="font-medium text-sm truncate text-gray-800 dark:text-gray-100">${job.title}</div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs text-gray-500 dark:text-gray-400 truncate">${job.company}</span>
+          ${isNew ? '<span class="flex-shrink-0 text-[10px] font-semibold px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded">NEW</span>' : ""}
+        </div>
+        <div class="flex items-center gap-2 mt-1">
+          <span class="text-xs text-gray-400 dark:text-gray-500">${dateStr}</span>
+          ${(job.raw_sources || job.sources || []).map(rs => {
+            const s = rs.source || rs;
+            const url = rs.url || job.url;
+            const isLinkedIn = s.includes("linkedin");
+            const isIndeed   = s.includes("indeed");
+            const cls = isLinkedIn
+              ? "bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:opacity-70"
+              : isIndeed
+              ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:opacity-70"
+              : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:opacity-70";
+            const label = isLinkedIn ? "LinkedIn" : isIndeed ? "Indeed" : s;
+            return `<a href="${url}" target="_blank" rel="noopener"
+              class="text-[10px] px-1.5 py-0.5 rounded font-medium ${cls} transition-opacity"
+              onclick="event.stopPropagation()">${label}</a>`;
+          }).join("")}
+          ${isRemote ? '<span class="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded">Remote</span>' : ""}
+        </div>
+      </div>
+      <div class="self-center">${renderDots(key)}</div>
+    </div>`;
+
+  card.addEventListener("click", e => {
+    // Dot toggle (read / applied / replied)
+    const dotEl = e.target.closest('[data-dot], [data-label]');
+    if (dotEl) {
+      e.stopPropagation();
+      const dot = dotEl.dataset.dot || dotEl.dataset.label;
+      STATUS[key][dot] = !STATUS[key][dot];
+      renderList();
+      return;
+    }
+    if (e.target.closest("input[type='checkbox']")) return;
+    if (deleteMode) { toggleSelect(key); return; }
+    STATUS[key].read = true;
+    showJobDetail(job);
+    renderList();
+  });
+  return card;
+}
+
+function renderList() {
+  const jobs = sortedJobs();
+  listEl.innerHTML = "";
+  if (jobs.length === 0) {
+    const msg = isLoading ? t('list.loading') : t('list.empty');
+    listEl.innerHTML = `<div class="flex flex-col items-center justify-center py-12 text-gray-400">
+      <p class="text-sm">${msg}</p>
+    </div>`;
+  } else {
+    jobs.forEach(job => listEl.appendChild(buildCard(job)));
+  }
+  summaryEl.textContent = jobs.length !== JOBS.length
+    ? t('summary.showing', jobs.length, JOBS.length)
+    : t('summary.total', JOBS.length);
+  if (activeKey) {
+    const c = listEl.querySelector(`[data-key="${activeKey}"]`);
+    if (c) c.classList.add("bg-blue-50", "dark:bg-gray-700", "border-l-4", "border-blue-500");
+  }
+}
+
+async function loadJobs() {
+  try {
+    JOBS = await api("GET", "/api/jobs");
+  } catch(e) {
+    listEl.innerHTML = `<div class="text-xs text-center py-4 text-red-400">${e.message}</div>`;
+    return;
+  } finally {
+    isLoading = false;
+  }
+  renderList();
+}
+
+// ─── Date filter ──────────────────────────────────────────────────────────────
+function refreshDateBtns() {
+  document.querySelectorAll(".date-btn").forEach(btn => {
+    const active = btn.dataset.range === dateRange;
+    btn.className = `date-btn flex-1 text-xs py-1 rounded-md transition-colors ${
+      active ? "bg-blue-500 text-white"
+             : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
+    }`;
+  });
+}
+refreshDateBtns();
+
+// ─── Score filter ──────────────────────────────────────────────────────────────
+function refreshScoreBtn() {
+  const lbl = document.getElementById("score-filter-label");
+  const btn = document.getElementById("score-filter-btn");
+  if (scoreMin === null) {
+    lbl.textContent = "—";
+    btn.classList.remove("border-blue-400", "text-blue-500", "dark:text-blue-400");
+    btn.classList.add("text-gray-600", "dark:text-gray-300");
+  } else {
+    lbl.textContent = `≥${scoreMin}`;
+    btn.classList.add("border-blue-400", "text-blue-500", "dark:text-blue-400");
+    btn.classList.remove("text-gray-600", "dark:text-gray-300");
+  }
+  // update active option highlight
+  document.querySelectorAll(".score-opt").forEach(o => {
+    const v = o.dataset.min === "null" ? null : parseInt(o.dataset.min);
+    const active = v === scoreMin;
+    o.classList.toggle("bg-blue-50",  active);
+    o.classList.toggle("dark:bg-blue-900/30", active);
+    o.classList.toggle("font-semibold", active);
+  });
+}
+function toggleScoreDropdown() {
+  document.getElementById("score-dropdown").classList.toggle("hidden");
+}
+function setScoreFilter(v) {
+  scoreMin = v;
+  document.getElementById("score-dropdown").classList.add("hidden");
+  refreshScoreBtn();
+  renderList();
+}
+refreshScoreBtn();
+// 点击外部关闭下拉
+document.addEventListener("click", e => {
+  if (!e.target.closest("#score-filter-wrap")) {
+    document.getElementById("score-dropdown").classList.add("hidden");
+  }
+});
+
+document.getElementById("sort-select").addEventListener("change", e => { sortMode = e.target.value; renderList(); });
+document.getElementById("search-input").addEventListener("input", e => { searchText = e.target.value.trim(); renderList(); });
+document.getElementById("date-filter").addEventListener("click", e => {
+  const btn = e.target.closest(".date-btn");
+  if (!btn) return;
+  dateRange = btn.dataset.range;
+  refreshDateBtns();
+  renderList();
+});
+
+// ─── Job detail panel ─────────────────────────────────────────────────────────
+function showJobDetail(job) {
+  activeKey = job.dedup_key;
+  activeJob = job;
+  // Activate three-panel layout: detail takes flex-1, search panel shrinks to sidebar
+  document.getElementById("main-area").classList.add("detail-active");
+
+  const scoreVal = job.score !== null && job.score !== undefined ? job.score : "—";
+  const scoreClr = scoreColor(job.score);
+  const sources  = (job.sources || []).join(", ");
+  const rawSources = job.raw_sources || [];
+
+  const applyBtn = rawSources.length > 1
+    ? `<div class="relative flex-shrink-0" id="apply-dropdown-wrap">
+        <button onclick="toggleApplyDropdown(event)"
+          class="flex items-center gap-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">
+          ${t('detail.apply')}
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+        <div id="apply-dropdown"
+          class="hidden absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 min-w-[160px] overflow-hidden">
+          ${rawSources.map(rs => {
+            const isLinkedIn = rs.source.includes("linkedin");
+            const isIndeed   = rs.source.includes("indeed");
+            const label = isLinkedIn ? "LinkedIn" : isIndeed ? "Indeed" : rs.source;
+            const dot = isLinkedIn
+              ? "bg-blue-500" : isIndeed ? "bg-indigo-500" : "bg-gray-400";
+            return `<a href="${rs.url}" target="_blank" rel="noopener"
+              class="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">
+              <span class="w-2 h-2 rounded-full flex-shrink-0 ${dot}"></span>${label}
+            </a>`;
+          }).join("")}
+        </div>
+      </div>`
+    : `<a href="${job.url}" target="_blank" rel="noopener"
+        class="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">
+        ${t('detail.apply')}
+      </a>`;
+
+  let assessHtml = "";
+  if (job.score !== null && job.score !== undefined) {
+    const strengths = (job.strengths || []).map(s => `<li>${s}</li>`).join("");
+    const weaknesses = (job.weaknesses || []).map(w => `<li>${w}</li>`).join("");
+    const keywords = (job.matched_keywords || []).map(k =>
+      `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${k}</span>`
+    ).join("");
+    assessHtml = `
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+          <h4 class="text-sm font-bold text-green-700 dark:text-green-400 mb-2 uppercase tracking-wide">${t('detail.strengths')}</h4>
+          <ul class="text-xs text-green-800 dark:text-green-300 space-y-1.5 list-disc list-inside">${strengths}</ul>
+        </div>
+        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+          <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 mb-2 uppercase tracking-wide">${t('detail.weaknesses')}</h4>
+          <ul class="text-xs text-orange-800 dark:text-orange-300 space-y-1.5 list-disc list-inside">${weaknesses}</ul>
+        </div>
+      </div>
+      ${keywords ? `
+        <div class="mb-[18px]">
+          <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.keywords_label')}</h4>
+          <div class="flex flex-wrap gap-1.5">${keywords}</div>
+        </div>` : ""}`;
+  }
+
+  document.getElementById("job-content").innerHTML = `
+    <button onclick="showSearchPanel()"
+      class="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 mb-4 transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+      </svg>
+      ${t('detail.back')}
+    </button>
+    <div class="flex items-start gap-4 mb-6">
+      <span class="inline-flex items-center justify-center w-12 h-12 rounded-full text-white text-xl font-bold flex-shrink-0 ${scoreClr}">${scoreVal}</span>
+      <div class="flex-1 min-w-0">
+        <h1 class="text-xl font-bold text-gray-900 dark:text-gray-50">${job.title}</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">${job.company} · ${job.location || ""}</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('detail.source', sources)}</p>
+      </div>
+      ${applyBtn}
+    </div>
+    ${assessHtml}
+    <div>
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.jd_label')}</h4>
+      <pre class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">${job.description_snippet || t('detail.no_jd')}</pre>
+    </div>`;
+
+  renderList();
+}
+
+// ─── CV upload & search ───────────────────────────────────────────────────────
+function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add("drag-over"); }
+function handleDragLeave(e) { e.currentTarget.classList.remove("drag-over"); }
+function handleDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove("drag-over");
+  const file = e.dataTransfer.files[0];
+  if (file) handleFileSelect(file);
+}
+
+async function handleFileSelect(file) {
+  if (!file) return;
+  const uploadEl = document.getElementById("step-upload");
+  const statusEl = document.getElementById("parse-status");
+  statusEl.classList.remove("hidden");
+
+  const provider = cfgData?.default_provider || "gemini";
+  const model    = cfgData?.default_model    || "";
+
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("provider", provider);
+  fd.append("model", model);
+
+  try {
+    const r = await fetch("/api/cv/parse", { method: "POST", body: fd });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+    const data = await r.json();
+    cvHash   = data.cv_hash;
+    cvProfile = data.profile;
+    localStorage.setItem("cv_hash", cvHash);
+    localStorage.setItem("cv_profile", JSON.stringify(cvProfile));
+    localStorage.removeItem("titles_list");
+    statusEl.classList.add("hidden");
+    showTitlesStep();
+  } catch(e) {
+    statusEl.classList.add("hidden");
+    showToast(`${t('msg.parse_fail')}${e.message}`, true);
+  }
+}
+
+function showTitlesStep() {
+  document.getElementById("step-titles").classList.remove("hidden");
+
+  // Fill profile card
+  document.getElementById("prof-name").textContent    = cvProfile.name || "—";
+  document.getElementById("prof-summary").textContent = cvProfile.summary || "";
+  document.getElementById("prof-seniority").textContent = cvProfile.seniority || "";
+
+  // Skills tags
+  const skillsEl = document.querySelector("#profile-card .flex.flex-wrap");
+  skillsEl.innerHTML = (cvProfile.skills || []).slice(0, 12).map(s =>
+    `<span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-xs">${s}</span>`
+  ).join("");
+
+  // Preferred location
+  const loc = (cvProfile.preferred_locations || [])[0] || "";
+  const locSel = document.getElementById("location-select");
+  if (loc) {
+    const lower = loc.toLowerCase();
+    for (const opt of locSel.options) {
+      if (lower.includes(opt.value)) { opt.selected = true; break; }
+    }
+  }
+
+  // Titles — 仅在列表为空时用 profile 默认值初始化，避免覆盖 localStorage 恢复的数据
+  if (titlesList.length === 0) {
+    titlesList = [...(cvProfile.preferred_roles || [])];
+  }
+  renderTitles();
+
+  // 有 CV 时隐藏上传区
+  document.getElementById("step-upload").style.display = "none";
+}
+
+function renderTitles() {
+  const el = document.getElementById("titles-list");
+  el.innerHTML = titlesList.map((t, i) => `
+    <div class="flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
+                rounded-lg px-3 py-2">
+      <span class="flex-1 text-sm text-gray-700 dark:text-gray-300">${t}</span>
+      <button onclick="removeTitle(${i})"
+        class="text-gray-400 hover:text-red-500 transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>`).join("");
+  localStorage.setItem("titles_list", JSON.stringify(titlesList));
+}
+
+function addTitle() {
+  const input = document.getElementById("add-title-input");
+  const val = input.value.trim();
+  if (val && !titlesList.includes(val)) { titlesList.push(val); renderTitles(); }
+  input.value = "";
+}
+
+function removeTitle(i) { titlesList.splice(i, 1); renderTitles(); }
+
+async function discoverTitles() {
+  if (!cvHash) return;
+  const btn      = document.getElementById("discover-btn");
+  const btnSpan  = btn.querySelector('[data-i18n]');
+  const progress = document.getElementById("discover-progress");
+  if (btnSpan) btnSpan.textContent = t('msg.discovering');
+  btn.disabled = true;
+  progress.classList.remove("hidden");
+  const provider = cfgData?.default_provider || "gemini";
+  const model    = cfgData?.default_model    || "";
+  try {
+    const r = await api("POST", "/api/titles/discover", { cv_hash: cvHash, provider, model, profile: cvProfile });
+    const discovered = (r.titles || []).map(t => t.canonical || t.name || t);
+    const added = discovered.filter(t => !titlesList.includes(t));
+    added.forEach(t => titlesList.push(t));
+    renderTitles();
+    showToast(t('msg.discover_done', added.length));
+  } catch(e) {
+    showToast(`${t('msg.discover_fail')}${e.message}`, true);
+  } finally {
+    progress.classList.add("hidden");
+    if (btnSpan) btnSpan.textContent = t('titles.discover');
+    btn.disabled = false;
+  }
+}
+
+async function startSearch() {
+  if (!cvHash || titlesList.length === 0) {
+    showToast(t('msg.search_require'), true);
+    return;
+  }
+  const location      = document.getElementById("location-select").value;
+  const provider      = cfgData?.default_provider || "gemini";
+  const model         = cfgData?.default_model    || "";
+  const indeedEnabled        = document.getElementById("source-indeed").checked;
+  const linkedinEnabled      = document.getElementById("source-linkedin").checked;
+  if (!indeedEnabled && !linkedinEnabled) {
+    showToast(t('msg.source_required'), true);
+    return;
+  }
+  const limitPerRole         = indeedEnabled  ? Math.min(500, Math.max(10,  parseInt(document.getElementById("limit-per-role").value)         || 200)) : 0;
+  const linkedinLimitPerRole = linkedinEnabled ? Math.min(200, Math.max(5,   parseInt(document.getElementById("linkedin-limit-per-role").value) || 30))  : 0;
+  const hoursOldVal = parseInt(document.getElementById("hours-old").value);
+  const hoursOld    = hoursOldVal > 0 ? hoursOldVal : null;
+
+  // Switch to progress view
+  document.getElementById("step-titles").classList.add("hidden");
+  document.getElementById("step-upload").style.display = "none";
+  document.getElementById("step-progress").classList.add("active");
+  document.getElementById("step-done").classList.add("hidden");
+  document.getElementById("done-stats").classList.add("hidden");
+  document.getElementById("done-funnel").classList.add("hidden");
+  document.getElementById("done-dedup").classList.add("hidden");
+  document.getElementById("progress-log").innerHTML = "";
+  document.getElementById("progress-title").textContent = t('progress.title');
+  startSearchTimer();
+  // 搜索前快照已有 key，用于后续区分新旧
+  _prevSearchKeys = new Set(JOBS.map(j => j.dedup_key));
+  _newThisSearch  = new Set();
+  // 清空旧列表，本次搜索结果会通过 SSE job 事件逐条填入
+  JOBS = [];
+  activeKey = null;
+  renderList();
+
+  try {
+    await api("POST", "/api/search", { cv_hash: cvHash, roles: titlesList, location, provider, model, language: LANG, limit_per_role: limitPerRole, linkedin_limit_per_role: linkedinLimitPerRole, hours_old: hoursOld });
+    listenProgress();
+  } catch(e) {
+    document.getElementById("step-progress").classList.remove("active");
+    document.getElementById("step-titles").classList.remove("hidden");
+    showToast(`${t('msg.search_fail_start')}${e.message}`, true);
+  }
+}
+
+let _timerInterval = null;
+let _timerStart    = null;
+
+function startSearchTimer() {
+  stopSearchTimer();
+  _timerStart = Date.now();
+  const el = document.getElementById("search-timer");
+  _timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - _timerStart) / 1000);
+    const m = Math.floor(s / 60);
+    el.textContent = `${m}:${String(s % 60).padStart(2, "0")}`;
+  }, 1000);
+}
+
+function stopSearchTimer() {
+  if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+}
+
+function listenProgress() {
+  const log = document.getElementById("progress-log");
+  const es = new EventSource("/api/search/progress");
+  let finished = false;  // done/error 收到后标记，避免 onerror 误触发
+
+  es.onmessage = e => {
+    const data = JSON.parse(e.data);
+
+    if (data.type === "progress") {
+      const p = document.createElement("p");
+      p.textContent = data.msg;
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+
+    } else if (data.type === "job") {
+      const job = data.job;
+      const existing = JOBS.findIndex(j => j.dedup_key === job.dedup_key);
+      if (existing >= 0) JOBS[existing] = job;
+      else JOBS.push(job);
+      if (!_prevSearchKeys.has(job.dedup_key)) _newThisSearch.add(job.dedup_key);
+      renderList();
+      const p = document.createElement("p");
+      const score = job.score !== null ? ` [${job.score}分]` : "";
+      p.textContent = `✓ ${job.title} @ ${job.company}${score}`;
+      p.style.color = "#4ade80";
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+
+    } else if (data.type === "done") {
+      finished = true;
+      stopSearchTimer();
+      es.close();
+      document.getElementById("step-progress").classList.remove("active");
+      document.getElementById("step-done").classList.remove("hidden");
+      const newCount   = _newThisSearch.size;
+      const cacheCount = data.count - newCount;
+      document.getElementById("done-msg").textContent =
+        _prevSearchKeys.size > 0
+          ? t('msg.search_done_diff', newCount, cacheCount)
+          : t('msg.search_done', data.count);
+
+      // 耗时 + token 汇总
+      if (data.elapsed != null) {
+        const m = Math.floor(data.elapsed / 60);
+        const s = Math.round(data.elapsed % 60);
+        const timeStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+        document.getElementById("done-elapsed").textContent = t('done.elapsed', timeStr);
+        const tokIn  = (data.tokens_in  || 0).toLocaleString();
+        const tokOut = (data.tokens_out || 0).toLocaleString();
+        document.getElementById("done-tokens").textContent = t('done.tokens', tokIn, tokOut);
+        document.getElementById("done-stats").classList.remove("hidden");
+        updateSessionTokens(data.tokens_in || 0, data.tokens_out || 0);
+      }
+
+      // 搜索管道统计：写入进度日志 + 完成卡片
+      if (data.pipeline_stats) {
+        const f = data.pipeline_stats;
+        const log = document.getElementById("progress-log");
+
+        // 进度日志追加漏斗摘要
+        const lines = [
+          t('funnel.header'),
+          `${t('funnel.scraped')}  Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total} (${t('funnel.merged')})`,
+          f.title_filter_in
+            ? `${t('funnel.title')}  ${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out} (${f.llm_title_pass_rate}%)`
+            : null,
+          (() => {
+            const parts = [];
+            if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
+            if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
+            if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
+            if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
+            if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
+            if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
+            if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
+            if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
+            return `${t('funnel.prefilter')}  ${f.prefilter_in} ${t('funnel.entered')}` + (parts.length ? `  (${parts.join(' | ')})` : '');
+          })(),
+          f.llm_assessed
+            ? `${t('funnel.llm')}  ${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%`
+            : null,
+          `✦ ${t('funnel.saved')}  ${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`,
+        ].filter(Boolean);
+
+        lines.forEach(text => {
+          const p = document.createElement("p");
+          p.textContent = text;
+          p.style.color = text.startsWith("✦") ? "#4ade80"
+            : text.startsWith("━") ? "#94a3b8"
+            : "#64748b";
+          p.style.fontFamily = "monospace";
+          p.style.fontSize = "0.75rem";
+          log.appendChild(p);
+        });
+        log.scrollTop = log.scrollHeight;
+
+        // 完成卡片：漏斗迷你表
+        const funnelEl = document.getElementById("done-funnel");
+        if (funnelEl) {
+          funnelEl.innerHTML = `
+            <div class="text-xs font-mono text-left space-y-0.5 mt-2 pt-2 border-t border-gray-600/50">
+              <p class="text-gray-500">Indeed <span class="text-blue-300">${f.scraped_indeed}</span>  LinkedIn <span class="text-blue-300">${f.scraped_linkedin}</span>  ${t('funnel.merged')} <span class="text-blue-300">${f.scraped_total}</span></p>
+              ${f.title_filter_in ? `<p class="text-gray-500">${t('funnel.title')} ${t('funnel.out')} <span class="text-purple-300">${f.title_filter_out}</span></p>` : ''}
+              <p class="text-gray-500">${t('funnel.llm')} ${t('funnel.rejected')} <span class="text-orange-300">${f.llm_rejected}</span></p>
+              <p class="text-gray-400">${t('funnel.filter_rate_label')} <span class="text-green-400 font-semibold">${f.filter_rate}%</span></p>
+            </div>`;
+          funnelEl.classList.remove("hidden");
+        }
+      }
+
+      // 去重验证报告
+      if (data.dedup != null) {
+        const d = data.dedup;
+        const dedupEl = document.getElementById("done-dedup");
+        if (dedupEl) {
+          const allPass = d.l1 === 0 && d.l2 === 0;
+          const statusColor = allPass ? "#4ade80" : "#fb923c";
+          const statusText  = allPass ? t('dedup.pass') : t('dedup.warn');
+          let html = `<div class="mt-2 pt-2 border-t border-gray-600/50 text-left space-y-0.5">
+            <p style="color:#94a3b8">${t('dedup.header')} <span style="color:${statusColor};font-weight:600">${statusText}</span></p>
+            <p style="color:#64748b">L1 ${t('dedup.exact')} <span style="color:${d.l1 ? '#fb923c' : '#4ade80'}">${d.l1}</span> &nbsp; L2 ${t('dedup.url')} <span style="color:${d.l2 ? '#fb923c' : '#4ade80'}">${d.l2}</span></p>`;
+          if (d.l2_items && d.l2_items.length > 0) {
+            d.l2_items.slice(0, 3).forEach(item => {
+              html += `<p style="color:#475569;padding-left:8px">${item.url.slice(0, 60)}${item.url.length > 60 ? '...' : ''}</p>`;
+              item.dedup_keys.forEach(k => { html += `<p style="color:#374151;padding-left:16px">-> ${k}</p>`; });
+            });
+            if (d.l2_items.length > 3) html += `<p style="color:#475569;padding-left:8px">... +${d.l2_items.length - 3} more</p>`;
+          }
+          html += `</div>`;
+          dedupEl.innerHTML = html;
+          dedupEl.classList.remove("hidden");
+        }
+      }
+
+      JOBS.sort((a, b) => ((b.score ?? -1) - (a.score ?? -1)));
+      renderList();
+
+    } else if (data.type === "error") {
+      finished = true;
+      stopSearchTimer();
+      es.close();
+      document.getElementById("step-progress").classList.remove("active");
+      document.getElementById("step-titles").classList.remove("hidden");
+      document.getElementById("step-upload").style.display = "";
+      showToast(`${t('msg.search_fail')}${data.msg}`, true);
+
+    }
+    // "timeout" 和 keepalive 注释行不触发 onmessage，忽略即可
+  };
+
+  es.onerror = () => {
+    if (finished) return;   // done/error 已处理，连接正常关闭，忽略
+    stopSearchTimer();
+    es.close();
+    // 搜索仍在进行但连接意外断开：给用户选择
+    document.getElementById("step-progress").classList.remove("active");
+    document.getElementById("step-titles").classList.remove("hidden");
+    document.getElementById("step-upload").style.display = "";
+    showToast(t('msg.sse_disconnect'), true);
+  };
+}
+
+function resetSearchPanel() {
+  document.getElementById("step-done").classList.add("hidden");
+  document.getElementById("step-progress").classList.remove("active");
+  if (cvHash && cvProfile) {
+    // 保留 CV 状态，回到 Step 2 继续搜索
+    document.getElementById("step-titles").classList.remove("hidden");
+    document.getElementById("step-upload").style.display = "none";
+  } else {
+    document.getElementById("step-titles").classList.add("hidden");
+    document.getElementById("step-upload").style.display = "";
+  }
+}
+
+function onHoursOldChange() {
+  const val = parseInt(document.getElementById("hours-old").value);
+  const sel = document.getElementById("sort-select");
+  if (val === 0) {
+    sortMode = "date";
+    if (sel) sel.value = "date";
+  } else {
+    sortMode = "score";
+    if (sel) sel.value = "score";
+  }
+  renderList();
+}
+
+function toggleSource(source) {
+  const inputId = source === "indeed" ? "limit-per-role" : "linkedin-limit-per-role";
+  const checked = document.getElementById(`source-${source}`).checked;
+  const input   = document.getElementById(inputId);
+  input.disabled = !checked;
+  input.classList.toggle("opacity-40", !checked);
+}
+
+function swapCV() {
+  // 清除 CV 状态，显示上传区，保留已有职位列表不受影响
+  cvHash = null;
+  cvProfile = null;
+  titlesList = [];
+  localStorage.removeItem("cv_hash");
+  localStorage.removeItem("cv_profile");
+  localStorage.removeItem("titles_list");
+  document.getElementById("step-titles").classList.add("hidden");
+  document.getElementById("step-done").classList.add("hidden");
+  document.getElementById("step-progress").classList.remove("active");
+  document.getElementById("step-upload").style.display = "";
+  document.getElementById("cv-file-input").value = "";
+}
+
+function clearSearchState() {
+  cvHash = null;
+  cvProfile = null;
+  titlesList = [];
+  localStorage.removeItem("cv_hash");
+  localStorage.removeItem("cv_profile");
+  localStorage.removeItem("titles_list");
+  document.getElementById("step-done").classList.add("hidden");
+  document.getElementById("step-progress").classList.remove("active");
+  document.getElementById("step-titles").classList.add("hidden");
+  document.getElementById("step-upload").style.display = "";
+  document.getElementById("cv-file-input").value = "";
+}
+
+// ─── Collapse back to two-panel (full-width search panel) ─────────────────────
+function toggleApplyDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById("apply-dropdown");
+  if (!dd) return;
+  dd.classList.toggle("hidden");
+  // 点击其他地方关闭
+  const close = ev => { dd.classList.add("hidden"); document.removeEventListener("click", close); };
+  if (!dd.classList.contains("hidden")) setTimeout(() => document.addEventListener("click", close), 0);
+}
+
+function showSearchPanel() {
+  activeKey = null;
+  document.getElementById("main-area").classList.remove("detail-active");
+  renderList();
+}
+
+// ─── Delete mode ──────────────────────────────────────────────────────────────
+const deleteBtnEl    = document.getElementById("delete-btn");
+const cancelDeleteEl = document.getElementById("cancel-delete-btn");
+const selectAllRow   = document.getElementById("select-all-row");
+const selectAllCb    = document.getElementById("select-all-cb");
+const selectedCountEl = document.getElementById("selected-count");
+const modalOverlay   = document.getElementById("modal-overlay");
+const modalMsg       = document.getElementById("modal-msg");
+const modalCancel    = document.getElementById("modal-cancel");
+const modalConfirm   = document.getElementById("modal-confirm");
+const selBox         = document.getElementById("sel-box");
+
+function updateSelectedCount() {
+  const n = selectedKeys.size;
+  selectedCountEl.textContent = n > 0 ? t('msg.selected', n) : "";
+  selectAllCb.indeterminate = n > 0 && n < sortedJobs().length;
+  selectAllCb.checked       = n > 0 && n === sortedJobs().length;
+}
+
+function toggleSelect(key) {
+  if (selectedKeys.has(key)) selectedKeys.delete(key);
+  else selectedKeys.add(key);
+  renderList();
+  updateSelectedCount();
+}
+
+function enterDeleteMode() {
+  deleteMode = true;
+  selectedKeys.clear();
+  cancelDeleteEl.classList.remove("hidden");
+  selectAllRow.classList.remove("hidden");
+  deleteBtnEl.classList.add("text-red-600", "font-semibold");
+  renderList();
+}
+
+function exitDeleteMode() {
+  deleteMode = false;
+  selectedKeys.clear();
+  cancelDeleteEl.classList.add("hidden");
+  selectAllRow.classList.add("hidden");
+  deleteBtnEl.classList.remove("text-red-600", "font-semibold");
+  renderList();
+}
+
+deleteBtnEl.addEventListener("click", () => {
+  if (!deleteMode) { enterDeleteMode(); return; }
+  if (selectedKeys.size === 0) return;
+  modalMsg.textContent = t('msg.delete_confirm', selectedKeys.size);
+  modalOverlay.classList.remove("hidden");
+});
+
+cancelDeleteEl.addEventListener("click", exitDeleteMode);
+modalCancel.addEventListener("click", () => modalOverlay.classList.add("hidden"));
+modalOverlay.addEventListener("click", e => { if (e.target === modalOverlay) modalOverlay.classList.add("hidden"); });
+
+modalConfirm.addEventListener("click", async () => {
+  const keys = [...selectedKeys];
+  try {
+    await api("DELETE", "/api/jobs", { dedup_keys: keys });
+    JOBS = JOBS.filter(j => !keys.includes(j.dedup_key));
+    if (activeKey && keys.includes(activeKey)) showSearchPanel();
+    modalOverlay.classList.add("hidden");
+    selectedKeys.clear();
+    renderList();
+    updateSelectedCount();
+    showToast(t('msg.deleted', keys.length));
+  } catch(e) {
+    showToast(`${t('msg.delete_fail')}${e.message}`, true);
+  }
+});
+
+selectAllCb.addEventListener("change", () => {
+  if (selectAllCb.checked) sortedJobs().forEach(j => selectedKeys.add(j.dedup_key));
+  else selectedKeys.clear();
+  listEl.querySelectorAll("input[type='checkbox']").forEach(cb => {
+    cb.checked = selectedKeys.has(cb.dataset.key);
+  });
+  updateSelectedCount();
+});
+
+listEl.addEventListener("change", e => {
+  const cb = e.target.closest("input[type='checkbox'][data-key]");
+  if (!cb) return;
+  if (cb.checked) selectedKeys.add(cb.dataset.key);
+  else selectedKeys.delete(cb.dataset.key);
+  updateSelectedCount();
+});
+
+// ─── Box selection ────────────────────────────────────────────────────────────
+let selStart = null;
+
+listEl.addEventListener("mousedown", e => {
+  if (!deleteMode || e.target.closest("input")) return;
+  selStart = { x: e.clientX, y: e.clientY };
+  selBox.style.left = e.clientX + "px";
+  selBox.style.top  = e.clientY + "px";
+  selBox.style.width = selBox.style.height = "0";
+  selBox.classList.remove("hidden");
+});
+
+document.addEventListener("mousemove", e => {
+  if (!selStart) return;
+  const x1 = Math.min(selStart.x, e.clientX), y1 = Math.min(selStart.y, e.clientY);
+  const x2 = Math.max(selStart.x, e.clientX), y2 = Math.max(selStart.y, e.clientY);
+  selBox.style.left = x1 + "px"; selBox.style.top  = y1 + "px";
+  selBox.style.width = (x2-x1) + "px"; selBox.style.height = (y2-y1) + "px";
+
+  // Check intersections
+  listEl.querySelectorAll(".job-card").forEach(card => {
+    const r = card.getBoundingClientRect();
+    if (r.left < x2 && r.right > x1 && r.top < y2 && r.bottom > y1) {
+      selectedKeys.add(card.dataset.key);
+    }
+  });
+  updateSelectedCount();
+  renderList();
+});
+
+document.addEventListener("mouseup", () => {
+  if (!selStart) return;
+  selStart = null;
+  selBox.classList.add("hidden");
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+async function init() {
+  applyLang();
+  await loadConfig();
+  await loadJobs();
+
+  // 恢复 CV 状态（刷新/跳转后复原）
+  const savedHash    = localStorage.getItem("cv_hash");
+  const savedProfile = localStorage.getItem("cv_profile");
+  if (savedHash && savedProfile) {
+    try {
+      cvHash    = savedHash;
+      cvProfile = JSON.parse(savedProfile);
+      const savedTitles = localStorage.getItem("titles_list");
+      if (savedTitles) titlesList = JSON.parse(savedTitles);
+      showTitlesStep();
+
+      // 若刷新时搜索仍在进行，重连 SSE 进度流
+      try {
+        const status = await api("GET", "/api/search/status");
+        if (status.running) {
+          document.getElementById("step-titles").classList.add("hidden");
+          document.getElementById("step-upload").style.display = "none";
+          document.getElementById("step-progress").classList.add("active");
+          document.getElementById("step-done").classList.add("hidden");
+          document.getElementById("progress-log").innerHTML = "";
+          document.getElementById("progress-title").textContent = t("progress.title");
+          listenProgress();
+        }
+      } catch(_) {}
+    } catch(_) {
+      localStorage.removeItem("cv_hash");
+      localStorage.removeItem("cv_profile");
+      localStorage.removeItem("titles_list");
+    }
+  }
+}
+
+init();
+
+// ─── Log Panel ────────────────────────────────────────────────────────────────
+let _logLevel      = "";
+let _logRawLines   = [];
+let _logAutoTimer  = null;
+let _logOpen       = false;
+
+function toggleLogPanel() {
+  _logOpen = !_logOpen;
+  const panel = document.getElementById("log-panel");
+  panel.classList.toggle("open", _logOpen);
+  // adjust body padding so content isn't hidden behind panel
+  document.querySelector(".flex.h-full").style.paddingBottom = _logOpen ? "300px" : "0";
+  if (_logOpen) {
+    fetchLogs();
+    startLogAuto();
+  } else {
+    stopLogAuto();
+  }
+}
+
+function setLogLevel(btn) {
+  document.querySelectorAll(".log-lvl-btn").forEach(b => b.classList.remove("active-lvl", "border-slate-300"));
+  btn.classList.add("active-lvl");
+  _logLevel = btn.dataset.lvl;
+  fetchLogs();
+}
+
+async function fetchLogs() {
+  const lines = document.getElementById("log-lines-sel").value;
+  const lvl   = _logLevel;
+  try {
+    const data = await api("GET", `/api/logs?lines=${lines}&level=${lvl}`);
+    _logRawLines = data.lines || [];
+    document.getElementById("log-path").textContent = data.path || "";
+    renderLogLines();
+  } catch(e) {
+    _logRawLines = [`[ERROR] 获取日志失败：${e.message}`];
+    renderLogLines();
+  }
+}
+
+function renderLogLines() {
+  const query = (document.getElementById("log-search").value || "").toLowerCase();
+  const container = document.getElementById("log-lines");
+  const frag = document.createDocumentFragment();
+
+  _logRawLines.forEach(line => {
+    if (query && !line.toLowerCase().includes(query)) return;
+    const div = document.createElement("div");
+    let cls = "log-unknown";
+    if (line.includes("[ERROR]"))   cls = "log-ERROR";
+    else if (line.includes("[WARNING]")) cls = "log-WARNING";
+    else if (line.includes("[INFO]"))    cls = "log-INFO";
+    else if (line.includes("[DEBUG]"))   cls = "log-DEBUG";
+    div.className = cls;
+    if (query) {
+      // highlight matched keyword
+      const safe = line.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+      const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"), "gi");
+      div.innerHTML = safe.replace(re, m => `<span class="log-search-match">${m}</span>`);
+    } else {
+      div.textContent = line;
+    }
+    frag.appendChild(div);
+  });
+
+  container.innerHTML = "";
+  container.appendChild(frag);
+  container.scrollTop = container.scrollHeight;
+}
+
+function clearLogView() {
+  _logRawLines = [];
+  document.getElementById("log-lines").innerHTML = "";
+}
+
+function startLogAuto() {
+  if (_logAutoTimer) return;
+  _logAutoTimer = setInterval(() => { if (_logOpen) fetchLogs(); }, 3000);
+}
+
+function stopLogAuto() {
+  if (_logAutoTimer) { clearInterval(_logAutoTimer); _logAutoTimer = null; }
+}
+
+function toggleLogAuto() {
+  document.getElementById("log-auto").checked ? startLogAuto() : stopLogAuto();
+}
+
+// ── Log panel resize by drag ──────────────────────────────────────────────────
+(function() {
+  const handle = document.getElementById("log-resize");
+  const panel  = document.getElementById("log-panel");
+  let startY, startH;
+  handle.addEventListener("mousedown", e => {
+    startY = e.clientY;
+    startH = panel.offsetHeight;
+    const onMove = ev => {
+      const h = Math.max(120, Math.min(window.innerHeight * 0.7, startH - (ev.clientY - startY)));
+      panel.style.height = h + "px";
+      document.querySelector(".flex.h-full").style.paddingBottom = h + "px";
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    e.preventDefault();
+  });
+})();
+</script>
+</body>
+</html>

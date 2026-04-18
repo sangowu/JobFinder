@@ -13,7 +13,15 @@ dist/
 
 # ── 本地私有文件，不上传 ──────────────────────────────────────────────────────
 jobfinder/scrapers.py
+jobradar/scrapers.py
 CLAUDE.md
+
+# ── 面试 / Demo 相关（本地使用，不发布）─────────────────────────────────────────
+INTERVIEW_DEMO.md
+scripts/seed_demo_data.py
+*_demo*.py
+*_demo*.md
+seed_*.py
 
 # ── 探索/调试脚本（本地使用，不发布）──────────────────────────────────────────
 bench_*.py
@@ -26,9 +34,9 @@ reports/
 
 # ── 调试产物 ──────────────────────────────────────────────────────────────────
 *.html
-# 排除：jobfinder/templates/ 是正式 UI，不应被忽略
-!jobfinder/templates/
-!jobfinder/templates/*.html
+# 排除：jobradar/templates/ 是正式 UI，不应被忽略
+!jobradar/templates/
+!jobradar/templates/*.html
 *.png
 *.txt
 cdp_results.json
