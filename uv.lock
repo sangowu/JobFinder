@@ -640,7 +640,7 @@ wheels = [
 [[package]]
 name = "jobradar"
 version = "0.2.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "ddgs" },
