@@ -245,6 +245,18 @@ class MatchScore(BaseModel):
     explanation: str = ""
 
 
+class InterviewPrep(BaseModel):
+    job_id: str
+    cv_hash: str
+    fit_summary: str = ""
+    likely_questions: list[str] = Field(default_factory=list)
+    talking_points: list[str] = Field(default_factory=list)
+    stories_to_prepare: list[str] = Field(default_factory=list)
+    risks_to_address: list[str] = Field(default_factory=list)
+    questions_to_ask: list[str] = Field(default_factory=list)
+    checklist: list[str] = Field(default_factory=list)
+
+
 class JobResult(BaseModel):
     title: str
     company: str

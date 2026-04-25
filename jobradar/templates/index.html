@@ -731,6 +731,29 @@
   </div>
 </div>
 
+<div id="interview-prep-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+  <div class="max-w-4xl mx-auto px-4 py-12">
+    <div class="flex items-start justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white" data-i18n="detail.interview_title">Interview Prep</h1>
+        <p id="interview-prep-job-meta" class="text-sm text-gray-400 mt-1"></p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="generateInterviewPrep()"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+          data-i18n="detail.interview_regenerate">Regenerate</button>
+        <button onclick="closeInterviewPrepOverlay()"
+          class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="interview-prep-content" class="space-y-4"></div>
+  </div>
+</div>
+
 <script>
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 const I18N = {
@@ -800,6 +823,11 @@ const I18N = {
     'detail.work_mode': '工作方式', 'detail.job_type': '职位类型', 'detail.years_required': '年限要求',
     'detail.seniority_conflict': 'Title / Description 冲突', 'detail.none': '暂无',
     'detail.action_interview': '面试准备', 'detail.action_cover_letter': '求职信', 'detail.action_cv_opt': 'CV 优化',
+    'detail.interview_title': 'Interview Prep', 'detail.interview_loading': '正在生成面试准备…',
+    'detail.interview_fit_summary': '面试策略', 'detail.interview_likely_questions': '高概率问题',
+    'detail.interview_talking_points': '重点表达', 'detail.interview_stories': '建议准备的经历',
+    'detail.interview_risks': '需要主动化解的风险', 'detail.interview_questions': '建议反问',
+    'detail.interview_checklist': '面试前检查清单', 'detail.interview_regenerate': '重新生成',
     'detail.rec_strong_apply': '强烈投递', 'detail.rec_apply': '建议投递', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -818,6 +846,7 @@ const I18N = {
     'msg.search_done_diff': '新增 {0} 个职位，复用缓存 {1} 个',
     'msg.search_fail': '搜索失败：',
     'msg.feature_coming': '{0} 即将上线',
+    'msg.interview_prep_fail': '面试准备生成失败：',
     'msg.sse_disconnect': 'SSE 连接中断，搜索可能仍在后台运行，稍后刷新页面可查看结果',
     'msg.selected': '已选 {0} 个', 'msg.delete_confirm': '确定要删除选中的 {0} 个职位吗？此操作不可撤销。',
     'msg.deleted': '已删除 {0} 个职位', 'msg.delete_fail': '删除失败：',
@@ -890,6 +919,11 @@ const I18N = {
     'detail.work_mode': 'Work Mode', 'detail.job_type': 'Job Type', 'detail.years_required': 'Years Required',
     'detail.seniority_conflict': 'Title / Description Conflict', 'detail.none': 'None',
     'detail.action_interview': 'Interview Prep', 'detail.action_cover_letter': 'Cover Letter', 'detail.action_cv_opt': 'CV Optimization',
+    'detail.interview_title': 'Interview Prep', 'detail.interview_loading': 'Generating interview prep…',
+    'detail.interview_fit_summary': 'Prep Strategy', 'detail.interview_likely_questions': 'Likely Questions',
+    'detail.interview_talking_points': 'Talking Points', 'detail.interview_stories': 'Stories To Prepare',
+    'detail.interview_risks': 'Risks To Address', 'detail.interview_questions': 'Questions To Ask',
+    'detail.interview_checklist': 'Pre-Interview Checklist', 'detail.interview_regenerate': 'Regenerate',
     'detail.rec_strong_apply': 'Strong Apply', 'detail.rec_apply': 'Apply', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -908,6 +942,7 @@ const I18N = {
     'msg.search_done_diff': '{0} new jobs, {1} from cache',
     'msg.search_fail': 'Search failed: ',
     'msg.feature_coming': '{0} coming soon',
+    'msg.interview_prep_fail': 'Interview prep failed: ',
     'msg.sse_disconnect': 'SSE connection lost. Search may still be running. Refresh later to see results.',
     'msg.selected': '{0} selected', 'msg.delete_confirm': 'Delete {0} selected jobs? This cannot be undone.',
     'msg.deleted': 'Deleted {0} jobs', 'msg.delete_fail': 'Delete failed: ',
@@ -980,6 +1015,11 @@ const I18N = {
     'detail.work_mode': 'Modalidad', 'detail.job_type': 'Tipo de puesto', 'detail.years_required': 'Años requeridos',
     'detail.seniority_conflict': 'Conflicto entre título y descripción', 'detail.none': 'Ninguno',
     'detail.action_interview': 'Preparación entrevista', 'detail.action_cover_letter': 'Carta de presentación', 'detail.action_cv_opt': 'Optimización CV',
+    'detail.interview_title': 'Preparación entrevista', 'detail.interview_loading': 'Generando preparación de entrevista…',
+    'detail.interview_fit_summary': 'Estrategia', 'detail.interview_likely_questions': 'Preguntas probables',
+    'detail.interview_talking_points': 'Puntos clave', 'detail.interview_stories': 'Historias a preparar',
+    'detail.interview_risks': 'Riesgos a abordar', 'detail.interview_questions': 'Preguntas para hacer',
+    'detail.interview_checklist': 'Checklist previa', 'detail.interview_regenerate': 'Regenerar',
     'detail.rec_strong_apply': 'Postular fuerte', 'detail.rec_apply': 'Postular', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
     'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -998,6 +1038,7 @@ const I18N = {
     'msg.search_done_diff': '{0} nuevos empleos, {1} del caché',
     'msg.search_fail': 'Búsqueda fallida: ',
     'msg.feature_coming': '{0} próximamente',
+    'msg.interview_prep_fail': 'Error al generar preparación de entrevista: ',
     'msg.sse_disconnect': 'Conexión SSE interrumpida. La búsqueda puede seguir en segundo plano.',
     'msg.selected': '{0} seleccionados', 'msg.delete_confirm': '¿Eliminar {0} empleos? No se puede deshacer.',
     'msg.deleted': 'Se eliminaron {0} empleos', 'msg.delete_fail': 'Error al eliminar: ',
@@ -1040,6 +1081,9 @@ function setLang(l) {
   applyLang();
   if (typeof renderList === 'function') renderList();
   if (activeJob) showJobDetail(activeJob);
+  if (!document.getElementById("interview-prep-overlay").classList.contains("hidden") && currentInterviewPrep) {
+    renderInterviewPrep(currentInterviewPrep);
+  }
   renderProviderList();
   renderAdzunaStatus();
 }
@@ -1070,6 +1114,8 @@ let selectedKeys = new Set();
 let activeKey   = null;
 let activeJob   = null;
 let detailTab   = "overview";
+let currentInterviewPrep = null;
+let interviewPrepJobId = "";
 let cvHash      = null;
 let cvProfile   = null;
 let titlesList  = [];   // confirmed title list
@@ -1611,6 +1657,78 @@ function setDetailTab(tab) {
 function showDetailAction(action) {
   showToast(t('msg.feature_coming', t(`detail.action_${action}`)));
 }
+function openInterviewPrepOverlay() {
+  document.getElementById("interview-prep-overlay").classList.remove("hidden");
+}
+function closeInterviewPrepOverlay() {
+  document.getElementById("interview-prep-overlay").classList.add("hidden");
+}
+function setInterviewPrepLoading() {
+  document.getElementById("interview-prep-content").innerHTML = `
+    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
+      <p class="text-sm text-gray-300">${t('detail.interview_loading')}</p>
+    </div>`;
+}
+function renderInterviewPrep(prep) {
+  currentInterviewPrep = prep;
+  document.getElementById("interview-prep-content").innerHTML = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_fit_summary')}</h4>
+      <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${prep.fit_summary || t('detail.none')}</p>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_likely_questions')}</h4>
+        ${bulletList(prep.likely_questions)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_talking_points')}</h4>
+        ${bulletList(prep.talking_points)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_stories')}</h4>
+        ${bulletList(prep.stories_to_prepare)}
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_risks')}</h4>
+        ${bulletList(prep.risks_to_address)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_questions')}</h4>
+        ${bulletList(prep.questions_to_ask)}
+      </div>
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_checklist')}</h4>
+        ${bulletList(prep.checklist)}
+      </div>
+    </div>`;
+}
+async function generateInterviewPrep(jobId = "") {
+  const targetJobId = jobId || interviewPrepJobId || activeJob?.dedup_key;
+  if (!targetJobId) return;
+  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
+  if (!targetJob) return;
+  interviewPrepJobId = targetJobId;
+  document.getElementById("interview-prep-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
+  openInterviewPrepOverlay();
+  setInterviewPrepLoading();
+  try {
+    const provider = cfgData?.default_provider || "gemini";
+    const model = cfgData?.default_model || "";
+    const data = await api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/interview-prep`, {
+      cv_hash: cvHash || "",
+      provider,
+      model,
+    });
+    renderInterviewPrep(data.prep);
+  } catch (e) {
+    document.getElementById("interview-prep-content").innerHTML = `
+      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
+        <p class="text-sm text-red-200">${t('msg.interview_prep_fail')}${e.message}</p>
+      </div>`;
+    showToast(`${t('msg.interview_prep_fail')}${e.message}`, true);
+  }
+}
 
 function dotClass(on, color) {
   return `w-2.5 h-2.5 rounded-full transition-colors duration-200 ${on ? color : "bg-gray-300 dark:bg-gray-600"}`;
@@ -1974,8 +2092,8 @@ function showJobDetail(job) {
       <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
         <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.tab_actions')}</h4>
         <div class="flex flex-wrap gap-3">
-          <button onclick="showDetailAction('interview')"
-            class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_interview')}</button>
+          <button onclick="generateInterviewPrep('${job.dedup_key}')"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">${t('detail.action_interview')}</button>
           <button onclick="showDetailAction('cover_letter')"
             class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cover_letter')}</button>
           <button onclick="showDetailAction('cv_opt')"

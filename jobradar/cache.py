@@ -9,7 +9,7 @@ from datetime import datetime
 import hashlib
 from pathlib import Path
 
-from jobradar.schemas import CoarseFilterResult, CVProfile, FailedURL, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
+from jobradar.schemas import CoarseFilterResult, CVProfile, FailedURL, InterviewPrep, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
 
 _DEFAULT_DB_PATH = "jobradar_cache.db"
 
@@ -96,6 +96,18 @@ CREATE TABLE IF NOT EXISTS job_matches (
     overall_score     REAL NOT NULL DEFAULT 0,
     recommendation    TEXT NOT NULL DEFAULT 'skip',
     score_json        TEXT NOT NULL,
+    model_name        TEXT NOT NULL DEFAULT '',
+    prompt_version    TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    PRIMARY KEY (job_id, cv_hash)
+);
+
+CREATE TABLE IF NOT EXISTS interview_preps (
+    job_id            TEXT NOT NULL,
+    cv_hash           TEXT NOT NULL,
+    description_hash  TEXT NOT NULL,
+    prep_json         TEXT NOT NULL,
     model_name        TEXT NOT NULL DEFAULT '',
     prompt_version    TEXT NOT NULL DEFAULT '',
     created_at        TEXT NOT NULL,
@@ -412,6 +424,52 @@ def save_job_match(
         )
 
 
+def get_interview_prep(job_id: str, cv_hash: str, description: str = "") -> InterviewPrep | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT prep_json, description_hash FROM interview_preps WHERE job_id = ? AND cv_hash = ?",
+            (job_id, cv_hash),
+        ).fetchone()
+    if row is None:
+        return None
+    if description and row["description_hash"] != _description_hash(description):
+        return None
+    return InterviewPrep.model_validate_json(row["prep_json"])
+
+
+def save_interview_prep(
+    prep: InterviewPrep,
+    description: str,
+    model_name: str = "",
+    prompt_version: str = "",
+) -> None:
+    now = datetime.utcnow().isoformat()
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO interview_preps
+              (job_id, cv_hash, description_hash, prep_json, model_name, prompt_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id, cv_hash) DO UPDATE SET
+              description_hash = excluded.description_hash,
+              prep_json = excluded.prep_json,
+              model_name = excluded.model_name,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """,
+            (
+                prep.job_id,
+                prep.cv_hash,
+                _description_hash(description),
+                prep.model_dump_json(),
+                model_name,
+                prompt_version,
+                now,
+                now,
+            ),
+        )
+
+
 # ─── SearchSession ────────────────────────────────────────────────────────────
 
 
@@ -638,6 +696,8 @@ def clear_all() -> None:
     with _conn() as con:
         con.execute("DELETE FROM job_cache")
         con.execute("DELETE FROM job_summaries")
+        con.execute("DELETE FROM job_matches")
+        con.execute("DELETE FROM interview_preps")
         con.execute("DELETE FROM search_sessions")
         con.execute("DELETE FROM failed_urls")
         con.execute("DELETE FROM cv_cache")
@@ -653,6 +713,14 @@ def delete_jobs(dedup_keys: list[str]) -> int:
     with _conn() as con:
         con.execute(
             f"DELETE FROM job_summaries WHERE job_id IN ({placeholders})",
+            dedup_keys,
+        )
+        con.execute(
+            f"DELETE FROM job_matches WHERE job_id IN ({placeholders})",
+            dedup_keys,
+        )
+        con.execute(
+            f"DELETE FROM interview_preps WHERE job_id IN ({placeholders})",
             dedup_keys,
         )
         r = con.execute(
