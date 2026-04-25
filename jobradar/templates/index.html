@@ -731,18 +731,18 @@
   </div>
 </div>
 
-<div id="interview-prep-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+<div id="artifact-hub-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
   <div class="max-w-4xl mx-auto px-4 py-12">
     <div class="flex items-start justify-between gap-4 mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-white" data-i18n="detail.interview_title">Interview Prep</h1>
-        <p id="interview-prep-job-meta" class="text-sm text-gray-400 mt-1"></p>
+      <div class="min-w-0">
+        <p class="text-sm font-bold uppercase tracking-wide text-blue-300 mb-[18px]" data-i18n="detail.artifact_hub">Artifacts</p>
+        <h1 id="artifact-hub-title" class="text-2xl font-bold text-white">Interview Prep</h1>
+        <p id="artifact-hub-job-meta" class="text-sm text-gray-400 mt-1"></p>
       </div>
-      <div class="flex items-center gap-3">
-        <button onclick="generateInterviewPrep()"
-          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
-          data-i18n="detail.interview_regenerate">Regenerate</button>
-        <button onclick="closeInterviewPrepOverlay()"
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <button id="artifact-hub-refresh-btn" onclick="generateActiveArtifact()"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">Regenerate</button>
+        <button onclick="closeArtifactHub()"
           class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -750,53 +750,8 @@
         </button>
       </div>
     </div>
-    <div id="interview-prep-content" class="space-y-4"></div>
-  </div>
-</div>
-
-<div id="cover-letter-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
-  <div class="max-w-4xl mx-auto px-4 py-12">
-    <div class="flex items-start justify-between gap-4 mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-white" data-i18n="detail.cover_title">Cover Letter</h1>
-        <p id="cover-letter-job-meta" class="text-sm text-gray-400 mt-1"></p>
-      </div>
-      <div class="flex items-center gap-3">
-        <button onclick="generateCoverLetter()"
-          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
-          data-i18n="detail.cover_regenerate">Regenerate</button>
-        <button onclick="closeCoverLetterOverlay()"
-          class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-    <div id="cover-letter-content" class="space-y-4"></div>
-  </div>
-</div>
-
-<div id="cv-optimization-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
-  <div class="max-w-4xl mx-auto px-4 py-12">
-    <div class="flex items-start justify-between gap-4 mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-white" data-i18n="detail.cvopt_title">CV Optimization</h1>
-        <p id="cv-optimization-job-meta" class="text-sm text-gray-400 mt-1"></p>
-      </div>
-      <div class="flex items-center gap-3">
-        <button onclick="generateCVOptimization()"
-          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
-          data-i18n="detail.cvopt_regenerate">Regenerate</button>
-        <button onclick="closeCVOptimizationOverlay()"
-          class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-    <div id="cv-optimization-content" class="space-y-4"></div>
+    <div id="artifact-hub-tabs" class="flex flex-wrap gap-2 mb-6"></div>
+    <div id="artifact-hub-content" class="space-y-4"></div>
   </div>
 </div>
 
@@ -869,6 +824,7 @@ const I18N = {
     'detail.work_mode': '工作方式', 'detail.job_type': '职位类型', 'detail.years_required': '年限要求',
     'detail.seniority_conflict': 'Title / Description 冲突', 'detail.none': '暂无',
     'detail.action_interview': '面试准备', 'detail.action_cover_letter': '求职信', 'detail.action_cv_opt': 'CV 优化',
+    'detail.artifact_hub': '求职助手', 'detail.artifact_not_ready': '此内容尚未生成。可先从上方按钮生成，或返回 Actions 标签查看缓存状态。',
     'detail.interview_title': 'Interview Prep', 'detail.interview_loading': '正在生成面试准备…',
     'detail.interview_fit_summary': '面试策略', 'detail.interview_likely_questions': '高概率问题',
     'detail.interview_talking_points': '重点表达', 'detail.interview_stories': '建议准备的经历',
@@ -978,6 +934,7 @@ const I18N = {
     'detail.work_mode': 'Work Mode', 'detail.job_type': 'Job Type', 'detail.years_required': 'Years Required',
     'detail.seniority_conflict': 'Title / Description Conflict', 'detail.none': 'None',
     'detail.action_interview': 'Interview Prep', 'detail.action_cover_letter': 'Cover Letter', 'detail.action_cv_opt': 'CV Optimization',
+    'detail.artifact_hub': 'Artifacts', 'detail.artifact_not_ready': 'This artifact has not been generated yet. Use the button above or return to the Actions tab to check cache status.',
     'detail.interview_title': 'Interview Prep', 'detail.interview_loading': 'Generating interview prep…',
     'detail.interview_fit_summary': 'Prep Strategy', 'detail.interview_likely_questions': 'Likely Questions',
     'detail.interview_talking_points': 'Talking Points', 'detail.interview_stories': 'Stories To Prepare',
@@ -1087,6 +1044,7 @@ const I18N = {
     'detail.work_mode': 'Modalidad', 'detail.job_type': 'Tipo de puesto', 'detail.years_required': 'Años requeridos',
     'detail.seniority_conflict': 'Conflicto entre título y descripción', 'detail.none': 'Ninguno',
     'detail.action_interview': 'Preparación entrevista', 'detail.action_cover_letter': 'Carta de presentación', 'detail.action_cv_opt': 'Optimización CV',
+    'detail.artifact_hub': 'Artifacts', 'detail.artifact_not_ready': 'Este artefacto aún no se ha generado. Usa el botón superior o vuelve a Actions para revisar el estado del caché.',
     'detail.interview_title': 'Preparación entrevista', 'detail.interview_loading': 'Generando preparación de entrevista…',
     'detail.interview_fit_summary': 'Estrategia', 'detail.interview_likely_questions': 'Preguntas probables',
     'detail.interview_talking_points': 'Puntos clave', 'detail.interview_stories': 'Historias a preparar',
@@ -1166,14 +1124,9 @@ function setLang(l) {
   applyLang();
   if (typeof renderList === 'function') renderList();
   if (activeJob) showJobDetail(activeJob);
-  if (!document.getElementById("interview-prep-overlay").classList.contains("hidden") && currentInterviewPrep) {
-    renderInterviewPrep(currentInterviewPrep);
-  }
-  if (!document.getElementById("cover-letter-overlay").classList.contains("hidden") && currentCoverLetter) {
-    renderCoverLetter(currentCoverLetter);
-  }
-  if (!document.getElementById("cv-optimization-overlay").classList.contains("hidden") && currentCVOptimization) {
-    renderCVOptimization(currentCVOptimization);
+  if (!document.getElementById("artifact-hub-overlay").classList.contains("hidden")) {
+    renderArtifactHubFrame();
+    renderActiveArtifact();
   }
   renderProviderList();
   renderAdzunaStatus();
@@ -1206,11 +1159,10 @@ let activeKey   = null;
 let activeJob   = null;
 let detailTab   = "overview";
 let currentInterviewPrep = null;
-let interviewPrepJobId = "";
 let currentCoverLetter = null;
-let coverLetterJobId = "";
 let currentCVOptimization = null;
-let cvOptimizationJobId = "";
+let currentArtifactType = "interview_prep";
+let artifactHubJobId = "";
 let artifactStatusByJob = {};
 let cvHash      = null;
 let cvProfile   = null;
@@ -1756,6 +1708,100 @@ function showDetailAction(action) {
 function toggleArtifactOverlay(overlayId, open) {
   document.getElementById(overlayId).classList.toggle("hidden", !open);
 }
+function artifactConfig(type) {
+  return {
+    interview_prep: {
+      titleKey: "detail.interview_title",
+      loadingKey: "detail.interview_loading",
+      errorKey: "msg.interview_prep_fail",
+      path: "interview-prep",
+      responseKey: "prep",
+      stateKey: "currentInterviewPrep",
+      actionFn: "generateInterviewPrep",
+      renderFn: renderInterviewPrep,
+    },
+    cover_letter: {
+      titleKey: "detail.cover_title",
+      loadingKey: "detail.cover_loading",
+      errorKey: "msg.cover_letter_fail",
+      path: "cover-letter",
+      responseKey: "letter",
+      stateKey: "currentCoverLetter",
+      actionFn: "generateCoverLetter",
+      renderFn: renderCoverLetter,
+    },
+    cv_optimization: {
+      titleKey: "detail.cvopt_title",
+      loadingKey: "detail.cvopt_loading",
+      errorKey: "msg.cvopt_fail",
+      path: "cv-optimization",
+      responseKey: "optimization",
+      stateKey: "currentCVOptimization",
+      actionFn: "generateCVOptimization",
+      renderFn: renderCVOptimization,
+    },
+  }[type];
+}
+function artifactCurrentData(type) {
+  const cfg = artifactConfig(type);
+  return cfg ? window[cfg.stateKey] : null;
+}
+function artifactHubTab(type, key) {
+  const active = currentArtifactType === type;
+  return `<button onclick="switchArtifactTab('${type}')"
+    class="px-3 py-1.5 rounded-lg text-xs transition-colors ${active
+      ? "bg-blue-600 text-white"
+      : "bg-gray-800 text-gray-400 hover:text-white"}">${t(key)}</button>`;
+}
+function renderArtifactHubFrame() {
+  const cfg = artifactConfig(currentArtifactType);
+  const targetJob = JOBS.find(j => j.dedup_key === artifactHubJobId) || activeJob;
+  document.getElementById("artifact-hub-title").textContent = t(cfg?.titleKey || "detail.artifact_hub");
+  document.getElementById("artifact-hub-job-meta").textContent = targetJob ? `${targetJob.title} · ${targetJob.company}` : "";
+  document.getElementById("artifact-hub-tabs").innerHTML = `
+    ${artifactHubTab("interview_prep", "detail.action_interview")}
+    ${artifactHubTab("cover_letter", "detail.action_cover_letter")}
+    ${artifactHubTab("cv_optimization", "detail.action_cv_opt")}`;
+  const entry = artifactStatusByJob[artifactHubJobId]?.artifacts?.[currentArtifactType];
+  document.getElementById("artifact-hub-refresh-btn").textContent = entry?.exists || entry?.stale
+    ? t("detail.artifact_refresh")
+    : t("detail.artifact_generate");
+}
+function renderArtifactEmpty() {
+  document.getElementById("artifact-hub-content").innerHTML = `
+    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
+      <p class="text-sm text-gray-300">${t("detail.artifact_not_ready")}</p>
+    </div>`;
+}
+function openArtifactHub(jobId, type) {
+  artifactHubJobId = jobId || artifactHubJobId || activeJob?.dedup_key || "";
+  currentArtifactType = type || currentArtifactType;
+  const cached = artifactStatusByJob[artifactHubJobId]?.artifacts?.[currentArtifactType];
+  const cfg = artifactConfig(currentArtifactType);
+  if (cfg) window[cfg.stateKey] = cached?.data || null;
+  renderArtifactHubFrame();
+  toggleArtifactOverlay("artifact-hub-overlay", true);
+}
+function closeArtifactHub() {
+  toggleArtifactOverlay("artifact-hub-overlay", false);
+}
+function switchArtifactTab(type) {
+  currentArtifactType = type;
+  renderArtifactHubFrame();
+  renderActiveArtifact();
+}
+function renderActiveArtifact() {
+  const cfg = artifactConfig(currentArtifactType);
+  if (!cfg) return;
+  const cached = artifactStatusByJob[artifactHubJobId]?.artifacts?.[currentArtifactType];
+  const data = cached ? (cached.data || null) : artifactCurrentData(currentArtifactType);
+  window[cfg.stateKey] = data;
+  if (!data) {
+    renderArtifactEmpty();
+    return;
+  }
+  cfg.renderFn(data);
+}
 function setArtifactLoading(contentId, textKey) {
   document.getElementById(contentId).innerHTML = `
     <div class="bg-gray-800/80 rounded-xl p-6 text-center">
@@ -1803,28 +1849,13 @@ function artifactTimestampLabel(value) {
 }
 function openCachedArtifact(jobId, type) {
   const entry = artifactStatusByJob[jobId]?.artifacts?.[type];
-  const targetJob = JOBS.find(j => j.dedup_key === jobId) || activeJob;
   if (!entry?.data) return;
-  if (type === "interview_prep") {
-    interviewPrepJobId = jobId;
-    if (targetJob) document.getElementById("interview-prep-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
-    openInterviewPrepOverlay();
-    renderInterviewPrep(entry.data);
-    return;
-  }
-  if (type === "cover_letter") {
-    coverLetterJobId = jobId;
-    if (targetJob) document.getElementById("cover-letter-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
-    openCoverLetterOverlay();
-    renderCoverLetter(entry.data);
-    return;
-  }
-  if (type === "cv_optimization") {
-    cvOptimizationJobId = jobId;
-    if (targetJob) document.getElementById("cv-optimization-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
-    openCVOptimizationOverlay();
-    renderCVOptimization(entry.data);
-  }
+  artifactHubJobId = jobId;
+  currentArtifactType = type;
+  const cfg = artifactConfig(type);
+  if (cfg) window[cfg.stateKey] = entry.data;
+  openArtifactHub(jobId, type);
+  renderActiveArtifact();
 }
 async function loadArtifactStatus(jobId) {
   if (!jobId) return;
@@ -1876,15 +1907,9 @@ function artifactActionRow(jobId, type, label) {
       </div>
     </div>`;
 }
-function openInterviewPrepOverlay() {
-  toggleArtifactOverlay("interview-prep-overlay", true);
-}
-function closeInterviewPrepOverlay() {
-  toggleArtifactOverlay("interview-prep-overlay", false);
-}
 function renderInterviewPrep(prep) {
   currentInterviewPrep = prep;
-  document.getElementById("interview-prep-content").innerHTML = `
+  document.getElementById("artifact-hub-content").innerHTML = `
     <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
       <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_fit_summary')}</h4>
       <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${prep.fit_summary || t('detail.none')}</p>
@@ -1917,12 +1942,13 @@ function renderInterviewPrep(prep) {
     </div>`;
 }
 async function generateInterviewPrep(jobId = "") {
+  openArtifactHub(jobId || artifactHubJobId || activeJob?.dedup_key, "interview_prep");
   runArtifactRequest({
     jobId,
-    stateJobIdRef: "interviewPrepJobId",
-    metaId: "interview-prep-job-meta",
-    overlayId: "interview-prep-overlay",
-    contentId: "interview-prep-content",
+    stateJobIdRef: "artifactHubJobId",
+    metaId: "artifact-hub-job-meta",
+    overlayId: "artifact-hub-overlay",
+    contentId: "artifact-hub-content",
     loadingKey: "detail.interview_loading",
     path: "interview-prep",
     responseKey: "prep",
@@ -1931,18 +1957,12 @@ async function generateInterviewPrep(jobId = "") {
     render: renderInterviewPrep,
   });
 }
-function openCoverLetterOverlay() {
-  toggleArtifactOverlay("cover-letter-overlay", true);
-}
-function closeCoverLetterOverlay() {
-  toggleArtifactOverlay("cover-letter-overlay", false);
-}
 function renderCoverLetter(letter) {
   currentCoverLetter = letter;
   const paragraphs = letter.body && letter.body.length
     ? letter.body.map(p => `<p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${p}</p>`).join("")
     : `<p class="text-sm text-gray-400 dark:text-gray-500">${t('detail.none')}</p>`;
-  document.getElementById("cover-letter-content").innerHTML = `
+  document.getElementById("artifact-hub-content").innerHTML = `
     <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
       <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cover_subject')}</h4>
       <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${letter.subject_line || t('detail.none')}</p>
@@ -1961,12 +1981,13 @@ function renderCoverLetter(letter) {
     </div>`;
 }
 async function generateCoverLetter(jobId = "") {
+  openArtifactHub(jobId || artifactHubJobId || activeJob?.dedup_key, "cover_letter");
   runArtifactRequest({
     jobId,
-    stateJobIdRef: "coverLetterJobId",
-    metaId: "cover-letter-job-meta",
-    overlayId: "cover-letter-overlay",
-    contentId: "cover-letter-content",
+    stateJobIdRef: "artifactHubJobId",
+    metaId: "artifact-hub-job-meta",
+    overlayId: "artifact-hub-overlay",
+    contentId: "artifact-hub-content",
     loadingKey: "detail.cover_loading",
     path: "cover-letter",
     responseKey: "letter",
@@ -1975,15 +1996,9 @@ async function generateCoverLetter(jobId = "") {
     render: renderCoverLetter,
   });
 }
-function openCVOptimizationOverlay() {
-  toggleArtifactOverlay("cv-optimization-overlay", true);
-}
-function closeCVOptimizationOverlay() {
-  toggleArtifactOverlay("cv-optimization-overlay", false);
-}
 function renderCVOptimization(opt) {
   currentCVOptimization = opt;
-  document.getElementById("cv-optimization-content").innerHTML = `
+  document.getElementById("artifact-hub-content").innerHTML = `
     <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
       <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_strategy')}</h4>
       <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${opt.summary_strategy || t('detail.none')}</p>
@@ -2012,12 +2027,13 @@ function renderCVOptimization(opt) {
     </div>`;
 }
 async function generateCVOptimization(jobId = "") {
+  openArtifactHub(jobId || artifactHubJobId || activeJob?.dedup_key, "cv_optimization");
   runArtifactRequest({
     jobId,
-    stateJobIdRef: "cvOptimizationJobId",
-    metaId: "cv-optimization-job-meta",
-    overlayId: "cv-optimization-overlay",
-    contentId: "cv-optimization-content",
+    stateJobIdRef: "artifactHubJobId",
+    metaId: "artifact-hub-job-meta",
+    overlayId: "artifact-hub-overlay",
+    contentId: "artifact-hub-content",
     loadingKey: "detail.cvopt_loading",
     path: "cv-optimization",
     responseKey: "optimization",
@@ -2025,6 +2041,13 @@ async function generateCVOptimization(jobId = "") {
     errorKey: "msg.cvopt_fail",
     render: renderCVOptimization,
   });
+}
+function generateActiveArtifact() {
+  const targetJobId = artifactHubJobId || activeJob?.dedup_key || "";
+  if (!targetJobId) return;
+  if (currentArtifactType === "interview_prep") return generateInterviewPrep(targetJobId);
+  if (currentArtifactType === "cover_letter") return generateCoverLetter(targetJobId);
+  return generateCVOptimization(targetJobId);
 }
 
 function dotClass(on, color) {
