@@ -794,6 +794,14 @@ const I18N = {
     'detail.back': '返回搜索', 'detail.source': '来源：{0}', 'detail.apply': '投递 →',
     'detail.strengths': '优势', 'detail.weaknesses': '待加强', 'detail.no_jd': '暂无 JD 内容',
     'detail.keywords_label': '技能匹配', 'detail.jd_label': '职位描述',
+    'detail.overview': '职位概览', 'detail.breakdown': '评分拆解', 'detail.risks': '风险提示',
+    'detail.must_have': '必备要求', 'detail.good_to_have': '加分项', 'detail.responsibilities': '职责',
+    'detail.work_mode': '工作方式', 'detail.job_type': '职位类型', 'detail.years_required': '年限要求',
+    'detail.seniority_conflict': 'Title / Description 冲突', 'detail.none': '暂无',
+    'detail.rec_strong_apply': '强烈投递', 'detail.rec_apply': '建议投递', 'detail.rec_stretch_apply': 'Stretch',
+    'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
+    'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
+    'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Domain', 'detail.score_location': 'Location', 'detail.score_risk': 'Risk',
     'done.elapsed': '⏱ 总耗时 {0}', 'done.tokens': '🪙 输入 {0} tokens · 输出 {1} tokens',
     'log.title': '日志', 'log.filter_placeholder': '过滤关键词…',
     'log.lines_100': '最近100行', 'log.lines_200': '最近200行', 'log.lines_500': '最近500行',
@@ -873,6 +881,14 @@ const I18N = {
     'detail.back': '← Back', 'detail.source': 'Source: {0}', 'detail.apply': 'Apply →',
     'detail.strengths': 'Strengths', 'detail.weaknesses': 'Areas to Improve', 'detail.no_jd': 'No JD content available',
     'detail.keywords_label': 'Matched Skills', 'detail.jd_label': 'Job Description',
+    'detail.overview': 'Overview', 'detail.breakdown': 'Score Breakdown', 'detail.risks': 'Risks',
+    'detail.must_have': 'Must-have', 'detail.good_to_have': 'Nice-to-have', 'detail.responsibilities': 'Responsibilities',
+    'detail.work_mode': 'Work Mode', 'detail.job_type': 'Job Type', 'detail.years_required': 'Years Required',
+    'detail.seniority_conflict': 'Title / Description Conflict', 'detail.none': 'None',
+    'detail.rec_strong_apply': 'Strong Apply', 'detail.rec_apply': 'Apply', 'detail.rec_stretch_apply': 'Stretch',
+    'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
+    'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
+    'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Domain', 'detail.score_location': 'Location', 'detail.score_risk': 'Risk',
     'done.elapsed': '⏱ Elapsed {0}', 'done.tokens': '🪙 Input {0} tokens · Output {1} tokens',
     'log.title': 'Logs', 'log.filter_placeholder': 'Filter keywords…',
     'log.lines_100': 'Last 100 lines', 'log.lines_200': 'Last 200 lines', 'log.lines_500': 'Last 500 lines',
@@ -952,6 +968,14 @@ const I18N = {
     'detail.back': '← Volver', 'detail.source': 'Fuente: {0}', 'detail.apply': 'Postular →',
     'detail.strengths': 'Fortalezas', 'detail.weaknesses': 'Áreas de mejora', 'detail.no_jd': 'Sin contenido de oferta',
     'detail.keywords_label': 'Habilidades coincidentes', 'detail.jd_label': 'Descripción del puesto',
+    'detail.overview': 'Resumen', 'detail.breakdown': 'Desglose de puntuación', 'detail.risks': 'Riesgos',
+    'detail.must_have': 'Requisitos clave', 'detail.good_to_have': 'Deseables', 'detail.responsibilities': 'Responsabilidades',
+    'detail.work_mode': 'Modalidad', 'detail.job_type': 'Tipo de puesto', 'detail.years_required': 'Años requeridos',
+    'detail.seniority_conflict': 'Conflicto entre título y descripción', 'detail.none': 'Ninguno',
+    'detail.rec_strong_apply': 'Postular fuerte', 'detail.rec_apply': 'Postular', 'detail.rec_stretch_apply': 'Stretch',
+    'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
+    'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
+    'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Dominio', 'detail.score_location': 'Ubicación', 'detail.score_risk': 'Riesgo',
     'done.elapsed': '⏱ Duración {0}', 'done.tokens': '🪙 Entrada {0} tokens · Salida {1} tokens',
     'log.title': 'Registros', 'log.filter_placeholder': 'Filtrar palabras clave…',
     'log.lines_100': 'Últimas 100 líneas', 'log.lines_200': 'Últimas 200 líneas', 'log.lines_500': 'Últimas 500 líneas',
@@ -1528,14 +1552,40 @@ function showToast(msg, isError = false) {
 // ─── Job list rendering ───────────────────────────────────────────────────────
 function scoreColor(s) {
   if (s === null || s === undefined) return "bg-gray-400";
-  if (s >= 8) return "bg-green-500";
-  if (s >= 6) return "bg-yellow-400";
-  if (s >= 4) return "bg-orange-400";
+  const normalized = s > 10 ? s / 10 : s;
+  if (normalized >= 8) return "bg-green-500";
+  if (normalized >= 6) return "bg-yellow-400";
+  if (normalized >= 4) return "bg-orange-400";
   return "bg-red-400";
 }
 function scoreBadge(s) {
   const display = s !== null && s !== undefined ? s : "?";
-  return `<span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-sm font-bold flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
+  return `<span class="inline-flex items-center justify-center min-w-[44px] h-8 px-2 rounded-full text-white text-xs font-bold font-mono flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
+}
+function normalizedScore(s) {
+  if (s === null || s === undefined) return null;
+  return s > 10 ? s / 10 : s;
+}
+function recommendationLabel(rec) {
+  if (!rec) return "";
+  return t(`detail.rec_${rec}`) || rec;
+}
+function recommendationBadge(rec) {
+  if (!rec) return "";
+  const cls = rec === "strong_apply"
+    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
+    : rec === "apply"
+    ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+    : rec === "stretch_apply"
+    ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
+    : rec === "low_priority"
+    ? "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300"
+    : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300";
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${recommendationLabel(rec)}</span>`;
+}
+function bulletList(items, emptyText = t('detail.none')) {
+  if (!items || !items.length) return `<p class="text-xs text-gray-400 dark:text-gray-500">${emptyText}</p>`;
+  return `<ul class="text-xs text-gray-700 dark:text-gray-300 space-y-1.5 list-disc list-inside">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
 }
 
 function dotClass(on, color) {
@@ -1574,7 +1624,7 @@ function jobMatchesFilters(job) {
     if (dateRange === "week"  && diffMs > 7*86400000) return false;
   }
   if (scoreMin !== null) {
-    const s = job.score ?? -1;
+    const s = normalizedScore(job.score) ?? -1;
     if (s < scoreMin) return false;
   }
   return true;
@@ -1613,6 +1663,13 @@ function buildCard(job) {
   const isNew = _newThisSearch.size > 0
     ? _newThisSearch.has(key)
     : job.fetched_at && (Date.now() - new Date(job.fetched_at).getTime() < 86400000);
+  const recBadge = recommendationBadge(job.recommendation);
+  const detailBits = [job.work_mode, job.job_type].filter(Boolean).map(v =>
+    `<span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">${v}</span>`
+  ).join("");
+  const conflictBadge = job.seniority_conflict
+    ? `<span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300">! ${t('detail.seniority_conflict')}</span>`
+    : "";
   card.innerHTML = `
     <div class="flex items-center gap-3">
       ${deleteMode ? `<input type="checkbox" data-key="${key}"
@@ -1624,6 +1681,7 @@ function buildCard(job) {
         <div class="flex items-center gap-1.5">
           <span class="text-xs text-gray-500 dark:text-gray-400 truncate">${job.company}</span>
           ${isNew ? '<span class="flex-shrink-0 text-[10px] font-semibold px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded">NEW</span>' : ""}
+          ${recBadge}
         </div>
         <div class="flex items-center gap-2 mt-1">
           <span class="text-xs text-gray-400 dark:text-gray-500">${dateStr}</span>
@@ -1643,6 +1701,8 @@ function buildCard(job) {
               onclick="event.stopPropagation()">${label}</a>`;
           }).join("")}
           ${isRemote ? '<span class="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded">Remote</span>' : ""}
+          ${detailBits}
+          ${conflictBadge}
         </div>
       </div>
       <div class="self-center">${renderDots(key)}</div>
@@ -1773,6 +1833,9 @@ function showJobDetail(job) {
   const scoreClr = scoreColor(job.score);
   const sources  = (job.sources || []).join(", ");
   const rawSources = job.raw_sources || [];
+  const recBadge = recommendationBadge(job.recommendation);
+  const summary = job.job_summary || {};
+  const match = job.match_score || null;
 
   const applyBtn = rawSources.length > 1
     ? `<div class="relative flex-shrink-0" id="apply-dropdown-wrap">
@@ -1803,30 +1866,74 @@ function showJobDetail(job) {
         ${t('detail.apply')}
       </a>`;
 
-  let assessHtml = "";
-  if (job.score !== null && job.score !== undefined) {
-    const strengths = (job.strengths || []).map(s => `<li>${s}</li>`).join("");
-    const weaknesses = (job.weaknesses || []).map(w => `<li>${w}</li>`).join("");
-    const keywords = (job.matched_keywords || []).map(k =>
-      `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${k}</span>`
-    ).join("");
-    assessHtml = `
+  const keywords = (job.matched_keywords || []).map(k =>
+    `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${k}</span>`
+  ).join("");
+  const overviewHtml = `
+    <div class="mb-6">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.overview')}</h4>
       <div class="grid grid-cols-2 gap-4 mb-4">
-        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
-          <h4 class="text-sm font-bold text-green-700 dark:text-green-400 mb-2 uppercase tracking-wide">${t('detail.strengths')}</h4>
-          <ul class="text-xs text-green-800 dark:text-green-300 space-y-1.5 list-disc list-inside">${strengths}</ul>
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <div class="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.work_mode')}:</span> ${summary.work_mode || t('detail.none')}</div>
+            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.job_type')}:</span> ${summary.job_type || t('detail.none')}</div>
+            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.years_required')}:</span> ${summary.years_required ?? t('detail.none')}</div>
+            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.keywords_label')}:</span></div>
+            <div class="flex flex-wrap gap-1.5">${keywords || `<span class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</span>`}</div>
+          </div>
         </div>
-        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
-          <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 mb-2 uppercase tracking-wide">${t('detail.weaknesses')}</h4>
-          <ul class="text-xs text-orange-800 dark:text-orange-300 space-y-1.5 list-disc list-inside">${weaknesses}</ul>
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <div class="mb-[18px]">
+            <h5 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.must_have')}</h5>
+            ${bulletList(summary.must_have)}
+          </div>
+          <div>
+            <h5 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.good_to_have')}</h5>
+            ${bulletList(summary.good_to_have)}
+          </div>
         </div>
       </div>
-      ${keywords ? `
-        <div class="mb-[18px]">
-          <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.keywords_label')}</h4>
-          <div class="flex flex-wrap gap-1.5">${keywords}</div>
-        </div>` : ""}`;
-  }
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h5 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.responsibilities')}</h5>
+        ${bulletList(summary.responsibilities)}
+      </div>
+    </div>`;
+  const breakdownHtml = match ? `
+    <div class="mb-6">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+          <div class="space-y-2 text-xs text-green-800 dark:text-green-300 font-mono">
+            <div>${t('detail.score_title')}: ${Math.round(match.title_score)}</div>
+            <div>${t('detail.score_seniority')}: ${Math.round(match.seniority_score)}</div>
+            <div>${t('detail.score_must_have')}: ${Math.round(match.must_have_score)}</div>
+            <div>${t('detail.score_nice_to_have')}: ${Math.round(match.nice_to_have_score)}</div>
+            <div>${t('detail.score_domain')}: ${Math.round(match.domain_score)}</div>
+            <div>${t('detail.score_location')}: ${Math.round(match.location_score)}</div>
+            <div>${t('detail.score_risk')}: -${Math.round(match.risk_penalty)}</div>
+          </div>
+        </div>
+        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+          <h5 class="text-sm font-bold text-orange-700 dark:text-orange-400 mb-[18px] uppercase tracking-wide">${t('detail.risks')}</h5>
+          ${bulletList([
+            ...(summary.seniority_conflict && summary.seniority_conflict_reason ? [`${t('detail.seniority_conflict')}: ${summary.seniority_conflict_reason}`] : []),
+            ...((match.risks || []).length ? match.risks : []),
+            ...((match.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
+          ])}
+        </div>
+      </div>
+    </div>` : "";
+  const assessHtml = `
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 mb-[18px] uppercase tracking-wide">${t('detail.strengths')}</h4>
+        ${bulletList(job.strengths || [])}
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 mb-[18px] uppercase tracking-wide">${t('detail.weaknesses')}</h4>
+        ${bulletList(job.weaknesses || [])}
+      </div>
+    </div>`;
 
   document.getElementById("job-content").innerHTML = `
     <button onclick="showSearchPanel()"
@@ -1837,14 +1944,22 @@ function showJobDetail(job) {
       ${t('detail.back')}
     </button>
     <div class="flex items-start gap-4 mb-6">
-      <span class="inline-flex items-center justify-center w-12 h-12 rounded-full text-white text-xl font-bold flex-shrink-0 ${scoreClr}">${scoreVal}</span>
+      <span class="inline-flex items-center justify-center min-w-[64px] h-12 px-3 rounded-full text-white text-lg font-bold font-mono flex-shrink-0 ${scoreClr}">${scoreVal}</span>
       <div class="flex-1 min-w-0">
         <h1 class="text-xl font-bold text-gray-900 dark:text-gray-50">${job.title}</h1>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">${job.company} · ${job.location || ""}</p>
+        <div class="flex flex-wrap gap-1.5 mt-1">
+          ${recBadge}
+          ${summary.work_mode ? `<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">${summary.work_mode}</span>` : ""}
+          ${summary.job_type ? `<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">${summary.job_type}</span>` : ""}
+          ${summary.seniority_conflict ? `<span class="text-xs px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300">${t('detail.seniority_conflict')}</span>` : ""}
+        </div>
         <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('detail.source', sources)}</p>
       </div>
       ${applyBtn}
     </div>
+    ${overviewHtml}
+    ${breakdownHtml}
     ${assessHtml}
     <div>
       <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.jd_label')}</h4>
