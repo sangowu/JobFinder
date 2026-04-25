@@ -754,6 +754,29 @@
   </div>
 </div>
 
+<div id="cover-letter-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+  <div class="max-w-4xl mx-auto px-4 py-12">
+    <div class="flex items-start justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white" data-i18n="detail.cover_title">Cover Letter</h1>
+        <p id="cover-letter-job-meta" class="text-sm text-gray-400 mt-1"></p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="generateCoverLetter()"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+          data-i18n="detail.cover_regenerate">Regenerate</button>
+        <button onclick="closeCoverLetterOverlay()"
+          class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="cover-letter-content" class="space-y-4"></div>
+  </div>
+</div>
+
 <script>
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 const I18N = {
@@ -828,6 +851,9 @@ const I18N = {
     'detail.interview_talking_points': '重点表达', 'detail.interview_stories': '建议准备的经历',
     'detail.interview_risks': '需要主动化解的风险', 'detail.interview_questions': '建议反问',
     'detail.interview_checklist': '面试前检查清单', 'detail.interview_regenerate': '重新生成',
+    'detail.cover_title': 'Cover Letter', 'detail.cover_loading': '正在生成求职信…',
+    'detail.cover_subject': '主题行', 'detail.cover_highlights': '核心卖点', 'detail.cover_full_text': '完整正文',
+    'detail.cover_regenerate': '重新生成',
     'detail.rec_strong_apply': '强烈投递', 'detail.rec_apply': '建议投递', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -847,6 +873,7 @@ const I18N = {
     'msg.search_fail': '搜索失败：',
     'msg.feature_coming': '{0} 即将上线',
     'msg.interview_prep_fail': '面试准备生成失败：',
+    'msg.cover_letter_fail': '求职信生成失败：',
     'msg.sse_disconnect': 'SSE 连接中断，搜索可能仍在后台运行，稍后刷新页面可查看结果',
     'msg.selected': '已选 {0} 个', 'msg.delete_confirm': '确定要删除选中的 {0} 个职位吗？此操作不可撤销。',
     'msg.deleted': '已删除 {0} 个职位', 'msg.delete_fail': '删除失败：',
@@ -924,6 +951,9 @@ const I18N = {
     'detail.interview_talking_points': 'Talking Points', 'detail.interview_stories': 'Stories To Prepare',
     'detail.interview_risks': 'Risks To Address', 'detail.interview_questions': 'Questions To Ask',
     'detail.interview_checklist': 'Pre-Interview Checklist', 'detail.interview_regenerate': 'Regenerate',
+    'detail.cover_title': 'Cover Letter', 'detail.cover_loading': 'Generating cover letter…',
+    'detail.cover_subject': 'Subject Line', 'detail.cover_highlights': 'Highlights', 'detail.cover_full_text': 'Full Letter',
+    'detail.cover_regenerate': 'Regenerate',
     'detail.rec_strong_apply': 'Strong Apply', 'detail.rec_apply': 'Apply', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -943,6 +973,7 @@ const I18N = {
     'msg.search_fail': 'Search failed: ',
     'msg.feature_coming': '{0} coming soon',
     'msg.interview_prep_fail': 'Interview prep failed: ',
+    'msg.cover_letter_fail': 'Cover letter failed: ',
     'msg.sse_disconnect': 'SSE connection lost. Search may still be running. Refresh later to see results.',
     'msg.selected': '{0} selected', 'msg.delete_confirm': 'Delete {0} selected jobs? This cannot be undone.',
     'msg.deleted': 'Deleted {0} jobs', 'msg.delete_fail': 'Delete failed: ',
@@ -1020,6 +1051,9 @@ const I18N = {
     'detail.interview_talking_points': 'Puntos clave', 'detail.interview_stories': 'Historias a preparar',
     'detail.interview_risks': 'Riesgos a abordar', 'detail.interview_questions': 'Preguntas para hacer',
     'detail.interview_checklist': 'Checklist previa', 'detail.interview_regenerate': 'Regenerar',
+    'detail.cover_title': 'Carta de presentación', 'detail.cover_loading': 'Generando carta…',
+    'detail.cover_subject': 'Asunto', 'detail.cover_highlights': 'Puntos fuertes', 'detail.cover_full_text': 'Texto completo',
+    'detail.cover_regenerate': 'Regenerar',
     'detail.rec_strong_apply': 'Postular fuerte', 'detail.rec_apply': 'Postular', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
     'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -1039,6 +1073,7 @@ const I18N = {
     'msg.search_fail': 'Búsqueda fallida: ',
     'msg.feature_coming': '{0} próximamente',
     'msg.interview_prep_fail': 'Error al generar preparación de entrevista: ',
+    'msg.cover_letter_fail': 'Error al generar carta: ',
     'msg.sse_disconnect': 'Conexión SSE interrumpida. La búsqueda puede seguir en segundo plano.',
     'msg.selected': '{0} seleccionados', 'msg.delete_confirm': '¿Eliminar {0} empleos? No se puede deshacer.',
     'msg.deleted': 'Se eliminaron {0} empleos', 'msg.delete_fail': 'Error al eliminar: ',
@@ -1084,6 +1119,9 @@ function setLang(l) {
   if (!document.getElementById("interview-prep-overlay").classList.contains("hidden") && currentInterviewPrep) {
     renderInterviewPrep(currentInterviewPrep);
   }
+  if (!document.getElementById("cover-letter-overlay").classList.contains("hidden") && currentCoverLetter) {
+    renderCoverLetter(currentCoverLetter);
+  }
   renderProviderList();
   renderAdzunaStatus();
 }
@@ -1116,6 +1154,8 @@ let activeJob   = null;
 let detailTab   = "overview";
 let currentInterviewPrep = null;
 let interviewPrepJobId = "";
+let currentCoverLetter = null;
+let coverLetterJobId = "";
 let cvHash      = null;
 let cvProfile   = null;
 let titlesList  = [];   // confirmed title list
@@ -1729,6 +1769,67 @@ async function generateInterviewPrep(jobId = "") {
     showToast(`${t('msg.interview_prep_fail')}${e.message}`, true);
   }
 }
+function openCoverLetterOverlay() {
+  document.getElementById("cover-letter-overlay").classList.remove("hidden");
+}
+function closeCoverLetterOverlay() {
+  document.getElementById("cover-letter-overlay").classList.add("hidden");
+}
+function setCoverLetterLoading() {
+  document.getElementById("cover-letter-content").innerHTML = `
+    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
+      <p class="text-sm text-gray-300">${t('detail.cover_loading')}</p>
+    </div>`;
+}
+function renderCoverLetter(letter) {
+  currentCoverLetter = letter;
+  const paragraphs = letter.body && letter.body.length
+    ? letter.body.map(p => `<p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${p}</p>`).join("")
+    : `<p class="text-sm text-gray-400 dark:text-gray-500">${t('detail.none')}</p>`;
+  document.getElementById("cover-letter-content").innerHTML = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cover_subject')}</h4>
+      <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${letter.subject_line || t('detail.none')}</p>
+    </div>
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cover_highlights')}</h4>
+      ${bulletList(letter.highlights)}
+    </div>
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cover_full_text')}</h4>
+      <div class="space-y-4">
+        <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${letter.opener || ""}</p>
+        ${paragraphs}
+        <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${letter.closing || ""}</p>
+      </div>
+    </div>`;
+}
+async function generateCoverLetter(jobId = "") {
+  const targetJobId = jobId || coverLetterJobId || activeJob?.dedup_key;
+  if (!targetJobId) return;
+  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
+  if (!targetJob) return;
+  coverLetterJobId = targetJobId;
+  document.getElementById("cover-letter-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
+  openCoverLetterOverlay();
+  setCoverLetterLoading();
+  try {
+    const provider = cfgData?.default_provider || "gemini";
+    const model = cfgData?.default_model || "";
+    const data = await api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/cover-letter`, {
+      cv_hash: cvHash || "",
+      provider,
+      model,
+    });
+    renderCoverLetter(data.letter);
+  } catch (e) {
+    document.getElementById("cover-letter-content").innerHTML = `
+      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
+        <p class="text-sm text-red-200">${t('msg.cover_letter_fail')}${e.message}</p>
+      </div>`;
+    showToast(`${t('msg.cover_letter_fail')}${e.message}`, true);
+  }
+}
 
 function dotClass(on, color) {
   return `w-2.5 h-2.5 rounded-full transition-colors duration-200 ${on ? color : "bg-gray-300 dark:bg-gray-600"}`;
@@ -2094,7 +2195,7 @@ function showJobDetail(job) {
         <div class="flex flex-wrap gap-3">
           <button onclick="generateInterviewPrep('${job.dedup_key}')"
             class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">${t('detail.action_interview')}</button>
-          <button onclick="showDetailAction('cover_letter')"
+          <button onclick="generateCoverLetter('${job.dedup_key}')"
             class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cover_letter')}</button>
           <button onclick="showDetailAction('cv_opt')"
             class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cv_opt')}</button>

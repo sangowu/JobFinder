@@ -257,6 +257,17 @@ class InterviewPrep(BaseModel):
     checklist: list[str] = Field(default_factory=list)
 
 
+class CoverLetter(BaseModel):
+    job_id: str
+    cv_hash: str
+    subject_line: str = ""
+    opener: str = ""
+    body: list[str] = Field(default_factory=list)
+    closing: str = ""
+    full_text: str = ""
+    highlights: list[str] = Field(default_factory=list)
+
+
 class JobResult(BaseModel):
     title: str
     company: str
