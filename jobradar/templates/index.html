@@ -1743,17 +1743,45 @@ function setDetailTab(tab) {
 function showDetailAction(action) {
   showToast(t('msg.feature_coming', t(`detail.action_${action}`)));
 }
+function toggleArtifactOverlay(overlayId, open) {
+  document.getElementById(overlayId).classList.toggle("hidden", !open);
+}
+function setArtifactLoading(contentId, textKey) {
+  document.getElementById(contentId).innerHTML = `
+    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
+      <p class="text-sm text-gray-300">${t(textKey)}</p>
+    </div>`;
+}
+function runArtifactRequest({ jobId, stateJobIdRef, metaId, overlayId, contentId, loadingKey, path, responseKey, errorKey, render }) {
+  const targetJobId = jobId || window[stateJobIdRef] || activeJob?.dedup_key;
+  if (!targetJobId) return;
+  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
+  if (!targetJob) return;
+  window[stateJobIdRef] = targetJobId;
+  document.getElementById(metaId).textContent = `${targetJob.title} · ${targetJob.company}`;
+  toggleArtifactOverlay(overlayId, true);
+  setArtifactLoading(contentId, loadingKey);
+  const provider = cfgData?.default_provider || "gemini";
+  const model = cfgData?.default_model || "";
+  api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/${path}`, {
+    cv_hash: cvHash || "",
+    provider,
+    model,
+  }).then(data => {
+    render(data[responseKey]);
+  }).catch(e => {
+    document.getElementById(contentId).innerHTML = `
+      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
+        <p class="text-sm text-red-200">${t(errorKey)}${e.message}</p>
+      </div>`;
+    showToast(`${t(errorKey)}${e.message}`, true);
+  });
+}
 function openInterviewPrepOverlay() {
-  document.getElementById("interview-prep-overlay").classList.remove("hidden");
+  toggleArtifactOverlay("interview-prep-overlay", true);
 }
 function closeInterviewPrepOverlay() {
-  document.getElementById("interview-prep-overlay").classList.add("hidden");
-}
-function setInterviewPrepLoading() {
-  document.getElementById("interview-prep-content").innerHTML = `
-    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
-      <p class="text-sm text-gray-300">${t('detail.interview_loading')}</p>
-    </div>`;
+  toggleArtifactOverlay("interview-prep-overlay", false);
 }
 function renderInterviewPrep(prep) {
   currentInterviewPrep = prep;
@@ -1790,42 +1818,24 @@ function renderInterviewPrep(prep) {
     </div>`;
 }
 async function generateInterviewPrep(jobId = "") {
-  const targetJobId = jobId || interviewPrepJobId || activeJob?.dedup_key;
-  if (!targetJobId) return;
-  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
-  if (!targetJob) return;
-  interviewPrepJobId = targetJobId;
-  document.getElementById("interview-prep-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
-  openInterviewPrepOverlay();
-  setInterviewPrepLoading();
-  try {
-    const provider = cfgData?.default_provider || "gemini";
-    const model = cfgData?.default_model || "";
-    const data = await api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/interview-prep`, {
-      cv_hash: cvHash || "",
-      provider,
-      model,
-    });
-    renderInterviewPrep(data.prep);
-  } catch (e) {
-    document.getElementById("interview-prep-content").innerHTML = `
-      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
-        <p class="text-sm text-red-200">${t('msg.interview_prep_fail')}${e.message}</p>
-      </div>`;
-    showToast(`${t('msg.interview_prep_fail')}${e.message}`, true);
-  }
+  runArtifactRequest({
+    jobId,
+    stateJobIdRef: "interviewPrepJobId",
+    metaId: "interview-prep-job-meta",
+    overlayId: "interview-prep-overlay",
+    contentId: "interview-prep-content",
+    loadingKey: "detail.interview_loading",
+    path: "interview-prep",
+    responseKey: "prep",
+    errorKey: "msg.interview_prep_fail",
+    render: renderInterviewPrep,
+  });
 }
 function openCoverLetterOverlay() {
-  document.getElementById("cover-letter-overlay").classList.remove("hidden");
+  toggleArtifactOverlay("cover-letter-overlay", true);
 }
 function closeCoverLetterOverlay() {
-  document.getElementById("cover-letter-overlay").classList.add("hidden");
-}
-function setCoverLetterLoading() {
-  document.getElementById("cover-letter-content").innerHTML = `
-    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
-      <p class="text-sm text-gray-300">${t('detail.cover_loading')}</p>
-    </div>`;
+  toggleArtifactOverlay("cover-letter-overlay", false);
 }
 function renderCoverLetter(letter) {
   currentCoverLetter = letter;
@@ -1851,42 +1861,24 @@ function renderCoverLetter(letter) {
     </div>`;
 }
 async function generateCoverLetter(jobId = "") {
-  const targetJobId = jobId || coverLetterJobId || activeJob?.dedup_key;
-  if (!targetJobId) return;
-  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
-  if (!targetJob) return;
-  coverLetterJobId = targetJobId;
-  document.getElementById("cover-letter-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
-  openCoverLetterOverlay();
-  setCoverLetterLoading();
-  try {
-    const provider = cfgData?.default_provider || "gemini";
-    const model = cfgData?.default_model || "";
-    const data = await api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/cover-letter`, {
-      cv_hash: cvHash || "",
-      provider,
-      model,
-    });
-    renderCoverLetter(data.letter);
-  } catch (e) {
-    document.getElementById("cover-letter-content").innerHTML = `
-      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
-        <p class="text-sm text-red-200">${t('msg.cover_letter_fail')}${e.message}</p>
-      </div>`;
-    showToast(`${t('msg.cover_letter_fail')}${e.message}`, true);
-  }
+  runArtifactRequest({
+    jobId,
+    stateJobIdRef: "coverLetterJobId",
+    metaId: "cover-letter-job-meta",
+    overlayId: "cover-letter-overlay",
+    contentId: "cover-letter-content",
+    loadingKey: "detail.cover_loading",
+    path: "cover-letter",
+    responseKey: "letter",
+    errorKey: "msg.cover_letter_fail",
+    render: renderCoverLetter,
+  });
 }
 function openCVOptimizationOverlay() {
-  document.getElementById("cv-optimization-overlay").classList.remove("hidden");
+  toggleArtifactOverlay("cv-optimization-overlay", true);
 }
 function closeCVOptimizationOverlay() {
-  document.getElementById("cv-optimization-overlay").classList.add("hidden");
-}
-function setCVOptimizationLoading() {
-  document.getElementById("cv-optimization-content").innerHTML = `
-    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
-      <p class="text-sm text-gray-300">${t('detail.cvopt_loading')}</p>
-    </div>`;
+  toggleArtifactOverlay("cv-optimization-overlay", false);
 }
 function renderCVOptimization(opt) {
   currentCVOptimization = opt;
@@ -1919,30 +1911,18 @@ function renderCVOptimization(opt) {
     </div>`;
 }
 async function generateCVOptimization(jobId = "") {
-  const targetJobId = jobId || cvOptimizationJobId || activeJob?.dedup_key;
-  if (!targetJobId) return;
-  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
-  if (!targetJob) return;
-  cvOptimizationJobId = targetJobId;
-  document.getElementById("cv-optimization-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
-  openCVOptimizationOverlay();
-  setCVOptimizationLoading();
-  try {
-    const provider = cfgData?.default_provider || "gemini";
-    const model = cfgData?.default_model || "";
-    const data = await api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/cv-optimization`, {
-      cv_hash: cvHash || "",
-      provider,
-      model,
-    });
-    renderCVOptimization(data.optimization);
-  } catch (e) {
-    document.getElementById("cv-optimization-content").innerHTML = `
-      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
-        <p class="text-sm text-red-200">${t('msg.cvopt_fail')}${e.message}</p>
-      </div>`;
-    showToast(`${t('msg.cvopt_fail')}${e.message}`, true);
-  }
+  runArtifactRequest({
+    jobId,
+    stateJobIdRef: "cvOptimizationJobId",
+    metaId: "cv-optimization-job-meta",
+    overlayId: "cv-optimization-overlay",
+    contentId: "cv-optimization-content",
+    loadingKey: "detail.cvopt_loading",
+    path: "cv-optimization",
+    responseKey: "optimization",
+    errorKey: "msg.cvopt_fail",
+    render: renderCVOptimization,
+  });
 }
 
 function dotClass(on, color) {

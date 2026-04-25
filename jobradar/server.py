@@ -15,7 +15,7 @@ import tempfile
 import threading
 
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -239,115 +239,86 @@ def get_jobs(limit: int = 200) -> list[dict]:
     return [_job_to_dict(j) for j in jobs]
 
 
-class InterviewPrepRequest(BaseModel):
+class ArtifactRequest(BaseModel):
     cv_hash: str = ""
     provider: str = "gemini"
     model: str = ""
+
+
+def _resolve_artifact_context(dedup_key: str, req: ArtifactRequest):
+    job = cache.get_job(dedup_key)
+    if job is None:
+        raise HTTPException(status_code=404, detail="职位不存在或已过期。")
+
+    cv_hash = req.cv_hash or cache.get_latest_cv_hash()
+    profile = cache.get_cv_profile(cv_hash) if cv_hash else None
+    if profile is None:
+        profile = cache.get_latest_cv_profile()
+        if profile is not None and not cv_hash:
+            cv_hash = cache.get_latest_cv_hash()
+    if profile is None or not cv_hash:
+        raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
+
+    _model = req.model or DEFAULT_MODELS.get(req.provider, "")
+    llm = LLMConfig(provider=req.provider, model=_model)
+    summary = job.job_summary or summarize_jd(job, llm)
+    match = match_job_to_cv(profile, summary, job.description_snippet, llm)
+    return job, profile, cv_hash, llm, summary, match
+
+
+def _run_artifact_endpoint(
+    dedup_key: str,
+    req: ArtifactRequest,
+    artifact_name: str,
+    response_key: str,
+    generator: Callable,
+) -> dict:
+    try:
+        job, profile, cv_hash, llm, summary, match = _resolve_artifact_context(dedup_key, req)
+        artifact = generator(profile, cv_hash, job, summary, match, llm)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("%s failed | job=%s error=%s", artifact_name, dedup_key, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "job_id": dedup_key,
+        response_key: artifact.model_dump(mode="json"),
+    }
 
 
 @app.post("/api/jobs/{dedup_key}/interview-prep")
-def create_interview_prep(dedup_key: str, req: InterviewPrepRequest) -> dict:
-    job = cache.get_job(dedup_key)
-    if job is None:
-        raise HTTPException(status_code=404, detail="职位不存在或已过期。")
-
-    cv_hash = req.cv_hash or cache.get_latest_cv_hash()
-    profile = cache.get_cv_profile(cv_hash) if cv_hash else None
-    if profile is None:
-        profile = cache.get_latest_cv_profile()
-        if profile is not None and not cv_hash:
-            cv_hash = cache.get_latest_cv_hash()
-    if profile is None or not cv_hash:
-        raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
-
-    _model = req.model or DEFAULT_MODELS.get(req.provider, "")
-    llm = LLMConfig(provider=req.provider, model=_model)
-    try:
-        summary = job.job_summary or summarize_jd(job, llm)
-        match = match_job_to_cv(profile, summary, job.description_snippet, llm)
-        prep = generate_interview_prep(profile, cv_hash, job, summary, match, llm)
-    except Exception as e:
-        logger.error("Interview prep failed | job=%s error=%s", dedup_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {
-        "job_id": dedup_key,
-        "prep": prep.model_dump(mode="json"),
-    }
-
-
-class CoverLetterRequest(BaseModel):
-    cv_hash: str = ""
-    provider: str = "gemini"
-    model: str = ""
+def create_interview_prep(dedup_key: str, req: ArtifactRequest) -> dict:
+    return _run_artifact_endpoint(
+        dedup_key,
+        req,
+        artifact_name="Interview prep",
+        response_key="prep",
+        generator=generate_interview_prep,
+    )
 
 
 @app.post("/api/jobs/{dedup_key}/cover-letter")
-def create_cover_letter(dedup_key: str, req: CoverLetterRequest) -> dict:
-    job = cache.get_job(dedup_key)
-    if job is None:
-        raise HTTPException(status_code=404, detail="职位不存在或已过期。")
-
-    cv_hash = req.cv_hash or cache.get_latest_cv_hash()
-    profile = cache.get_cv_profile(cv_hash) if cv_hash else None
-    if profile is None:
-        profile = cache.get_latest_cv_profile()
-        if profile is not None and not cv_hash:
-            cv_hash = cache.get_latest_cv_hash()
-    if profile is None or not cv_hash:
-        raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
-
-    _model = req.model or DEFAULT_MODELS.get(req.provider, "")
-    llm = LLMConfig(provider=req.provider, model=_model)
-    try:
-        summary = job.job_summary or summarize_jd(job, llm)
-        match = match_job_to_cv(profile, summary, job.description_snippet, llm)
-        letter = generate_cover_letter(profile, cv_hash, job, summary, match, llm)
-    except Exception as e:
-        logger.error("Cover letter failed | job=%s error=%s", dedup_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {
-        "job_id": dedup_key,
-        "letter": letter.model_dump(mode="json"),
-    }
-
-
-class CVOptimizationRequest(BaseModel):
-    cv_hash: str = ""
-    provider: str = "gemini"
-    model: str = ""
+def create_cover_letter(dedup_key: str, req: ArtifactRequest) -> dict:
+    return _run_artifact_endpoint(
+        dedup_key,
+        req,
+        artifact_name="Cover letter",
+        response_key="letter",
+        generator=generate_cover_letter,
+    )
 
 
 @app.post("/api/jobs/{dedup_key}/cv-optimization")
-def create_cv_optimization(dedup_key: str, req: CVOptimizationRequest) -> dict:
-    job = cache.get_job(dedup_key)
-    if job is None:
-        raise HTTPException(status_code=404, detail="职位不存在或已过期。")
-
-    cv_hash = req.cv_hash or cache.get_latest_cv_hash()
-    profile = cache.get_cv_profile(cv_hash) if cv_hash else None
-    if profile is None:
-        profile = cache.get_latest_cv_profile()
-        if profile is not None and not cv_hash:
-            cv_hash = cache.get_latest_cv_hash()
-    if profile is None or not cv_hash:
-        raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
-
-    _model = req.model or DEFAULT_MODELS.get(req.provider, "")
-    llm = LLMConfig(provider=req.provider, model=_model)
-    try:
-        summary = job.job_summary or summarize_jd(job, llm)
-        match = match_job_to_cv(profile, summary, job.description_snippet, llm)
-        optimization = generate_cv_optimization(profile, cv_hash, job, summary, match, llm)
-    except Exception as e:
-        logger.error("CV optimization failed | job=%s error=%s", dedup_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {
-        "job_id": dedup_key,
-        "optimization": optimization.model_dump(mode="json"),
-    }
+def create_cv_optimization(dedup_key: str, req: ArtifactRequest) -> dict:
+    return _run_artifact_endpoint(
+        dedup_key,
+        req,
+        artifact_name="CV optimization",
+        response_key="optimization",
+        generator=generate_cv_optimization,
+    )
 
 
 class DeleteRequest(BaseModel):
