@@ -828,14 +828,16 @@ def update_job_assessment(dedup_key: str, assessment: JobAssessment) -> None:
 
 
 def get_unassessed_jobs(limit: int = 200) -> list[JobResult]:
-    """返回缓存中 assessment 为 NULL 且未过期的职位。"""
+    """返回尚无现代匹配结果且缺少 legacy assessment 的未过期职位。"""
     with _conn() as con:
         rows = con.execute(
             "SELECT * FROM job_cache WHERE assessment IS NULL ORDER BY fetched_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
-    return [j for j in jobs if not j.is_expired]
+    for job in jobs:
+        _attach_latest_match(job)
+    return [j for j in jobs if not j.is_expired and job.match_score is None]
 
 
 # ─── 缓存管理命令 ──────────────────────────────────────────────────────────────

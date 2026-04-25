@@ -15,7 +15,7 @@ from jobradar.assessment import JDAssessment, batch_assess_jds
 from jobradar.jd_summary import summarize_jd
 from jobradar.logger import get_logger
 from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
-from jobradar.matching import match_job_to_cv, match_to_legacy_assessment
+from jobradar.matching import match_job_to_cv
 from jobradar.pipeline_stats import PipelineStats
 from jobradar.schemas import CVProfile, is_closed_posting, make_dedup_key, SearchSession
 from jobradar.scraping import scrape_sources
@@ -342,8 +342,7 @@ def _flush_assessments(
                 try:
                     cached_job = cache.get_job(cached_job.dedup_key) or cached_job
                     summary = summarize_jd(cached_job, llm)
-                    match = match_job_to_cv(profile, summary, cached_job.description_snippet, llm)
-                    cache.update_job_assessment(cached_job.dedup_key, match_to_legacy_assessment(match, summary))
+                    match_job_to_cv(profile, summary, cached_job.description_snippet, llm)
                 except Exception as e:
                     logger.warning("JD summary failed for cached job %s: %s", cached_job.dedup_key, e)
             if assessment.relevant:
@@ -401,8 +400,7 @@ def _flush_assessments(
                 if summary_job is not None and llm is not None:
                     try:
                         summary = summarize_jd(summary_job, llm)
-                        match = match_job_to_cv(profile, summary, summary_job.description_snippet, llm)
-                        cache.update_job_assessment(key, match_to_legacy_assessment(match, summary))
+                        match_job_to_cv(profile, summary, summary_job.description_snippet, llm)
                     except Exception as e:
                         logger.warning("JD summary/matching failed for %s: %s", key, e)
                 keys.append(key)

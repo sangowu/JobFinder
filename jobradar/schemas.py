@@ -318,6 +318,46 @@ class JobResult(BaseModel):
             return False
         return bool(_CLOSED_PATTERN.search(self.description_snippet))
 
+    @property
+    def effective_score(self) -> float | None:
+        if self.match_score is not None:
+            return self.match_score.overall_score
+        if self.assessment is not None:
+            return float(self.assessment.score)
+        return None
+
+    @property
+    def effective_strengths(self) -> list[str]:
+        if self.match_score is not None:
+            return self.match_score.strengths
+        if self.assessment is not None:
+            return self.assessment.strengths
+        return []
+
+    @property
+    def effective_weaknesses(self) -> list[str]:
+        if self.match_score is not None:
+            return self.match_score.weaknesses + self.match_score.risks
+        if self.assessment is not None:
+            return self.assessment.weaknesses
+        return []
+
+    @property
+    def effective_keywords(self) -> list[str]:
+        if self.match_score is not None and self.job_summary is not None:
+            return self.job_summary.must_have[:4]
+        if self.assessment is not None:
+            return self.assessment.matched_keywords[:4]
+        return []
+
+    @property
+    def is_effectively_relevant(self) -> bool:
+        if self.match_score is not None:
+            return self.match_score.recommendation != "skip"
+        if self.assessment is not None:
+            return self.assessment.is_relevant
+        return True
+
 
 # ─── SearchSession ────────────────────────────────────────────────────────────
 

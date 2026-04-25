@@ -73,10 +73,6 @@ def _recommendation(score: float, risks: list[str]) -> str:
     return "skip"
 
 
-def _to_legacy_score(overall: float) -> int:
-    return max(0, min(10, round(overall / 10)))
-
-
 def match_job_to_cv(
     profile: CVProfile,
     job_summary: JobSummary,
@@ -149,16 +145,3 @@ JD Summary:
     )
     logger.info("JD match saved: %s / %s", job_summary.job_id, cv_hash[:8])
     return result
-
-
-def match_to_legacy_assessment(match: MatchScore, summary: JobSummary | None = None):
-    from jobradar.schemas import JobAssessment
-
-    keywords = list(dict.fromkeys((summary.must_have if summary else [])[:4]))
-    return JobAssessment(
-        score=_to_legacy_score(match.overall_score),
-        strengths=match.strengths,
-        weaknesses=match.weaknesses + match.risks,
-        matched_keywords=keywords,
-        is_relevant=match.recommendation != "skip",
-    )

@@ -202,18 +202,10 @@ def _job_to_dict(j) -> dict:
         d["match_score"] = j.match_score.model_dump(mode="json")
         d["overall_score"] = j.match_score.overall_score
         d["recommendation"] = j.match_score.recommendation
-    if j.assessment:
-        d["score"] = j.assessment.score
-        d["strengths"] = j.assessment.strengths
-        d["weaknesses"] = j.assessment.weaknesses
-        d["matched_keywords"] = j.assessment.matched_keywords
-    else:
-        d["score"] = None
-    if j.match_score:
-        d["score"] = round(j.match_score.overall_score)
-        d["strengths"] = j.match_score.strengths
-        d["weaknesses"] = j.match_score.weaknesses + j.match_score.risks
-        d["matched_keywords"] = (j.job_summary.must_have[:4] if j.job_summary else [])
+    d["score"] = round(j.effective_score) if j.effective_score is not None and j.match_score else j.effective_score
+    d["strengths"] = j.effective_strengths
+    d["weaknesses"] = j.effective_weaknesses
+    d["matched_keywords"] = j.effective_keywords
     if j.coarse_filter:
         d["coarse_priority"] = j.coarse_filter.priority
         d["coarse_reason"] = j.coarse_filter.reason
@@ -229,13 +221,8 @@ def _job_to_dict(j) -> dict:
 @app.get("/api/jobs")
 def get_jobs(limit: int = 200) -> list[dict]:
     jobs = cache.get_recent_jobs(limit)
-    jobs = [j for j in jobs if not (j.assessment and not j.assessment.is_relevant)]
-    jobs.sort(
-        key=lambda j: (
-            j.match_score.overall_score if j.match_score else (j.assessment.score if j.assessment else -1)
-        ),
-        reverse=True,
-    )
+    jobs = [j for j in jobs if j.is_effectively_relevant]
+    jobs.sort(key=lambda j: (j.effective_score if j.effective_score is not None else -1), reverse=True)
     return [_job_to_dict(j) for j in jobs]
 
 
