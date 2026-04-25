@@ -882,6 +882,9 @@ const I18N = {
     'detail.cvopt_improve': '建议加强', 'detail.cvopt_rewrites': '可直接改写的要点',
     'detail.cvopt_keywords': '建议补充关键词', 'detail.cvopt_checklist': '投递前检查清单',
     'detail.cvopt_regenerate': '重新生成',
+    'detail.artifact_cached': '已生成', 'detail.artifact_missing': '未生成', 'detail.artifact_stale': '需刷新',
+    'detail.artifact_open': '打开', 'detail.artifact_generate': '生成', 'detail.artifact_refresh': '刷新',
+    'detail.artifact_last_updated': '最近更新：{0}',
     'detail.rec_strong_apply': '强烈投递', 'detail.rec_apply': '建议投递', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -988,6 +991,9 @@ const I18N = {
     'detail.cvopt_improve': 'Improve', 'detail.cvopt_rewrites': 'Suggested Bullet Rewrites',
     'detail.cvopt_keywords': 'Keywords To Add', 'detail.cvopt_checklist': 'Pre-Apply Checklist',
     'detail.cvopt_regenerate': 'Regenerate',
+    'detail.artifact_cached': 'Ready', 'detail.artifact_missing': 'Not Generated', 'detail.artifact_stale': 'Needs Refresh',
+    'detail.artifact_open': 'Open', 'detail.artifact_generate': 'Generate', 'detail.artifact_refresh': 'Refresh',
+    'detail.artifact_last_updated': 'Last updated: {0}',
     'detail.rec_strong_apply': 'Strong Apply', 'detail.rec_apply': 'Apply', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -1094,6 +1100,9 @@ const I18N = {
     'detail.cvopt_improve': 'Mejorar', 'detail.cvopt_rewrites': 'Reescrituras sugeridas',
     'detail.cvopt_keywords': 'Palabras clave para añadir', 'detail.cvopt_checklist': 'Checklist antes de postular',
     'detail.cvopt_regenerate': 'Regenerar',
+    'detail.artifact_cached': 'Listo', 'detail.artifact_missing': 'No generado', 'detail.artifact_stale': 'Necesita actualización',
+    'detail.artifact_open': 'Abrir', 'detail.artifact_generate': 'Generar', 'detail.artifact_refresh': 'Actualizar',
+    'detail.artifact_last_updated': 'Última actualización: {0}',
     'detail.rec_strong_apply': 'Postular fuerte', 'detail.rec_apply': 'Postular', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
     'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -1202,6 +1211,7 @@ let currentCoverLetter = null;
 let coverLetterJobId = "";
 let currentCVOptimization = null;
 let cvOptimizationJobId = "";
+let artifactStatusByJob = {};
 let cvHash      = null;
 let cvProfile   = null;
 let titlesList  = [];   // confirmed title list
@@ -1752,7 +1762,7 @@ function setArtifactLoading(contentId, textKey) {
       <p class="text-sm text-gray-300">${t(textKey)}</p>
     </div>`;
 }
-function runArtifactRequest({ jobId, stateJobIdRef, metaId, overlayId, contentId, loadingKey, path, responseKey, errorKey, render }) {
+function runArtifactRequest({ jobId, stateJobIdRef, metaId, overlayId, contentId, loadingKey, path, responseKey, artifactType, errorKey, render }) {
   const targetJobId = jobId || window[stateJobIdRef] || activeJob?.dedup_key;
   if (!targetJobId) return;
   const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
@@ -1768,6 +1778,14 @@ function runArtifactRequest({ jobId, stateJobIdRef, metaId, overlayId, contentId
     provider,
     model,
   }).then(data => {
+    if (artifactStatusByJob[targetJobId]?.artifacts) {
+      artifactStatusByJob[targetJobId].artifacts[artifactType] = {
+        exists: true,
+        stale: false,
+        updated_at: new Date().toISOString(),
+        data: data[responseKey],
+      };
+    }
     render(data[responseKey]);
   }).catch(e => {
     document.getElementById(contentId).innerHTML = `
@@ -1776,6 +1794,87 @@ function runArtifactRequest({ jobId, stateJobIdRef, metaId, overlayId, contentId
       </div>`;
     showToast(`${t(errorKey)}${e.message}`, true);
   });
+}
+function artifactTimestampLabel(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return t('detail.artifact_last_updated', date.toLocaleString());
+}
+function openCachedArtifact(jobId, type) {
+  const entry = artifactStatusByJob[jobId]?.artifacts?.[type];
+  const targetJob = JOBS.find(j => j.dedup_key === jobId) || activeJob;
+  if (!entry?.data) return;
+  if (type === "interview_prep") {
+    interviewPrepJobId = jobId;
+    if (targetJob) document.getElementById("interview-prep-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
+    openInterviewPrepOverlay();
+    renderInterviewPrep(entry.data);
+    return;
+  }
+  if (type === "cover_letter") {
+    coverLetterJobId = jobId;
+    if (targetJob) document.getElementById("cover-letter-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
+    openCoverLetterOverlay();
+    renderCoverLetter(entry.data);
+    return;
+  }
+  if (type === "cv_optimization") {
+    cvOptimizationJobId = jobId;
+    if (targetJob) document.getElementById("cv-optimization-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
+    openCVOptimizationOverlay();
+    renderCVOptimization(entry.data);
+  }
+}
+async function loadArtifactStatus(jobId) {
+  if (!jobId) return;
+  try {
+    const data = await api("GET", `/api/jobs/${encodeURIComponent(jobId)}/artifacts?cv_hash=${encodeURIComponent(cvHash || "")}`);
+    artifactStatusByJob[jobId] = data;
+    if (activeJob?.dedup_key === jobId && detailTab === "actions") showJobDetail(activeJob);
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+function artifactActionRow(jobId, type, label) {
+  const entry = artifactStatusByJob[jobId]?.artifacts?.[type];
+  const statusText = !entry
+    ? "…"
+    : entry.stale
+    ? t('detail.artifact_stale')
+    : entry.exists
+    ? t('detail.artifact_cached')
+    : t('detail.artifact_missing');
+  const statusClass = !entry
+    ? "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+    : entry.stale
+    ? "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300"
+    : entry.exists
+    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
+    : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400";
+  const openBtn = entry?.exists
+    ? `<button onclick="openCachedArtifact('${jobId}', '${type}')"
+        class="px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-700 text-white transition-colors">${t('detail.artifact_open')}</button>`
+    : "";
+  const actionFn = type === "interview_prep" ? "generateInterviewPrep" : type === "cover_letter" ? "generateCoverLetter" : "generateCVOptimization";
+  const actionLabel = entry?.exists || entry?.stale ? t('detail.artifact_refresh') : t('detail.artifact_generate');
+  return `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h5 class="text-sm font-medium text-gray-800 dark:text-gray-100">${label}</h5>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs ${statusClass}">${statusText}</span>
+            ${entry?.updated_at ? `<span class="text-xs text-gray-400 dark:text-gray-500">${artifactTimestampLabel(entry.updated_at)}</span>` : ""}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          ${openBtn}
+          <button onclick="${actionFn}('${jobId}')"
+            class="px-3 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${actionLabel}</button>
+        </div>
+      </div>
+    </div>`;
 }
 function openInterviewPrepOverlay() {
   toggleArtifactOverlay("interview-prep-overlay", true);
@@ -1827,6 +1926,7 @@ async function generateInterviewPrep(jobId = "") {
     loadingKey: "detail.interview_loading",
     path: "interview-prep",
     responseKey: "prep",
+    artifactType: "interview_prep",
     errorKey: "msg.interview_prep_fail",
     render: renderInterviewPrep,
   });
@@ -1870,6 +1970,7 @@ async function generateCoverLetter(jobId = "") {
     loadingKey: "detail.cover_loading",
     path: "cover-letter",
     responseKey: "letter",
+    artifactType: "cover_letter",
     errorKey: "msg.cover_letter_fail",
     render: renderCoverLetter,
   });
@@ -1920,6 +2021,7 @@ async function generateCVOptimization(jobId = "") {
     loadingKey: "detail.cvopt_loading",
     path: "cv-optimization",
     responseKey: "optimization",
+    artifactType: "cv_optimization",
     errorKey: "msg.cvopt_fail",
     render: renderCVOptimization,
   });
@@ -2164,6 +2266,7 @@ function showJobDetail(job) {
   activeKey = job.dedup_key;
   activeJob = job;
   if (!["overview", "breakdown", "gap", "jd", "actions"].includes(detailTab)) detailTab = "overview";
+  if (!artifactStatusByJob[job.dedup_key]) void loadArtifactStatus(job.dedup_key);
   // Activate three-panel layout: detail takes flex-1, search panel shrinks to sidebar
   document.getElementById("main-area").classList.add("detail-active");
 
@@ -2286,13 +2389,10 @@ function showJobDetail(job) {
     <div class="space-y-4">
       <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
         <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.tab_actions')}</h4>
-        <div class="flex flex-wrap gap-3">
-          <button onclick="generateInterviewPrep('${job.dedup_key}')"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">${t('detail.action_interview')}</button>
-          <button onclick="generateCoverLetter('${job.dedup_key}')"
-            class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cover_letter')}</button>
-          <button onclick="generateCVOptimization('${job.dedup_key}')"
-            class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cv_opt')}</button>
+        <div class="space-y-3">
+          ${artifactActionRow(job.dedup_key, "interview_prep", t('detail.action_interview'))}
+          ${artifactActionRow(job.dedup_key, "cover_letter", t('detail.action_cover_letter'))}
+          ${artifactActionRow(job.dedup_key, "cv_optimization", t('detail.action_cv_opt'))}
         </div>
       </div>
       ${breakdownHtml}

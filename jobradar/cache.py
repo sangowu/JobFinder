@@ -586,6 +586,40 @@ def save_cv_optimization(
         )
 
 
+def get_job_artifacts(job_id: str, cv_hash: str, description: str = "") -> dict[str, dict]:
+    description_hash = _description_hash(description) if description else ""
+    with _conn() as con:
+        prep_row = con.execute(
+            "SELECT prep_json, description_hash, updated_at FROM interview_preps WHERE job_id = ? AND cv_hash = ?",
+            (job_id, cv_hash),
+        ).fetchone()
+        letter_row = con.execute(
+            "SELECT letter_json, description_hash, updated_at FROM cover_letters WHERE job_id = ? AND cv_hash = ?",
+            (job_id, cv_hash),
+        ).fetchone()
+        optimization_row = con.execute(
+            "SELECT optimization_json, description_hash, updated_at FROM cv_optimizations WHERE job_id = ? AND cv_hash = ?",
+            (job_id, cv_hash),
+        ).fetchone()
+
+    def _entry(row, field: str, model_cls):
+        if row is None:
+            return {"exists": False, "stale": False, "updated_at": None, "data": None}
+        stale = bool(description_hash) and row["description_hash"] != description_hash
+        return {
+            "exists": not stale,
+            "stale": stale,
+            "updated_at": row["updated_at"],
+            "data": None if stale else model_cls.model_validate_json(row[field]).model_dump(mode="json"),
+        }
+
+    return {
+        "interview_prep": _entry(prep_row, "prep_json", InterviewPrep),
+        "cover_letter": _entry(letter_row, "letter_json", CoverLetter),
+        "cv_optimization": _entry(optimization_row, "optimization_json", CVOptimization),
+    }
+
+
 # ─── SearchSession ────────────────────────────────────────────────────────────
 
 

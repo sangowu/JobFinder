@@ -239,6 +239,29 @@ def get_jobs(limit: int = 200) -> list[dict]:
     return [_job_to_dict(j) for j in jobs]
 
 
+@app.get("/api/jobs/{dedup_key}/artifacts")
+def get_job_artifacts_endpoint(dedup_key: str, cv_hash: str = "") -> dict:
+    job = cache.get_job(dedup_key)
+    if job is None:
+        raise HTTPException(status_code=404, detail="职位不存在或已过期。")
+    resolved_cv_hash = cv_hash or cache.get_latest_cv_hash()
+    if not resolved_cv_hash:
+        return {
+            "job_id": dedup_key,
+            "cv_hash": "",
+            "artifacts": {
+                "interview_prep": {"exists": False, "stale": False, "updated_at": None, "data": None},
+                "cover_letter": {"exists": False, "stale": False, "updated_at": None, "data": None},
+                "cv_optimization": {"exists": False, "stale": False, "updated_at": None, "data": None},
+            },
+        }
+    return {
+        "job_id": dedup_key,
+        "cv_hash": resolved_cv_hash,
+        "artifacts": cache.get_job_artifacts(dedup_key, resolved_cv_hash, job.description_snippet),
+    }
+
+
 class ArtifactRequest(BaseModel):
     cv_hash: str = ""
     provider: str = "gemini"
