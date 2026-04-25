@@ -27,7 +27,9 @@ def show_profile(profile: CVProfile) -> None:
 
     table.add_row("摘要", profile.summary)
     table.add_row("经验年限", str(profile.years_of_experience) + " 年")
-    table.add_row("级别", profile.seniority)
+    table.add_row("级别", profile.seniority_display)
+    table.add_row("可投级别", ", ".join(profile.eligible_seniority_levels) or "-")
+    table.add_row("Stretch 级别", ", ".join(profile.stretch_seniority_levels) or "-")
     table.add_row("目标职位", ", ".join(profile.preferred_roles) or "-")
     table.add_row("目标地点", ", ".join(profile.preferred_locations) or "-")
     table.add_row("技能", ", ".join(profile.skills) or "-")

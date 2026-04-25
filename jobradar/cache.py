@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from jobradar.schemas import CVProfile, FailedURL, JobAssessment, JobResult, SearchSession
+from jobradar.schemas import CoarseFilterResult, CVProfile, FailedURL, JobAssessment, JobResult, SearchSession
 
 _DEFAULT_DB_PATH = "jobradar_cache.db"
 
@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS job_cache (
     fetched_at          TEXT NOT NULL,
     expires_at          TEXT,       -- NULL 表示无截止日期
     is_complete         INTEGER NOT NULL DEFAULT 1,
+    coarse_filter       TEXT,       -- JSON: CoarseFilterResult
     assessment          TEXT        -- JSON: {score, strengths, weaknesses}，NULL 表示未评估
 );
 
@@ -95,6 +96,7 @@ def _conn():
         # 迁移：旧库补加 assessment 列（列已存在时 SQLite 会报错，忽略即可）
         for migration in (
             "ALTER TABLE job_cache ADD COLUMN assessment TEXT",
+            "ALTER TABLE job_cache ADD COLUMN coarse_filter TEXT",
             "ALTER TABLE job_cache ADD COLUMN company_profile TEXT",  # deprecated, kept for old DB compat
             "ALTER TABLE job_cache ADD COLUMN date_posted TEXT DEFAULT ''",
             "ALTER TABLE job_cache ADD COLUMN raw_sources TEXT NOT NULL DEFAULT '[]'",
@@ -143,8 +145,8 @@ def _insert_job(job: JobResult) -> None:
             """
             INSERT INTO job_cache
               (dedup_key, title, company, location, description_snippet,
-               url, sources, raw_sources, date_posted, fetched_at, expires_at, is_complete, assessment)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               url, sources, raw_sources, date_posted, fetched_at, expires_at, is_complete, coarse_filter, assessment)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.dedup_key,
@@ -159,6 +161,7 @@ def _insert_job(job: JobResult) -> None:
                 job.fetched_at.isoformat(),
                 job.expires_at.isoformat() if job.expires_at else None,
                 int(job.is_complete),
+                job.coarse_filter.model_dump_json() if job.coarse_filter else None,
                 job.assessment.model_dump_json() if job.assessment else None,
             ),
         )
@@ -171,19 +174,21 @@ def _merge_job(existing: JobResult, new: JobResult) -> None:
     existing_src_names = {r["source"] for r in existing.raw_sources}
     merged_raw = list(existing.raw_sources) + [r for r in new.raw_sources if r["source"] not in existing_src_names]
     new_expires = new.expires_at or existing.expires_at
+    new_coarse_filter = new.coarse_filter or existing.coarse_filter
     new_assessment = new.assessment or existing.assessment
 
     with _conn() as con:
         con.execute(
             """
             UPDATE job_cache
-            SET sources = ?, raw_sources = ?, expires_at = ?, assessment = ?
+            SET sources = ?, raw_sources = ?, expires_at = ?, coarse_filter = ?, assessment = ?
             WHERE dedup_key = ?
             """,
             (
                 json.dumps(merged_sources),
                 json.dumps(merged_raw),
                 new_expires.isoformat() if new_expires else None,
+                new_coarse_filter.model_dump_json() if new_coarse_filter else None,
                 new_assessment.model_dump_json() if new_assessment else None,
                 existing.dedup_key,
             ),
@@ -242,7 +247,9 @@ def get_jobs_by_keys(dedup_keys: list[str]) -> list[JobResult]:
 
 def _row_to_job(row: sqlite3.Row) -> JobResult:
     keys = row.keys()
+    raw_coarse_filter = row["coarse_filter"] if "coarse_filter" in keys else None
     raw_assessment = row["assessment"] if "assessment" in keys else None
+    coarse_filter = CoarseFilterResult.model_validate_json(raw_coarse_filter) if raw_coarse_filter else None
     assessment = JobAssessment.model_validate_json(raw_assessment) if raw_assessment else None
     return JobResult(
         title=row["title"],
@@ -256,6 +263,7 @@ def _row_to_job(row: sqlite3.Row) -> JobResult:
         fetched_at=datetime.fromisoformat(row["fetched_at"]),
         expires_at=datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None,
         is_complete=bool(row["is_complete"]),
+        coarse_filter=coarse_filter,
         assessment=assessment,
     )
 

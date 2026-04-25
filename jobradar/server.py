@@ -200,6 +200,9 @@ def _job_to_dict(j) -> dict:
         d["matched_keywords"] = j.assessment.matched_keywords
     else:
         d["score"] = None
+    if j.coarse_filter:
+        d["coarse_priority"] = j.coarse_filter.priority
+        d["coarse_reason"] = j.coarse_filter.reason
     return d
 
 
@@ -298,7 +301,7 @@ async def parse_cv(
         logger.info("CV parse started | file=%s provider=%s model=%s", file.filename, provider, _model)
         profile = extract_cv_profile(cv_text, llm=llm)
         cv_hash = hashlib.sha256(cv_text.encode()).hexdigest()
-        logger.info("CV parse done | hash=%s seniority=%s skills=%d", cv_hash[:8], profile.seniority, len(profile.skills))
+        logger.info("CV parse done | hash=%s seniority=%s skills=%d", cv_hash[:8], profile.seniority_display, len(profile.skills))
         return {"cv_hash": cv_hash, "profile": profile.model_dump(mode="json")}
     except Exception as e:
         logger.error("CV parse failed | file=%s error=%s", file.filename, e, exc_info=True)
@@ -346,7 +349,7 @@ def discover_titles_endpoint(req: DiscoverTitlesRequest) -> dict:
         result = discover_titles(
             skills=profile.skills,
             cv_summary=profile.summary,
-            seniority=profile.seniority,
+            seniority=profile.effective_seniority,
             llm=llm,
             top_keywords=8,
             countries=req.countries,

@@ -344,7 +344,7 @@ def find(
                     result = discover_titles(
                         skills=profile.skills,
                         cv_summary=profile.summary,
-                        seniority=profile.seniority,
+                        seniority=profile.effective_seniority,
                         llm=llm,
                         top_keywords=8,
                         countries=_countries,
@@ -542,7 +542,7 @@ def assess(
         if profile is None:
             console.print("[red]缓存中没有 CVProfile，请提供 CV 文件路径。[/red]")
             raise typer.Exit(1)
-        console.print(f"[dim]使用缓存的 CVProfile：{profile.summary[:40]}（{profile.seniority}）[/dim]")
+        console.print(f"[dim]使用缓存的 CVProfile：{profile.summary[:40]}（{profile.seniority_display}）[/dim]")
 
     # Step 2：加载未评估的 JD 并批量评估
     unassessed = cache.get_unassessed_jobs(limit=limit)

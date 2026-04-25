@@ -60,6 +60,12 @@ def batch_assess_jds(
             "\n注意：relevant 判断应偏宽松——只要职位方向与候选人专业有实质关联即可标记为 relevant。"
             "但 strengths/weaknesses 必须客观如实，不受此宽松原则影响。"
         )
+    seniority_text = (
+        f"declared={profile.declared_seniority}, "
+        f"evidence={profile.evidence_seniority}, "
+        f"eligible={profile.eligible_seniority_levels}, "
+        f"stretch={profile.stretch_seniority_levels}"
+    )
 
     lang_name = _LANGUAGE_NAMES.get(language, "中文")
     system = (
@@ -89,7 +95,7 @@ def batch_assess_jds(
 
 候选人摘要：{profile.summary}
 候选人技能：{skills_str}
-候选人资历：{profile.seniority or "未知"}，实际工作年限：{profile.years_of_experience} 年{leniency_note}
+候选人资历：{seniority_text}，实际工作年限：{profile.years_of_experience} 年{leniency_note}
 
 判断标准：
 - 职位要求的核心技能与候选人技能有实质重叠
