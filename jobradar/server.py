@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 
 from jobradar import __version__, cache
 from jobradar.cover_letter import generate_cover_letter
+from jobradar.cv_optimization import generate_cv_optimization
 from jobradar.dedup_check import run_dedup_check
 from jobradar.cv_extractor import extract_cv_profile
 from jobradar.cv_reader import read_cv
@@ -309,6 +310,43 @@ def create_cover_letter(dedup_key: str, req: CoverLetterRequest) -> dict:
     return {
         "job_id": dedup_key,
         "letter": letter.model_dump(mode="json"),
+    }
+
+
+class CVOptimizationRequest(BaseModel):
+    cv_hash: str = ""
+    provider: str = "gemini"
+    model: str = ""
+
+
+@app.post("/api/jobs/{dedup_key}/cv-optimization")
+def create_cv_optimization(dedup_key: str, req: CVOptimizationRequest) -> dict:
+    job = cache.get_job(dedup_key)
+    if job is None:
+        raise HTTPException(status_code=404, detail="职位不存在或已过期。")
+
+    cv_hash = req.cv_hash or cache.get_latest_cv_hash()
+    profile = cache.get_cv_profile(cv_hash) if cv_hash else None
+    if profile is None:
+        profile = cache.get_latest_cv_profile()
+        if profile is not None and not cv_hash:
+            cv_hash = cache.get_latest_cv_hash()
+    if profile is None or not cv_hash:
+        raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
+
+    _model = req.model or DEFAULT_MODELS.get(req.provider, "")
+    llm = LLMConfig(provider=req.provider, model=_model)
+    try:
+        summary = job.job_summary or summarize_jd(job, llm)
+        match = match_job_to_cv(profile, summary, job.description_snippet, llm)
+        optimization = generate_cv_optimization(profile, cv_hash, job, summary, match, llm)
+    except Exception as e:
+        logger.error("CV optimization failed | job=%s error=%s", dedup_key, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "job_id": dedup_key,
+        "optimization": optimization.model_dump(mode="json"),
     }
 
 

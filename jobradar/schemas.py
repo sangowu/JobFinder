@@ -268,6 +268,17 @@ class CoverLetter(BaseModel):
     highlights: list[str] = Field(default_factory=list)
 
 
+class CVOptimization(BaseModel):
+    job_id: str
+    cv_hash: str
+    summary_strategy: str = ""
+    keep_points: list[str] = Field(default_factory=list)
+    improve_points: list[str] = Field(default_factory=list)
+    bullet_rewrites: list[str] = Field(default_factory=list)
+    keywords_to_add: list[str] = Field(default_factory=list)
+    tailoring_checklist: list[str] = Field(default_factory=list)
+
+
 class JobResult(BaseModel):
     title: str
     company: str

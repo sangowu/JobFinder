@@ -777,6 +777,29 @@
   </div>
 </div>
 
+<div id="cv-optimization-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+  <div class="max-w-4xl mx-auto px-4 py-12">
+    <div class="flex items-start justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white" data-i18n="detail.cvopt_title">CV Optimization</h1>
+        <p id="cv-optimization-job-meta" class="text-sm text-gray-400 mt-1"></p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="generateCVOptimization()"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+          data-i18n="detail.cvopt_regenerate">Regenerate</button>
+        <button onclick="closeCVOptimizationOverlay()"
+          class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="cv-optimization-content" class="space-y-4"></div>
+  </div>
+</div>
+
 <script>
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 const I18N = {
@@ -854,6 +877,11 @@ const I18N = {
     'detail.cover_title': 'Cover Letter', 'detail.cover_loading': '正在生成求职信…',
     'detail.cover_subject': '主题行', 'detail.cover_highlights': '核心卖点', 'detail.cover_full_text': '完整正文',
     'detail.cover_regenerate': '重新生成',
+    'detail.cvopt_title': 'CV Optimization', 'detail.cvopt_loading': '正在生成 CV 优化建议…',
+    'detail.cvopt_strategy': '优化策略', 'detail.cvopt_keep': '建议保留',
+    'detail.cvopt_improve': '建议加强', 'detail.cvopt_rewrites': '可直接改写的要点',
+    'detail.cvopt_keywords': '建议补充关键词', 'detail.cvopt_checklist': '投递前检查清单',
+    'detail.cvopt_regenerate': '重新生成',
     'detail.rec_strong_apply': '强烈投递', 'detail.rec_apply': '建议投递', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -874,6 +902,7 @@ const I18N = {
     'msg.feature_coming': '{0} 即将上线',
     'msg.interview_prep_fail': '面试准备生成失败：',
     'msg.cover_letter_fail': '求职信生成失败：',
+    'msg.cvopt_fail': 'CV 优化生成失败：',
     'msg.sse_disconnect': 'SSE 连接中断，搜索可能仍在后台运行，稍后刷新页面可查看结果',
     'msg.selected': '已选 {0} 个', 'msg.delete_confirm': '确定要删除选中的 {0} 个职位吗？此操作不可撤销。',
     'msg.deleted': '已删除 {0} 个职位', 'msg.delete_fail': '删除失败：',
@@ -954,6 +983,11 @@ const I18N = {
     'detail.cover_title': 'Cover Letter', 'detail.cover_loading': 'Generating cover letter…',
     'detail.cover_subject': 'Subject Line', 'detail.cover_highlights': 'Highlights', 'detail.cover_full_text': 'Full Letter',
     'detail.cover_regenerate': 'Regenerate',
+    'detail.cvopt_title': 'CV Optimization', 'detail.cvopt_loading': 'Generating CV optimization…',
+    'detail.cvopt_strategy': 'Optimization Strategy', 'detail.cvopt_keep': 'Keep',
+    'detail.cvopt_improve': 'Improve', 'detail.cvopt_rewrites': 'Suggested Bullet Rewrites',
+    'detail.cvopt_keywords': 'Keywords To Add', 'detail.cvopt_checklist': 'Pre-Apply Checklist',
+    'detail.cvopt_regenerate': 'Regenerate',
     'detail.rec_strong_apply': 'Strong Apply', 'detail.rec_apply': 'Apply', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -974,6 +1008,7 @@ const I18N = {
     'msg.feature_coming': '{0} coming soon',
     'msg.interview_prep_fail': 'Interview prep failed: ',
     'msg.cover_letter_fail': 'Cover letter failed: ',
+    'msg.cvopt_fail': 'CV optimization failed: ',
     'msg.sse_disconnect': 'SSE connection lost. Search may still be running. Refresh later to see results.',
     'msg.selected': '{0} selected', 'msg.delete_confirm': 'Delete {0} selected jobs? This cannot be undone.',
     'msg.deleted': 'Deleted {0} jobs', 'msg.delete_fail': 'Delete failed: ',
@@ -1054,6 +1089,11 @@ const I18N = {
     'detail.cover_title': 'Carta de presentación', 'detail.cover_loading': 'Generando carta…',
     'detail.cover_subject': 'Asunto', 'detail.cover_highlights': 'Puntos fuertes', 'detail.cover_full_text': 'Texto completo',
     'detail.cover_regenerate': 'Regenerar',
+    'detail.cvopt_title': 'Optimización CV', 'detail.cvopt_loading': 'Generando optimización de CV…',
+    'detail.cvopt_strategy': 'Estrategia', 'detail.cvopt_keep': 'Mantener',
+    'detail.cvopt_improve': 'Mejorar', 'detail.cvopt_rewrites': 'Reescrituras sugeridas',
+    'detail.cvopt_keywords': 'Palabras clave para añadir', 'detail.cvopt_checklist': 'Checklist antes de postular',
+    'detail.cvopt_regenerate': 'Regenerar',
     'detail.rec_strong_apply': 'Postular fuerte', 'detail.rec_apply': 'Postular', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
     'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -1074,6 +1114,7 @@ const I18N = {
     'msg.feature_coming': '{0} próximamente',
     'msg.interview_prep_fail': 'Error al generar preparación de entrevista: ',
     'msg.cover_letter_fail': 'Error al generar carta: ',
+    'msg.cvopt_fail': 'Error al generar optimización CV: ',
     'msg.sse_disconnect': 'Conexión SSE interrumpida. La búsqueda puede seguir en segundo plano.',
     'msg.selected': '{0} seleccionados', 'msg.delete_confirm': '¿Eliminar {0} empleos? No se puede deshacer.',
     'msg.deleted': 'Se eliminaron {0} empleos', 'msg.delete_fail': 'Error al eliminar: ',
@@ -1122,6 +1163,9 @@ function setLang(l) {
   if (!document.getElementById("cover-letter-overlay").classList.contains("hidden") && currentCoverLetter) {
     renderCoverLetter(currentCoverLetter);
   }
+  if (!document.getElementById("cv-optimization-overlay").classList.contains("hidden") && currentCVOptimization) {
+    renderCVOptimization(currentCVOptimization);
+  }
   renderProviderList();
   renderAdzunaStatus();
 }
@@ -1156,6 +1200,8 @@ let currentInterviewPrep = null;
 let interviewPrepJobId = "";
 let currentCoverLetter = null;
 let coverLetterJobId = "";
+let currentCVOptimization = null;
+let cvOptimizationJobId = "";
 let cvHash      = null;
 let cvProfile   = null;
 let titlesList  = [];   // confirmed title list
@@ -1830,6 +1876,74 @@ async function generateCoverLetter(jobId = "") {
     showToast(`${t('msg.cover_letter_fail')}${e.message}`, true);
   }
 }
+function openCVOptimizationOverlay() {
+  document.getElementById("cv-optimization-overlay").classList.remove("hidden");
+}
+function closeCVOptimizationOverlay() {
+  document.getElementById("cv-optimization-overlay").classList.add("hidden");
+}
+function setCVOptimizationLoading() {
+  document.getElementById("cv-optimization-content").innerHTML = `
+    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
+      <p class="text-sm text-gray-300">${t('detail.cvopt_loading')}</p>
+    </div>`;
+}
+function renderCVOptimization(opt) {
+  currentCVOptimization = opt;
+  document.getElementById("cv-optimization-content").innerHTML = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_strategy')}</h4>
+      <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${opt.summary_strategy || t('detail.none')}</p>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_keep')}</h4>
+        ${bulletList(opt.keep_points)}
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_improve')}</h4>
+        ${bulletList(opt.improve_points)}
+      </div>
+      <div class="xl:col-span-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_rewrites')}</h4>
+        ${bulletList(opt.bullet_rewrites)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_keywords')}</h4>
+        ${bulletList(opt.keywords_to_add)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_checklist')}</h4>
+        ${bulletList(opt.tailoring_checklist)}
+      </div>
+    </div>`;
+}
+async function generateCVOptimization(jobId = "") {
+  const targetJobId = jobId || cvOptimizationJobId || activeJob?.dedup_key;
+  if (!targetJobId) return;
+  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
+  if (!targetJob) return;
+  cvOptimizationJobId = targetJobId;
+  document.getElementById("cv-optimization-job-meta").textContent = `${targetJob.title} · ${targetJob.company}`;
+  openCVOptimizationOverlay();
+  setCVOptimizationLoading();
+  try {
+    const provider = cfgData?.default_provider || "gemini";
+    const model = cfgData?.default_model || "";
+    const data = await api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/cv-optimization`, {
+      cv_hash: cvHash || "",
+      provider,
+      model,
+    });
+    renderCVOptimization(data.optimization);
+  } catch (e) {
+    document.getElementById("cv-optimization-content").innerHTML = `
+      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
+        <p class="text-sm text-red-200">${t('msg.cvopt_fail')}${e.message}</p>
+      </div>`;
+    showToast(`${t('msg.cvopt_fail')}${e.message}`, true);
+  }
+}
 
 function dotClass(on, color) {
   return `w-2.5 h-2.5 rounded-full transition-colors duration-200 ${on ? color : "bg-gray-300 dark:bg-gray-600"}`;
@@ -2197,7 +2311,7 @@ function showJobDetail(job) {
             class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">${t('detail.action_interview')}</button>
           <button onclick="generateCoverLetter('${job.dedup_key}')"
             class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cover_letter')}</button>
-          <button onclick="showDetailAction('cv_opt')"
+          <button onclick="generateCVOptimization('${job.dedup_key}')"
             class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cv_opt')}</button>
         </div>
       </div>
