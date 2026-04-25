@@ -795,9 +795,11 @@ const I18N = {
     'detail.strengths': '优势', 'detail.weaknesses': '待加强', 'detail.no_jd': '暂无 JD 内容',
     'detail.keywords_label': '技能匹配', 'detail.jd_label': '职位描述',
     'detail.overview': '职位概览', 'detail.breakdown': '评分拆解', 'detail.risks': '风险提示',
+    'detail.tab_overview': '概览', 'detail.tab_breakdown': '评分', 'detail.tab_gap': '差距', 'detail.tab_jd': '原始 JD', 'detail.tab_actions': '动作',
     'detail.must_have': '必备要求', 'detail.good_to_have': '加分项', 'detail.responsibilities': '职责',
     'detail.work_mode': '工作方式', 'detail.job_type': '职位类型', 'detail.years_required': '年限要求',
     'detail.seniority_conflict': 'Title / Description 冲突', 'detail.none': '暂无',
+    'detail.action_interview': '面试准备', 'detail.action_cover_letter': '求职信', 'detail.action_cv_opt': 'CV 优化',
     'detail.rec_strong_apply': '强烈投递', 'detail.rec_apply': '建议投递', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -815,6 +817,7 @@ const I18N = {
     'msg.source_required': '请至少选择一个搜索来源', 'msg.search_fail_start': '搜索启动失败：', 'msg.search_done': '找到 {0} 个匹配职位',
     'msg.search_done_diff': '新增 {0} 个职位，复用缓存 {1} 个',
     'msg.search_fail': '搜索失败：',
+    'msg.feature_coming': '{0} 即将上线',
     'msg.sse_disconnect': 'SSE 连接中断，搜索可能仍在后台运行，稍后刷新页面可查看结果',
     'msg.selected': '已选 {0} 个', 'msg.delete_confirm': '确定要删除选中的 {0} 个职位吗？此操作不可撤销。',
     'msg.deleted': '已删除 {0} 个职位', 'msg.delete_fail': '删除失败：',
@@ -882,9 +885,11 @@ const I18N = {
     'detail.strengths': 'Strengths', 'detail.weaknesses': 'Areas to Improve', 'detail.no_jd': 'No JD content available',
     'detail.keywords_label': 'Matched Skills', 'detail.jd_label': 'Job Description',
     'detail.overview': 'Overview', 'detail.breakdown': 'Score Breakdown', 'detail.risks': 'Risks',
+    'detail.tab_overview': 'Overview', 'detail.tab_breakdown': 'Scoring', 'detail.tab_gap': 'Gap', 'detail.tab_jd': 'Original JD', 'detail.tab_actions': 'Actions',
     'detail.must_have': 'Must-have', 'detail.good_to_have': 'Nice-to-have', 'detail.responsibilities': 'Responsibilities',
     'detail.work_mode': 'Work Mode', 'detail.job_type': 'Job Type', 'detail.years_required': 'Years Required',
     'detail.seniority_conflict': 'Title / Description Conflict', 'detail.none': 'None',
+    'detail.action_interview': 'Interview Prep', 'detail.action_cover_letter': 'Cover Letter', 'detail.action_cv_opt': 'CV Optimization',
     'detail.rec_strong_apply': 'Strong Apply', 'detail.rec_apply': 'Apply', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -902,6 +907,7 @@ const I18N = {
     'msg.source_required': 'Please select at least one source', 'msg.search_fail_start': 'Search failed to start: ', 'msg.search_done': 'Found {0} matching jobs',
     'msg.search_done_diff': '{0} new jobs, {1} from cache',
     'msg.search_fail': 'Search failed: ',
+    'msg.feature_coming': '{0} coming soon',
     'msg.sse_disconnect': 'SSE connection lost. Search may still be running. Refresh later to see results.',
     'msg.selected': '{0} selected', 'msg.delete_confirm': 'Delete {0} selected jobs? This cannot be undone.',
     'msg.deleted': 'Deleted {0} jobs', 'msg.delete_fail': 'Delete failed: ',
@@ -969,9 +975,11 @@ const I18N = {
     'detail.strengths': 'Fortalezas', 'detail.weaknesses': 'Áreas de mejora', 'detail.no_jd': 'Sin contenido de oferta',
     'detail.keywords_label': 'Habilidades coincidentes', 'detail.jd_label': 'Descripción del puesto',
     'detail.overview': 'Resumen', 'detail.breakdown': 'Desglose de puntuación', 'detail.risks': 'Riesgos',
+    'detail.tab_overview': 'Resumen', 'detail.tab_breakdown': 'Puntuación', 'detail.tab_gap': 'Brecha', 'detail.tab_jd': 'JD original', 'detail.tab_actions': 'Acciones',
     'detail.must_have': 'Requisitos clave', 'detail.good_to_have': 'Deseables', 'detail.responsibilities': 'Responsabilidades',
     'detail.work_mode': 'Modalidad', 'detail.job_type': 'Tipo de puesto', 'detail.years_required': 'Años requeridos',
     'detail.seniority_conflict': 'Conflicto entre título y descripción', 'detail.none': 'Ninguno',
+    'detail.action_interview': 'Preparación entrevista', 'detail.action_cover_letter': 'Carta de presentación', 'detail.action_cv_opt': 'Optimización CV',
     'detail.rec_strong_apply': 'Postular fuerte', 'detail.rec_apply': 'Postular', 'detail.rec_stretch_apply': 'Stretch',
     'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
     'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
@@ -989,6 +997,7 @@ const I18N = {
     'msg.source_required': 'Selecciona al menos una fuente', 'msg.search_fail_start': 'Error al iniciar búsqueda: ', 'msg.search_done': 'Se encontraron {0} empleos',
     'msg.search_done_diff': '{0} nuevos empleos, {1} del caché',
     'msg.search_fail': 'Búsqueda fallida: ',
+    'msg.feature_coming': '{0} próximamente',
     'msg.sse_disconnect': 'Conexión SSE interrumpida. La búsqueda puede seguir en segundo plano.',
     'msg.selected': '{0} seleccionados', 'msg.delete_confirm': '¿Eliminar {0} empleos? No se puede deshacer.',
     'msg.deleted': 'Se eliminaron {0} empleos', 'msg.delete_fail': 'Error al eliminar: ',
@@ -1060,6 +1069,7 @@ let deleteMode  = false;
 let selectedKeys = new Set();
 let activeKey   = null;
 let activeJob   = null;
+let detailTab   = "overview";
 let cvHash      = null;
 let cvProfile   = null;
 let titlesList  = [];   // confirmed title list
@@ -1587,6 +1597,20 @@ function bulletList(items, emptyText = t('detail.none')) {
   if (!items || !items.length) return `<p class="text-xs text-gray-400 dark:text-gray-500">${emptyText}</p>`;
   return `<ul class="text-xs text-gray-700 dark:text-gray-300 space-y-1.5 list-disc list-inside">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
 }
+function detailTabButton(tab, key) {
+  const active = detailTab === tab;
+  return `<button onclick="setDetailTab('${tab}')"
+    class="px-3 py-1.5 rounded-lg text-xs transition-colors ${active
+      ? "bg-blue-600 text-white"
+      : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-blue-500"}">${t(key)}</button>`;
+}
+function setDetailTab(tab) {
+  detailTab = tab;
+  if (activeJob) showJobDetail(activeJob);
+}
+function showDetailAction(action) {
+  showToast(t('msg.feature_coming', t(`detail.action_${action}`)));
+}
 
 function dotClass(on, color) {
   return `w-2.5 h-2.5 rounded-full transition-colors duration-200 ${on ? color : "bg-gray-300 dark:bg-gray-600"}`;
@@ -1826,6 +1850,7 @@ document.getElementById("date-filter").addEventListener("click", e => {
 function showJobDetail(job) {
   activeKey = job.dedup_key;
   activeJob = job;
+  if (!["overview", "breakdown", "gap", "jd", "actions"].includes(detailTab)) detailTab = "overview";
   // Activate three-panel layout: detail takes flex-1, search panel shrinks to sidebar
   document.getElementById("main-area").classList.add("detail-active");
 
@@ -1870,70 +1895,104 @@ function showJobDetail(job) {
     `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${k}</span>`
   ).join("");
   const overviewHtml = `
-    <div class="mb-6">
-      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.overview')}</h4>
-      <div class="grid grid-cols-2 gap-4 mb-4">
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-          <div class="space-y-2 text-xs text-gray-700 dark:text-gray-300">
-            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.work_mode')}:</span> ${summary.work_mode || t('detail.none')}</div>
-            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.job_type')}:</span> ${summary.job_type || t('detail.none')}</div>
-            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.years_required')}:</span> ${summary.years_required ?? t('detail.none')}</div>
-            <div><span class="text-gray-400 dark:text-gray-500">${t('detail.keywords_label')}:</span></div>
-            <div class="flex flex-wrap gap-1.5">${keywords || `<span class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</span>`}</div>
-          </div>
-        </div>
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-          <div class="mb-[18px]">
-            <h5 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.must_have')}</h5>
-            ${bulletList(summary.must_have)}
-          </div>
-          <div>
-            <h5 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.good_to_have')}</h5>
-            ${bulletList(summary.good_to_have)}
-          </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.overview')}</h4>
+        <div class="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.work_mode')}:</span> ${summary.work_mode || t('detail.none')}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.job_type')}:</span> ${summary.job_type || t('detail.none')}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.years_required')}:</span> ${summary.years_required ?? t('detail.none')}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.keywords_label')}:</span></div>
+          <div class="flex flex-wrap gap-1.5">${keywords || `<span class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</span>`}</div>
         </div>
       </div>
       <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-        <h5 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.responsibilities')}</h5>
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.must_have')}</h4>
+        ${bulletList(summary.must_have)}
+        <div class="mt-4">
+          <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.good_to_have')}</h4>
+          ${bulletList(summary.good_to_have)}
+        </div>
+      </div>
+      <div class="xl:col-span-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.responsibilities')}</h4>
         ${bulletList(summary.responsibilities)}
       </div>
     </div>`;
   const breakdownHtml = match ? `
-    <div class="mb-6">
-      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
-      <div class="grid grid-cols-2 gap-4">
-        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
-          <div class="space-y-2 text-xs text-green-800 dark:text-green-300 font-mono">
-            <div>${t('detail.score_title')}: ${Math.round(match.title_score)}</div>
-            <div>${t('detail.score_seniority')}: ${Math.round(match.seniority_score)}</div>
-            <div>${t('detail.score_must_have')}: ${Math.round(match.must_have_score)}</div>
-            <div>${t('detail.score_nice_to_have')}: ${Math.round(match.nice_to_have_score)}</div>
-            <div>${t('detail.score_domain')}: ${Math.round(match.domain_score)}</div>
-            <div>${t('detail.score_location')}: ${Math.round(match.location_score)}</div>
-            <div>${t('detail.score_risk')}: -${Math.round(match.risk_penalty)}</div>
-          </div>
-        </div>
-        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
-          <h5 class="text-sm font-bold text-orange-700 dark:text-orange-400 mb-[18px] uppercase tracking-wide">${t('detail.risks')}</h5>
-          ${bulletList([
-            ...(summary.seniority_conflict && summary.seniority_conflict_reason ? [`${t('detail.seniority_conflict')}: ${summary.seniority_conflict_reason}`] : []),
-            ...((match.risks || []).length ? match.risks : []),
-            ...((match.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
-          ])}
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
+        <div class="space-y-2 text-xs text-green-800 dark:text-green-300 font-mono">
+          <div>${t('detail.score_title')}: ${Math.round(match.title_score)}</div>
+          <div>${t('detail.score_seniority')}: ${Math.round(match.seniority_score)}</div>
+          <div>${t('detail.score_must_have')}: ${Math.round(match.must_have_score)}</div>
+          <div>${t('detail.score_nice_to_have')}: ${Math.round(match.nice_to_have_score)}</div>
+          <div>${t('detail.score_domain')}: ${Math.round(match.domain_score)}</div>
+          <div>${t('detail.score_location')}: ${Math.round(match.location_score)}</div>
+          <div>${t('detail.score_risk')}: -${Math.round(match.risk_penalty)}</div>
         </div>
       </div>
-    </div>` : "";
-  const assessHtml = `
-    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.risks')}</h4>
+        ${bulletList([
+          ...(summary.seniority_conflict && summary.seniority_conflict_reason ? [`${t('detail.seniority_conflict')}: ${summary.seniority_conflict_reason}`] : []),
+          ...((match.risks || []).length ? match.risks : []),
+          ...((match.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
+        ])}
+      </div>
+    </div>` : `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
+      <p class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</p>
+    </div>`;
+  const gapHtml = `
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
       <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
-        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 mb-[18px] uppercase tracking-wide">${t('detail.strengths')}</h4>
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.strengths')}</h4>
         ${bulletList(job.strengths || [])}
       </div>
       <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
-        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 mb-[18px] uppercase tracking-wide">${t('detail.weaknesses')}</h4>
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.weaknesses')}</h4>
         ${bulletList(job.weaknesses || [])}
       </div>
+      <div class="xl:col-span-2 bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.risks')}</h4>
+        ${bulletList([
+          ...((match?.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
+          ...((match?.risks || []).length ? match.risks : []),
+        ])}
+      </div>
     </div>`;
+  const jdHtml = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.jd_label')}</h4>
+      <pre class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">${job.description_snippet || t('detail.no_jd')}</pre>
+    </div>`;
+  const actionsHtml = `
+    <div class="space-y-4">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.tab_actions')}</h4>
+        <div class="flex flex-wrap gap-3">
+          <button onclick="showDetailAction('interview')"
+            class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_interview')}</button>
+          <button onclick="showDetailAction('cover_letter')"
+            class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cover_letter')}</button>
+          <button onclick="showDetailAction('cv_opt')"
+            class="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${t('detail.action_cv_opt')}</button>
+        </div>
+      </div>
+      ${breakdownHtml}
+    </div>`;
+  const detailContent = detailTab === "overview"
+    ? overviewHtml
+    : detailTab === "breakdown"
+    ? breakdownHtml
+    : detailTab === "gap"
+    ? gapHtml
+    : detailTab === "jd"
+    ? jdHtml
+    : actionsHtml;
 
   document.getElementById("job-content").innerHTML = `
     <button onclick="showSearchPanel()"
@@ -1956,15 +2015,16 @@ function showJobDetail(job) {
         </div>
         <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('detail.source', sources)}</p>
       </div>
-      ${applyBtn}
+      <div class="flex items-center gap-3">${applyBtn}</div>
     </div>
-    ${overviewHtml}
-    ${breakdownHtml}
-    ${assessHtml}
-    <div>
-      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.jd_label')}</h4>
-      <pre class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">${job.description_snippet || t('detail.no_jd')}</pre>
+    <div class="flex flex-wrap gap-2 mb-6">
+      ${detailTabButton("overview", "detail.tab_overview")}
+      ${detailTabButton("breakdown", "detail.tab_breakdown")}
+      ${detailTabButton("gap", "detail.tab_gap")}
+      ${detailTabButton("jd", "detail.tab_jd")}
+      ${detailTabButton("actions", "detail.tab_actions")}
     </div>`;
+    document.getElementById("job-content").innerHTML += detailContent;
 
   renderList();
 }
@@ -2400,6 +2460,8 @@ function toggleApplyDropdown(e) {
 
 function showSearchPanel() {
   activeKey = null;
+  activeJob = null;
+  detailTab = "overview";
   document.getElementById("main-area").classList.remove("detail-active");
   renderList();
 }
