@@ -437,7 +437,10 @@ def find(
             jobs = [j for j in jobs if j.url not in inactive_urls]
             console.print(f"[yellow]已过滤 {before - len(jobs)} 个失效职位。[/yellow]")
 
-    jobs.sort(key=lambda j: (j.assessment.score if j.assessment else -1), reverse=True)
+    jobs.sort(
+        key=lambda j: (j.match_score.overall_score if j.match_score else (j.assessment.score if j.assessment else -1)),
+        reverse=True,
+    )
 
     console.print()
     show_jobs(jobs)
@@ -566,7 +569,10 @@ def assess(
     # Step 3：加载全部已评估 JD 排序展示
     all_jobs = cache.get_recent_jobs(limit)
     all_jobs = [j for j in all_jobs if j.assessment is not None]
-    all_jobs.sort(key=lambda j: j.assessment.score, reverse=True)
+    all_jobs.sort(
+        key=lambda j: (j.match_score.overall_score if j.match_score else j.assessment.score),
+        reverse=True,
+    )
 
     if not all_jobs:
         console.print("[yellow]没有可展示的已评估职位。[/yellow]")

@@ -226,6 +226,25 @@ class JobSummary(BaseModel):
     red_flags: list[str] = Field(default_factory=list)
 
 
+class MatchScore(BaseModel):
+    job_id: str
+    cv_hash: str
+    overall_score: float = Field(ge=0, le=100)
+    title_score: float = Field(ge=0, le=100)
+    seniority_score: float = Field(ge=0, le=100)
+    must_have_score: float = Field(ge=0, le=100)
+    nice_to_have_score: float = Field(ge=0, le=100)
+    domain_score: float = Field(ge=0, le=100)
+    location_score: float = Field(ge=0, le=100)
+    risk_penalty: float = Field(ge=0, le=100)
+    recommendation: Literal["strong_apply", "apply", "stretch_apply", "low_priority", "skip"] = "skip"
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    missing_must_haves: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    explanation: str = ""
+
+
 class JobResult(BaseModel):
     title: str
     company: str
@@ -243,6 +262,7 @@ class JobResult(BaseModel):
     is_complete: bool = True  # False 表示有字段缺失
     coarse_filter: CoarseFilterResult | None = None
     job_summary: JobSummary | None = None
+    match_score: MatchScore | None = None
     assessment: JobAssessment | None = None
 
     @computed_field

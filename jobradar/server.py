@@ -193,6 +193,10 @@ def test_provider(req: TestProviderRequest) -> dict:
 
 def _job_to_dict(j) -> dict:
     d = j.model_dump(mode="json")
+    if j.match_score:
+        d["match_score"] = j.match_score.model_dump(mode="json")
+        d["overall_score"] = j.match_score.overall_score
+        d["recommendation"] = j.match_score.recommendation
     if j.assessment:
         d["score"] = j.assessment.score
         d["strengths"] = j.assessment.strengths
@@ -200,6 +204,11 @@ def _job_to_dict(j) -> dict:
         d["matched_keywords"] = j.assessment.matched_keywords
     else:
         d["score"] = None
+    if j.match_score:
+        d["score"] = round(j.match_score.overall_score)
+        d["strengths"] = j.match_score.strengths
+        d["weaknesses"] = j.match_score.weaknesses + j.match_score.risks
+        d["matched_keywords"] = (j.job_summary.must_have[:4] if j.job_summary else [])
     if j.coarse_filter:
         d["coarse_priority"] = j.coarse_filter.priority
         d["coarse_reason"] = j.coarse_filter.reason
@@ -216,7 +225,12 @@ def _job_to_dict(j) -> dict:
 def get_jobs(limit: int = 200) -> list[dict]:
     jobs = cache.get_recent_jobs(limit)
     jobs = [j for j in jobs if not (j.assessment and not j.assessment.is_relevant)]
-    jobs.sort(key=lambda j: (j.assessment.score if j.assessment else -1), reverse=True)
+    jobs.sort(
+        key=lambda j: (
+            j.match_score.overall_score if j.match_score else (j.assessment.score if j.assessment else -1)
+        ),
+        reverse=True,
+    )
     return [_job_to_dict(j) for j in jobs]
 
 

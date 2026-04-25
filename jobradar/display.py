@@ -68,8 +68,12 @@ def show_jobs(jobs: list[JobResult]) -> None:
         else:
             status = "[yellow]?[/yellow]"
 
-        score_str = str(job.assessment.score) if job.assessment else "-"
-        keywords_str = ", ".join(job.assessment.matched_keywords[:4]) if job.assessment else "-"
+        if job.match_score:
+            score_str = str(round(job.match_score.overall_score))
+            keywords_str = ", ".join((job.job_summary.must_have if job.job_summary else [])[:4]) or "-"
+        else:
+            score_str = str(job.assessment.score) if job.assessment else "-"
+            keywords_str = ", ".join(job.assessment.matched_keywords[:4]) if job.assessment else "-"
 
         sources = ", ".join(job.sources[:2])
         table.add_row(
@@ -109,6 +113,15 @@ def show_job_detail(job: JobResult) -> None:
         lines.append(f"\n[bold cyan]匹配分：[/bold cyan]{a.score}/10  {bar}")
         if a.matched_keywords:
             lines.append(f"[bold cyan]匹配关键词：[/bold cyan]{', '.join(a.matched_keywords)}")
+    if job.match_score:
+        m = job.match_score
+        lines.append(f"[bold cyan]Explainable Score：[/bold cyan]{m.overall_score}/100  ({m.recommendation})")
+        lines.append(
+            f"[bold cyan]维度：[/bold cyan]"
+            f"title {m.title_score:.0f} | seniority {m.seniority_score:.0f} | must-have {m.must_have_score:.0f} | "
+            f"nice-to-have {m.nice_to_have_score:.0f} | domain {m.domain_score:.0f} | location {m.location_score:.0f} | "
+            f"risk -{m.risk_penalty:.0f}"
+        )
 
     lines.append("")
     lines.append(job.description_snippet or "（无摘要）")

@@ -9,7 +9,7 @@ from datetime import datetime
 import hashlib
 from pathlib import Path
 
-from jobradar.schemas import CoarseFilterResult, CVProfile, FailedURL, JobAssessment, JobResult, JobSummary, SearchSession
+from jobradar.schemas import CoarseFilterResult, CVProfile, FailedURL, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
 
 _DEFAULT_DB_PATH = "jobradar_cache.db"
 
@@ -88,6 +88,20 @@ CREATE TABLE IF NOT EXISTS job_summaries (
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS job_matches (
+    job_id            TEXT NOT NULL,
+    cv_hash           TEXT NOT NULL,
+    description_hash  TEXT NOT NULL,
+    overall_score     REAL NOT NULL DEFAULT 0,
+    recommendation    TEXT NOT NULL DEFAULT 'skip',
+    score_json        TEXT NOT NULL,
+    model_name        TEXT NOT NULL DEFAULT '',
+    prompt_version    TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    PRIMARY KEY (job_id, cv_hash)
+);
 """
 
 # 迁移语句：对已存在的旧表补加列（IF NOT EXISTS 语法 SQLite ≥ 3.37 支持）
@@ -140,6 +154,7 @@ def get_job(dedup_key: str) -> JobResult | None:
         return None
     job = _row_to_job(row)
     job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    _attach_latest_match(job)
     return job
 
 
@@ -234,6 +249,7 @@ def get_recent_jobs(limit: int = 50) -> list[JobResult]:
     jobs = [_row_to_job(r) for r in rows]
     for job in jobs:
         job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+        _attach_latest_match(job)
     return [j for j in jobs if not j.is_expired]
 
 
@@ -246,6 +262,7 @@ def get_job_by_url(url: str) -> JobResult | None:
         return None
     job = _row_to_job(row)
     job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    _attach_latest_match(job)
     return job
 
 
@@ -261,6 +278,7 @@ def get_jobs_by_keys(dedup_keys: list[str]) -> list[JobResult]:
     jobs = [_row_to_job(r) for r in rows]
     for job in jobs:
         job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+        _attach_latest_match(job)
     return [j for j in jobs if not j.is_expired]
 
 
@@ -329,6 +347,63 @@ def save_job_summary(
                 job_id,
                 _description_hash(description),
                 summary.model_dump_json(),
+                model_name,
+                prompt_version,
+                now,
+                now,
+            ),
+        )
+
+
+def get_job_match(job_id: str, cv_hash: str, description: str = "") -> MatchScore | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT score_json, description_hash FROM job_matches WHERE job_id = ? AND cv_hash = ?",
+            (job_id, cv_hash),
+        ).fetchone()
+    if row is None:
+        return None
+    if description and row["description_hash"] != _description_hash(description):
+        return None
+    return MatchScore.model_validate_json(row["score_json"])
+
+
+def _attach_latest_match(job: JobResult) -> None:
+    latest_cv_hash = get_latest_cv_hash()
+    if not latest_cv_hash:
+        return
+    job.match_score = get_job_match(job.dedup_key, latest_cv_hash, job.description_snippet)
+
+
+def save_job_match(
+    match: MatchScore,
+    description: str,
+    model_name: str = "",
+    prompt_version: str = "",
+) -> None:
+    now = datetime.utcnow().isoformat()
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO job_matches
+              (job_id, cv_hash, description_hash, overall_score, recommendation, score_json, model_name, prompt_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id, cv_hash) DO UPDATE SET
+              description_hash = excluded.description_hash,
+              overall_score = excluded.overall_score,
+              recommendation = excluded.recommendation,
+              score_json = excluded.score_json,
+              model_name = excluded.model_name,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """,
+            (
+                match.job_id,
+                match.cv_hash,
+                _description_hash(description),
+                match.overall_score,
+                match.recommendation,
+                match.model_dump_json(),
                 model_name,
                 prompt_version,
                 now,
@@ -525,6 +600,14 @@ def get_latest_cv_profile() -> CVProfile | None:
     if row is None:
         return None
     return CVProfile.model_validate_json(row["profile_json"])
+
+
+def get_latest_cv_hash() -> str:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT cv_hash FROM cv_cache ORDER BY cached_at DESC LIMIT 1"
+        ).fetchone()
+    return row["cv_hash"] if row is not None else ""
 
 
 def update_job_assessment(dedup_key: str, assessment: JobAssessment) -> None:
