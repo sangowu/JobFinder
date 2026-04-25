@@ -203,6 +203,12 @@ def _job_to_dict(j) -> dict:
     if j.coarse_filter:
         d["coarse_priority"] = j.coarse_filter.priority
         d["coarse_reason"] = j.coarse_filter.reason
+    if j.job_summary:
+        d["job_summary"] = j.job_summary.model_dump(mode="json")
+        d["work_mode"] = j.job_summary.work_mode
+        d["job_type"] = j.job_summary.job_type
+        d["years_required"] = j.job_summary.years_required
+        d["seniority_conflict"] = j.job_summary.seniority_conflict
     return d
 
 

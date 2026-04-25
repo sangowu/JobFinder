@@ -12,6 +12,7 @@ from typing import Callable
 
 from jobradar import cache
 from jobradar.assessment import JDAssessment, batch_assess_jds
+from jobradar.jd_summary import summarize_jd
 from jobradar.logger import get_logger
 from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
 from jobradar.pipeline_stats import PipelineStats
@@ -337,6 +338,11 @@ def _flush_assessments(
                 "assessment": assessment.to_job_assessment(),
             })
             if assessment.relevant:
+                try:
+                    summarize_jd(cached_job, llm)
+                except Exception as e:
+                    logger.warning("JD summary failed for cached job %s: %s", cached_job.dedup_key, e)
+            if assessment.relevant:
                 keys.append(cached_job.dedup_key)
                 if on_job:
                     on_job(cached_job.dedup_key)
@@ -387,6 +393,12 @@ def _flush_assessments(
             })
             if assessment.relevant:
                 job_ss["saved"] += 1
+                summary_job = cache.get_job(key)
+                if summary_job is not None and llm is not None:
+                    try:
+                        summarize_jd(summary_job, llm)
+                    except Exception as e:
+                        logger.warning("JD summary failed for %s: %s", key, e)
                 keys.append(key)
                 if on_job:
                     on_job(key)

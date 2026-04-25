@@ -204,6 +204,28 @@ class CoarseFilterResult(BaseModel):
     reject_reason: str | None = None
 
 
+class JobSummary(BaseModel):
+    job_id: str
+    title: str
+    company: str
+    location: str | None = None
+    job_type: str | None = None
+    work_mode: str | None = None
+    title_seniority: str | None = None
+    description_seniority: str | None = None
+    years_required: int | None = None
+    seniority_conflict: bool = False
+    seniority_conflict_reason: str | None = None
+    must_have: list[str] = Field(default_factory=list)
+    good_to_have: list[str] = Field(default_factory=list)
+    responsibilities: list[str] = Field(default_factory=list)
+    business_overview: str = ""
+    company_overview: str | None = None
+    visa_sponsorship: str | None = None
+    salary_range: str | None = None
+    red_flags: list[str] = Field(default_factory=list)
+
+
 class JobResult(BaseModel):
     title: str
     company: str
@@ -220,6 +242,7 @@ class JobResult(BaseModel):
     expires_at: datetime | None = None
     is_complete: bool = True  # False 表示有字段缺失
     coarse_filter: CoarseFilterResult | None = None
+    job_summary: JobSummary | None = None
     assessment: JobAssessment | None = None
 
     @computed_field

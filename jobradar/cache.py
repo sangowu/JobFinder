@@ -6,9 +6,10 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
+import hashlib
 from pathlib import Path
 
-from jobradar.schemas import CoarseFilterResult, CVProfile, FailedURL, JobAssessment, JobResult, SearchSession
+from jobradar.schemas import CoarseFilterResult, CVProfile, FailedURL, JobAssessment, JobResult, JobSummary, SearchSession
 
 _DEFAULT_DB_PATH = "jobradar_cache.db"
 
@@ -77,6 +78,16 @@ CREATE TABLE IF NOT EXISTS search_stats (
     jobs_found  INTEGER NOT NULL DEFAULT 0,
     cv_hash     TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS job_summaries (
+    job_id            TEXT PRIMARY KEY,
+    description_hash  TEXT NOT NULL,
+    summary_json      TEXT NOT NULL,
+    model_name        TEXT NOT NULL DEFAULT '',
+    prompt_version    TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
 """
 
 # 迁移语句：对已存在的旧表补加列（IF NOT EXISTS 语法 SQLite ≥ 3.37 支持）
@@ -127,7 +138,9 @@ def get_job(dedup_key: str) -> JobResult | None:
         ).fetchone()
     if row is None:
         return None
-    return _row_to_job(row)
+    job = _row_to_job(row)
+    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    return job
 
 
 def save_job(job: JobResult) -> None:
@@ -219,6 +232,8 @@ def get_recent_jobs(limit: int = 50) -> list[JobResult]:
             "SELECT * FROM job_cache ORDER BY fetched_at DESC LIMIT ?", (limit,)
         ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
+    for job in jobs:
+        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
     return [j for j in jobs if not j.is_expired]
 
 
@@ -229,7 +244,9 @@ def get_job_by_url(url: str) -> JobResult | None:
         ).fetchone()
     if row is None:
         return None
-    return _row_to_job(row)
+    job = _row_to_job(row)
+    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    return job
 
 
 def get_jobs_by_keys(dedup_keys: list[str]) -> list[JobResult]:
@@ -242,6 +259,8 @@ def get_jobs_by_keys(dedup_keys: list[str]) -> list[JobResult]:
             dedup_keys,
         ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
+    for job in jobs:
+        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
     return [j for j in jobs if not j.is_expired]
 
 
@@ -266,6 +285,56 @@ def _row_to_job(row: sqlite3.Row) -> JobResult:
         coarse_filter=coarse_filter,
         assessment=assessment,
     )
+
+
+def _description_hash(description: str) -> str:
+    return hashlib.sha256((description or "").encode("utf-8")).hexdigest()
+
+
+def get_job_summary(job_id: str, description: str = "") -> JobSummary | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT summary_json, description_hash FROM job_summaries WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    if description and row["description_hash"] != _description_hash(description):
+        return None
+    return JobSummary.model_validate_json(row["summary_json"])
+
+
+def save_job_summary(
+    job_id: str,
+    description: str,
+    summary: JobSummary,
+    model_name: str = "",
+    prompt_version: str = "",
+) -> None:
+    now = datetime.utcnow().isoformat()
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO job_summaries
+              (job_id, description_hash, summary_json, model_name, prompt_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+              description_hash = excluded.description_hash,
+              summary_json = excluded.summary_json,
+              model_name = excluded.model_name,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """,
+            (
+                job_id,
+                _description_hash(description),
+                summary.model_dump_json(),
+                model_name,
+                prompt_version,
+                now,
+                now,
+            ),
+        )
 
 
 # ─── SearchSession ────────────────────────────────────────────────────────────
@@ -485,6 +554,7 @@ def clear_all() -> None:
     """清空所有缓存。"""
     with _conn() as con:
         con.execute("DELETE FROM job_cache")
+        con.execute("DELETE FROM job_summaries")
         con.execute("DELETE FROM search_sessions")
         con.execute("DELETE FROM failed_urls")
         con.execute("DELETE FROM cv_cache")
@@ -498,6 +568,10 @@ def delete_jobs(dedup_keys: list[str]) -> int:
         return 0
     placeholders = ",".join("?" * len(dedup_keys))
     with _conn() as con:
+        con.execute(
+            f"DELETE FROM job_summaries WHERE job_id IN ({placeholders})",
+            dedup_keys,
+        )
         r = con.execute(
             f"DELETE FROM job_cache WHERE dedup_key IN ({placeholders})",
             dedup_keys,
@@ -597,6 +671,21 @@ def clean_expired() -> int:
     """删除过期 JD 和 Session，返回删除条数。"""
     now = datetime.utcnow().isoformat()
     with _conn() as con:
+        expired_rows = con.execute(
+            """
+            SELECT dedup_key FROM job_cache
+            WHERE (expires_at IS NOT NULL AND expires_at < ?)
+               OR (expires_at IS NULL AND julianday('now') - julianday(fetched_at) > ?)
+            """,
+            (now, int(os.getenv("JOB_TTL_DAYS", 7))),
+        ).fetchall()
+        expired_job_ids = [row["dedup_key"] for row in expired_rows]
+        if expired_job_ids:
+            placeholders = ",".join("?" * len(expired_job_ids))
+            con.execute(
+                f"DELETE FROM job_summaries WHERE job_id IN ({placeholders})",
+                expired_job_ids,
+            )
         # 删除有明确截止日期且已过期的 JD
         r1 = con.execute(
             "DELETE FROM job_cache WHERE expires_at IS NOT NULL AND expires_at < ?",
