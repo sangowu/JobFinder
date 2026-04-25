@@ -226,7 +226,7 @@ def get_jobs(limit: int = 200) -> list[dict]:
     return [_job_to_dict(j) for j in jobs]
 
 
-@app.get("/api/jobs/{dedup_key}/artifacts")
+@app.get("/api/jobs/{dedup_key:path}/artifacts")
 def get_job_artifacts_endpoint(dedup_key: str, cv_hash: str = "") -> dict:
     job = cache.get_job(dedup_key)
     if job is None:
@@ -298,7 +298,7 @@ def _run_artifact_endpoint(
     }
 
 
-@app.post("/api/jobs/{dedup_key}/interview-prep")
+@app.post("/api/jobs/{dedup_key:path}/interview-prep")
 def create_interview_prep(dedup_key: str, req: ArtifactRequest) -> dict:
     return _run_artifact_endpoint(
         dedup_key,
@@ -309,7 +309,7 @@ def create_interview_prep(dedup_key: str, req: ArtifactRequest) -> dict:
     )
 
 
-@app.post("/api/jobs/{dedup_key}/cover-letter")
+@app.post("/api/jobs/{dedup_key:path}/cover-letter")
 def create_cover_letter(dedup_key: str, req: ArtifactRequest) -> dict:
     return _run_artifact_endpoint(
         dedup_key,
@@ -320,7 +320,7 @@ def create_cover_letter(dedup_key: str, req: ArtifactRequest) -> dict:
     )
 
 
-@app.post("/api/jobs/{dedup_key}/cv-optimization")
+@app.post("/api/jobs/{dedup_key:path}/cv-optimization")
 def create_cv_optimization(dedup_key: str, req: ArtifactRequest) -> dict:
     return _run_artifact_endpoint(
         dedup_key,

@@ -1664,7 +1664,7 @@ function scoreColor(s) {
 }
 function scoreBadge(s) {
   const display = s !== null && s !== undefined ? s : "?";
-  return `<span class="inline-flex items-center justify-center min-w-[44px] h-8 px-2 rounded-full text-white text-xs font-bold font-mono flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
+  return `<span class="inline-flex items-center justify-center w-11 h-11 rounded-full text-white text-xs font-bold font-mono flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
 }
 function normalizedScore(s) {
   if (s === null || s === undefined) return null;
@@ -2126,9 +2126,6 @@ function buildCard(job) {
     ? _newThisSearch.has(key)
     : job.fetched_at && (Date.now() - new Date(job.fetched_at).getTime() < 86400000);
   const recBadge = recommendationBadge(job.recommendation);
-  const detailBits = [job.work_mode, job.job_type].filter(Boolean).map(v =>
-    `<span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">${v}</span>`
-  ).join("");
   const conflictBadge = job.seniority_conflict
     ? `<span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300">! ${t('detail.seniority_conflict')}</span>`
     : "";
@@ -2163,7 +2160,6 @@ function buildCard(job) {
               onclick="event.stopPropagation()">${label}</a>`;
           }).join("")}
           ${isRemote ? '<span class="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded">Remote</span>' : ""}
-          ${detailBits}
           ${conflictBadge}
         </div>
       </div>

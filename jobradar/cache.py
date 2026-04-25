@@ -408,7 +408,15 @@ def _attach_latest_match(job: JobResult) -> None:
     latest_cv_hash = get_latest_cv_hash()
     if not latest_cv_hash:
         return
-    job.match_score = get_job_match(job.dedup_key, latest_cv_hash, job.description_snippet)
+    match = get_job_match(job.dedup_key, latest_cv_hash, job.description_snippet)
+    if match is None:
+        return
+    profile = get_cv_profile(latest_cv_hash)
+    if profile is not None and job.job_summary is not None:
+        from jobradar.matching import adjust_match_for_profile
+
+        match = adjust_match_for_profile(profile, job.job_summary, match)
+    job.match_score = match
 
 
 def save_job_match(
