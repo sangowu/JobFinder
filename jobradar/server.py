@@ -272,7 +272,7 @@ def _resolve_artifact_context(dedup_key: str, req: ArtifactRequest):
     _model = req.model or DEFAULT_MODELS.get(req.provider, "")
     llm = LLMConfig(provider=req.provider, model=_model)
     summary = job.job_summary or summarize_jd(job, llm)
-    match = match_job_to_cv(profile, summary, job.description_snippet, llm)
+    match = match_job_to_cv(profile, summary, job.description_snippet, llm, cv_hash=cv_hash)
     return job, profile, cv_hash, llm, summary, match
 
 
@@ -547,6 +547,7 @@ async def _run_search_task(req: SearchRequest) -> None:
                 profile=profile,
                 location=req.location,
                 llm=llm,
+                cv_hash=req.cv_hash,
                 on_progress=lambda msg: _emit("progress", msg=msg),
                 on_job=on_job,
                 force_refresh=req.refresh,

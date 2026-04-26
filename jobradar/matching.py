@@ -150,9 +150,14 @@ def match_job_to_cv(
     job_summary: JobSummary,
     full_jd: str,
     llm: LLMConfig,
+    cv_hash: str = "",
 ) -> MatchScore:
-    cv_hash = cv_profile_hash(profile)
-    cached = cache.get_job_match(job_summary.job_id, cv_hash, full_jd)
+    effective_cv_hash = cv_hash or cv_profile_hash(profile)
+    cached = cache.get_job_match(job_summary.job_id, effective_cv_hash, full_jd)
+    if cached is None and cv_hash:
+        legacy_hash = cv_profile_hash(profile)
+        if legacy_hash != effective_cv_hash:
+            cached = cache.get_job_match(job_summary.job_id, legacy_hash, full_jd)
     if cached is not None:
         return adjust_match_for_profile(profile, job_summary, cached)
 
@@ -194,7 +199,7 @@ JD Summary:
     recommendation = _recommendation(overall, evidence.risks)
     result = MatchScore(
         job_id=job_summary.job_id,
-        cv_hash=cv_hash,
+        cv_hash=effective_cv_hash,
         overall_score=overall,
         title_score=evidence.title_score,
         seniority_score=evidence.seniority_score,
@@ -217,5 +222,5 @@ JD Summary:
         model_name=f"{llm.provider}/{llm.model}",
         prompt_version=PROMPT_VERSION,
     )
-    logger.info("JD match saved: %s / %s", job_summary.job_id, cv_hash[:8])
+    logger.info("JD match saved: %s / %s", job_summary.job_id, effective_cv_hash[:8])
     return result

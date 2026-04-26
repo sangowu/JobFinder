@@ -409,9 +409,15 @@ def _attach_latest_match(job: JobResult) -> None:
     if not latest_cv_hash:
         return
     match = get_job_match(job.dedup_key, latest_cv_hash, job.description_snippet)
+    profile = get_cv_profile(latest_cv_hash)
+    if match is None and profile is not None:
+        from jobradar.matching import cv_profile_hash
+
+        legacy_hash = cv_profile_hash(profile)
+        if legacy_hash != latest_cv_hash:
+            match = get_job_match(job.dedup_key, legacy_hash, job.description_snippet)
     if match is None:
         return
-    profile = get_cv_profile(latest_cv_hash)
     if profile is not None and job.job_summary is not None:
         from jobradar.matching import adjust_match_for_profile
 

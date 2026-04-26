@@ -28,6 +28,7 @@ def run_search(
     profile: CVProfile,
     location: str,
     llm: LLMConfig | None = None,
+    cv_hash: str = "",
     on_progress: Callable[[str], None] | None = None,
     on_job: Callable[[str], None] | None = None,
     force_refresh: bool = False,
@@ -100,6 +101,7 @@ def run_search(
             scraped, seen_urls, _cb,
             profile=profile,
             llm=effective_llm,
+            cv_hash=cv_hash,
             on_job=on_job,
             language=language,
             stats=pipeline_stats,
@@ -301,6 +303,7 @@ def _flush_assessments(
     job_all_sources: dict[str, list[dict]],
     profile: CVProfile,
     llm: LLMConfig | None,
+    cv_hash: str,
     cb: Callable[[str], None],
     on_job: Callable[[str], None] | None,
     language: str,
@@ -342,7 +345,7 @@ def _flush_assessments(
                 try:
                     cached_job = cache.get_job(cached_job.dedup_key) or cached_job
                     summary = summarize_jd(cached_job, llm)
-                    match_job_to_cv(profile, summary, cached_job.description_snippet, llm)
+                    match_job_to_cv(profile, summary, cached_job.description_snippet, llm, cv_hash=cv_hash)
                 except Exception as e:
                     logger.warning("JD summary failed for cached job %s: %s", cached_job.dedup_key, e)
             if assessment.relevant:
@@ -400,7 +403,7 @@ def _flush_assessments(
                 if summary_job is not None and llm is not None:
                     try:
                         summary = summarize_jd(summary_job, llm)
-                        match_job_to_cv(profile, summary, summary_job.description_snippet, llm)
+                        match_job_to_cv(profile, summary, summary_job.description_snippet, llm, cv_hash=cv_hash)
                     except Exception as e:
                         logger.warning("JD summary/matching failed for %s: %s", key, e)
                 keys.append(key)
@@ -426,6 +429,7 @@ def _write_scraped(
     cb: Callable[[str], None],
     profile: CVProfile | None = None,
     llm: LLMConfig | None = None,
+    cv_hash: str = "",
     on_job: Callable[[str], None] | None = None,
     language: str = "zh",
     stats: PipelineStats | None = None,
@@ -455,7 +459,7 @@ def _write_scraped(
         seniority=_seniority, years_of_experience=_max_years,
         preferred_roles=[], search_language="en",
     )
-    keys, llm_rejected = _flush_assessments(pf, job_all_sources, _profile, llm, cb, on_job, language)
+    keys, llm_rejected = _flush_assessments(pf, job_all_sources, _profile, llm, cv_hash, cb, on_job, language)
 
     # 阶段三：多来源合并（跨平台重复职位补全 sources 字段）
     for dk, srcs in job_all_sources.items():
