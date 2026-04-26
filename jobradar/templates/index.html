@@ -137,11 +137,11 @@
           <tr>
             <th class="px-4 py-3" data-i18n="hist.col_time">时间</th>
             <th class="px-4 py-3" data-i18n="hist.col_roles">职位 / 地区</th>
-            <th class="px-4 py-3" data-i18n="hist.col_model">模型</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_elapsed">耗时</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_in">输入 tokens</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_out">输出 tokens</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_jobs">职位数</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_total">总数</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_deduped">去重后</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_filtered">过滤后</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_new_jobs">新增职位</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens">Token</th>
             <th class="px-4 py-3 text-right" data-i18n="hist.col_funnel">漏斗</th>
           </tr>
         </thead>
@@ -762,6 +762,7 @@ const I18N = {
     'nav.config': 'API 配置', 'nav.history': '历史', 'nav.logs': '日志', 'nav.light': '浅色', 'nav.dark': '深色',
     'hist.title': '搜索历史', 'hist.col_time': '时间', 'hist.col_roles': '职位 / 地区', 'hist.col_model': '模型',
     'hist.col_elapsed': '耗时', 'hist.col_tokens_in': '输入 tokens', 'hist.col_tokens_out': '输出 tokens', 'hist.col_jobs': '职位数',
+    'hist.col_total': '总数', 'hist.col_deduped': '去重后', 'hist.col_filtered': '过滤后', 'hist.col_new_jobs': '新增职位', 'hist.col_tokens': 'Token',
     'hist.empty': '暂无搜索记录', 'hist.total_searches': '总搜索次数', 'hist.total_jobs': '累计职位数',
     'hist.total_tokens': '累计 tokens', 'hist.total_elapsed': '累计耗时',
     'hist.clear': '清空历史', 'hist.clear_confirm': '确定要清空全部搜索历史吗？此操作不可撤销。',
@@ -875,6 +876,7 @@ const I18N = {
     'nav.config': 'API Config', 'nav.history': 'History', 'nav.logs': 'Logs', 'nav.light': 'Light', 'nav.dark': 'Dark',
     'hist.title': 'Search History', 'hist.col_time': 'Time', 'hist.col_roles': 'Roles / Location', 'hist.col_model': 'Model',
     'hist.col_elapsed': 'Elapsed', 'hist.col_tokens_in': 'Input tokens', 'hist.col_tokens_out': 'Output tokens', 'hist.col_jobs': 'Jobs',
+    'hist.col_total': 'Total', 'hist.col_deduped': 'Deduped', 'hist.col_filtered': 'Filtered', 'hist.col_new_jobs': 'New Jobs', 'hist.col_tokens': 'Tokens',
     'hist.empty': 'No search history yet', 'hist.total_searches': 'Total Searches', 'hist.total_jobs': 'Total Jobs Found',
     'hist.total_tokens': 'Total Tokens', 'hist.total_elapsed': 'Total Time',
     'hist.clear': 'Clear History', 'hist.clear_confirm': 'Clear all search history? This cannot be undone.',
@@ -988,6 +990,7 @@ const I18N = {
     'nav.config': 'Config. API', 'nav.history': 'Historial', 'nav.logs': 'Registros', 'nav.light': 'Claro', 'nav.dark': 'Oscuro',
     'hist.title': 'Historial de búsquedas', 'hist.col_time': 'Hora', 'hist.col_roles': 'Puestos / Ubicación', 'hist.col_model': 'Modelo',
     'hist.col_elapsed': 'Duración', 'hist.col_tokens_in': 'Tokens entrada', 'hist.col_tokens_out': 'Tokens salida', 'hist.col_jobs': 'Empleos',
+    'hist.col_total': 'Total', 'hist.col_deduped': 'Tras dedup', 'hist.col_filtered': 'Tras filtro', 'hist.col_new_jobs': 'Nuevos', 'hist.col_tokens': 'Tokens',
     'hist.empty': 'Sin historial de búsquedas', 'hist.total_searches': 'Total búsquedas', 'hist.total_jobs': 'Empleos encontrados',
     'hist.total_tokens': 'Tokens totales', 'hist.total_elapsed': 'Tiempo total',
     'hist.clear': 'Limpiar historial', 'hist.clear_confirm': '¿Limpiar todo el historial? No se puede deshacer.',
@@ -1567,6 +1570,7 @@ function renderHistoryTable(records) {
     const dt = new Date(r.created_at + "Z").toLocaleString();
     const roles = (r.roles || []).join(", ") || "—";
     const model = r.model ? `${r.provider}/${r.model.split("-").slice(-2).join("-")}` : r.provider;
+    const totalTokens = (r.tokens_in || 0) + (r.tokens_out || 0);
     const funnelBtn = r.funnel
       ? `<button onclick="_toggleFunnel(${r.id})" title="${t('funnel.toggle')}"
            class="text-xs px-2 py-0.5 rounded bg-indigo-900/50 hover:bg-indigo-700/60 text-indigo-300 hover:text-white transition-colors border border-indigo-700/40">
@@ -1574,14 +1578,14 @@ function renderHistoryTable(records) {
          </button>`
       : `<span class="text-gray-600 text-xs">—</span>`;
     const mainRow = `<tr class="hover:bg-gray-700/30 transition-colors">
-      <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">${dt}</td>
+      <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">${dt}<br><span class="text-[11px] text-gray-500">${_fmtElapsed(r.elapsed)}</span></td>
       <td class="px-4 py-2.5"><span class="text-white">${roles}</span><br>
-        <span class="text-gray-500 text-xs">${r.location}</span></td>
-      <td class="px-4 py-2.5 text-gray-400">${model}</td>
-      <td class="px-4 py-2.5 text-right text-yellow-300">${_fmtElapsed(r.elapsed)}</td>
-      <td class="px-4 py-2.5 text-right text-green-300">${_fmtNum(r.tokens_in)}</td>
-      <td class="px-4 py-2.5 text-right text-blue-300">${_fmtNum(r.tokens_out)}</td>
-      <td class="px-4 py-2.5 text-right text-white font-semibold">${r.jobs_found}</td>
+        <span class="text-gray-500 text-xs">${r.location} · ${model}</span></td>
+      <td class="px-4 py-2.5 text-right text-blue-300">${_fmtNum(r.scraped_total)}</td>
+      <td class="px-4 py-2.5 text-right text-purple-300">${_fmtNum(r.deduped_total)}</td>
+      <td class="px-4 py-2.5 text-right text-yellow-300">${_fmtNum(r.filtered_total)}</td>
+      <td class="px-4 py-2.5 text-right text-green-300 font-semibold">${_fmtNum(r.new_jobs)}</td>
+      <td class="px-4 py-2.5 text-right text-cyan-300">${_fmtNum(totalTokens)}<br><span class="text-[11px] text-gray-500">in ${_fmtNum(r.tokens_in)} / out ${_fmtNum(r.tokens_out)}</span></td>
       <td class="px-4 py-2.5 text-right">${funnelBtn}</td>
     </tr>`;
     return mainRow + _renderFunnelRow(r.funnel, r.id);

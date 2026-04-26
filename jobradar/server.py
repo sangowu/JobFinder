@@ -571,6 +571,7 @@ async def _run_search_task(req: SearchRequest) -> None:
                 "Search done | jobs=%d elapsed=%.1fs tokens_in=%d tokens_out=%d",
                 len(dedup_keys), elapsed, tokens_in, tokens_out,
             )
+            funnel_data = pipeline_stats.to_dict()
             cache.save_search_stats(
                 location=req.location,
                 roles=req.roles,
@@ -580,7 +581,11 @@ async def _run_search_task(req: SearchRequest) -> None:
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 jobs_found=len(dedup_keys),
-                funnel=pipeline_stats.to_dict(),
+                scraped_total=funnel_data.get("scraped_total", 0),
+                deduped_total=max(0, int(funnel_data.get("prefilter_in", 0)) - int(funnel_data.get("skip_dup", 0))),
+                filtered_total=len(dedup_keys),
+                new_jobs=int(funnel_data.get("new_saved", 0)),
+                funnel=funnel_data,
                 cv_hash=req.cv_hash,
             )
             try:
@@ -591,7 +596,7 @@ async def _run_search_task(req: SearchRequest) -> None:
             _emit("done", count=len(dedup_keys),
                   elapsed=round(elapsed, 1),
                   tokens_in=tokens_in, tokens_out=tokens_out,
-                  pipeline_stats=pipeline_stats.to_dict(),
+                  pipeline_stats=funnel_data,
                   dedup=dedup_report)
         except Exception as e:
             logger.error("Search failed | error=%s", e, exc_info=True)

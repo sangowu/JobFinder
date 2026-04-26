@@ -77,6 +77,10 @@ CREATE TABLE IF NOT EXISTS search_stats (
     tokens_in   INTEGER NOT NULL DEFAULT 0,
     tokens_out  INTEGER NOT NULL DEFAULT 0,
     jobs_found  INTEGER NOT NULL DEFAULT 0,
+    scraped_total INTEGER NOT NULL DEFAULT 0,
+    deduped_total INTEGER NOT NULL DEFAULT 0,
+    filtered_total INTEGER NOT NULL DEFAULT 0,
+    new_jobs    INTEGER NOT NULL DEFAULT 0,
     cv_hash     TEXT NOT NULL DEFAULT ''
 );
 
@@ -164,6 +168,10 @@ def _conn():
             "ALTER TABLE job_cache ADD COLUMN raw_sources TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE search_stats ADD COLUMN funnel_json TEXT",
             "ALTER TABLE search_stats ADD COLUMN cv_hash TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN scraped_total INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE search_stats ADD COLUMN deduped_total INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE search_stats ADD COLUMN filtered_total INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE search_stats ADD COLUMN new_jobs INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE cv_cache ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''",
         ):
             try:
@@ -945,6 +953,10 @@ def save_search_stats(
     tokens_in: int,
     tokens_out: int,
     jobs_found: int,
+    scraped_total: int = 0,
+    deduped_total: int = 0,
+    filtered_total: int = 0,
+    new_jobs: int = 0,
     funnel: dict | None = None,
     cv_hash: str = "",
 ) -> int:
@@ -952,8 +964,8 @@ def save_search_stats(
     with _conn() as con:
         cur = con.execute(
             """INSERT INTO search_stats
-               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, funnel_json, cv_hash)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, scraped_total, deduped_total, filtered_total, new_jobs, funnel_json, cv_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 datetime.utcnow().isoformat(),
                 location,
@@ -964,11 +976,46 @@ def save_search_stats(
                 tokens_in,
                 tokens_out,
                 jobs_found,
+                scraped_total,
+                deduped_total,
+                filtered_total,
+                new_jobs,
                 json.dumps(funnel, ensure_ascii=False) if funnel else None,
                 cv_hash,
             ),
         )
         return cur.lastrowid or 0
+
+
+def _derive_history_metrics(row: sqlite3.Row, funnel: dict | None) -> dict[str, int]:
+    keys = row.keys()
+    row_scraped = row["scraped_total"] if "scraped_total" in keys else 0
+    row_deduped = row["deduped_total"] if "deduped_total" in keys else 0
+    row_filtered = row["filtered_total"] if "filtered_total" in keys else 0
+    row_new = row["new_jobs"] if "new_jobs" in keys else 0
+    scraped_total = int(row_scraped or (funnel or {}).get("scraped_total") or 0)
+    deduped_total = int(
+        row_deduped
+        or max(
+            0,
+            int((funnel or {}).get("prefilter_in") or 0) - int((funnel or {}).get("skip_dup") or 0),
+        )
+    )
+    filtered_total = int(row_filtered or row["jobs_found"] or (funnel or {}).get("saved") or 0)
+    new_jobs = int(
+        row_new
+        or max(
+            0,
+            int((funnel or {}).get("new_saved") or 0)
+            or (filtered_total - int((funnel or {}).get("cache_hit") or 0) - int((funnel or {}).get("cache_patch") or 0)),
+        )
+    )
+    return {
+        "scraped_total": scraped_total,
+        "deduped_total": deduped_total,
+        "filtered_total": filtered_total,
+        "new_jobs": new_jobs,
+    }
 
 
 def get_search_stats(limit: int = 50) -> list[dict]:
@@ -982,6 +1029,8 @@ def get_search_stats(limit: int = 50) -> list[dict]:
     for row in rows:
         keys = row.keys()
         raw_funnel = row["funnel_json"] if "funnel_json" in keys else None
+        funnel = json.loads(raw_funnel) if raw_funnel else None
+        derived = _derive_history_metrics(row, funnel)
         result.append({
             "id":         row["id"],
             "created_at": row["created_at"],
@@ -993,7 +1042,11 @@ def get_search_stats(limit: int = 50) -> list[dict]:
             "tokens_in":  row["tokens_in"],
             "tokens_out": row["tokens_out"],
             "jobs_found": row["jobs_found"],
-            "funnel":     json.loads(raw_funnel) if raw_funnel else None,
+            "scraped_total": derived["scraped_total"],
+            "deduped_total": derived["deduped_total"],
+            "filtered_total": derived["filtered_total"],
+            "new_jobs": derived["new_jobs"],
+            "funnel":     funnel,
         })
     return result
 

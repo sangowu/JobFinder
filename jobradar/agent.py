@@ -307,13 +307,14 @@ def _flush_assessments(
     cb: Callable[[str], None],
     on_job: Callable[[str], None] | None,
     language: str,
-) -> tuple[list[str], int]:
+ ) -> tuple[list[str], int, int]:
     """
-    运行 LLM 评估并写缓存，返回 (saved_keys, llm_rejected_count)。
+    运行 LLM 评估并写缓存，返回 (saved_keys, llm_rejected_count, new_saved_count)。
     """
     has_cv = bool(profile.summary and profile.skills)
     keys: list[str] = []
     llm_rejected = 0
+    new_saved = 0
 
     for k in pf.immediate_keys:
         keys.append(k)
@@ -399,6 +400,7 @@ def _flush_assessments(
             })
             if assessment.relevant:
                 job_ss["saved"] += 1
+                new_saved += 1
                 summary_job = cache.get_job(key)
                 if summary_job is not None and llm is not None:
                     try:
@@ -420,7 +422,7 @@ def _flush_assessments(
             total_assessed,
         )
 
-    return keys, llm_rejected
+    return keys, llm_rejected, new_saved
 
 
 def _write_scraped(
@@ -459,7 +461,7 @@ def _write_scraped(
         seniority=_seniority, years_of_experience=_max_years,
         preferred_roles=[], search_language="en",
     )
-    keys, llm_rejected = _flush_assessments(pf, job_all_sources, _profile, llm, cv_hash, cb, on_job, language)
+    keys, llm_rejected, new_saved = _flush_assessments(pf, job_all_sources, _profile, llm, cv_hash, cb, on_job, language)
 
     # 阶段三：多来源合并（跨平台重复职位补全 sources 字段）
     for dk, srcs in job_all_sources.items():
@@ -482,6 +484,7 @@ def _write_scraped(
         stats.llm_assessed    = len(pf.pending) + len(pf.patch_pending)
         stats.llm_rejected    = llm_rejected
         stats.saved           = len(keys)
+        stats.new_saved       = new_saved
         stats.by_source       = {src: dict(st) for src, st in pf.source_stats.items()}
 
     # 汇总日志

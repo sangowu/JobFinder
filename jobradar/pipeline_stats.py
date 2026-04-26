@@ -48,6 +48,7 @@ class PipelineStats:
 
     # ── 最终结果 ─────────────────────────────────────────────────────────────
     saved: int = 0
+    new_saved: int = 0
     by_source: dict = field(default_factory=dict)  # {source: {step: count}}
 
     # ── 元数据 ────────────────────────────────────────────────────────────────
