@@ -82,6 +82,21 @@ def _language_set(items: list[LanguageProficiency]) -> set[str]:
     return {_normalize_language_name(item.name) for item in items if item.name}
 
 
+def _dedupe_text_items(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        text = (item or "").strip()
+        if not text:
+            continue
+        key = " ".join(text.lower().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
+
+
 def _generic_experience_gap_weakness(profile_years: float | None, years_required: int | None, language: str) -> str:
     years = profile_years or 0
     if language == "en":
@@ -221,6 +236,9 @@ def _apply_profile_guards(
             if risk.lower() not in seen:
                 updated.risks.append(risk)
                 seen.add(risk.lower())
+    updated.weaknesses = _dedupe_text_items(updated.weaknesses)
+    updated.missing_must_haves = _dedupe_text_items(updated.missing_must_haves)
+    updated.risks = _dedupe_text_items(updated.risks)
     return updated
 
 
@@ -256,6 +274,8 @@ def adjust_match_for_profile(
             "language_score": adjusted.language_score,
             "risk_penalty": adjusted.risk_penalty,
             "recommendation": recommendation,
+            "weaknesses": _dedupe_text_items(adjusted.weaknesses),
+            "missing_must_haves": _dedupe_text_items(adjusted.missing_must_haves),
             "risks": adjusted.risks,
         }
     )

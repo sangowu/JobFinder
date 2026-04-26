@@ -2401,7 +2401,6 @@ function showJobDetail(job) {
       <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
         <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.risks')}</h4>
         ${bulletList([
-          ...(summary.seniority_conflict && summary.seniority_conflict_reason ? [`${t('detail.seniority_conflict')}: ${summary.seniority_conflict_reason}`] : []),
           ...((match.risks || []).length ? match.risks : []),
           ...((match.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
         ])}
