@@ -5,6 +5,8 @@ import re
 
 from jobradar.schemas import CVProfile
 
+TITLE_GATE_VERSION = "title_gate_v1"
+
 _TITLE_SPLIT_RE = re.compile(r"[\s/\-,|@().:+]+")
 
 _PHRASE_LEVELS: tuple[tuple[str, str], ...] = (

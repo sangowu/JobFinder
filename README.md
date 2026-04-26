@@ -99,6 +99,7 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Multi-source dedup**: jobs appearing on both Indeed and LinkedIn are merged; source badges are clickable links; Apply button becomes a dropdown when multiple source URLs exist
 - **Search history**: each record has a 📊 button to expand the full pipeline funnel, with per-source breakdown (Indeed / LinkedIn)
 - **Normalized search history metrics**: each record stores total scraped, deduped, filtered, newly saved jobs, and token consumption
+- **Funnel benchmark summary**: history now tracks pipeline/prompt versions and shows derived efficiency metrics such as post-filter rate, new-job yield, and tokens per new job
 - **Dynamic title seniority gate**: uses CV eligible/stretch/blocked levels to remove obvious title-level mismatches before JD matching
 - **Explainable matching**: job details include score breakdown, risks, skill matches, and recommendation tiers
 - **Artifact hub**: generate and reuse Interview Prep, Cover Letter, and CV Optimization from the job detail panel

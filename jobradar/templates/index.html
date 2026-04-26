@@ -130,6 +130,8 @@
     <!-- 全量累计 -->
     <div id="hist-summary" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8"></div>
 
+    <div id="hist-benchmark" class="mb-8"></div>
+
     <!-- 历史记录表格 -->
     <div class="bg-gray-800 rounded-xl overflow-hidden">
       <table class="w-full text-sm text-left">
@@ -767,6 +769,21 @@ const I18N = {
     'hist.total_tokens': '累计 tokens', 'hist.total_elapsed': '累计耗时',
     'hist.clear': '清空历史', 'hist.clear_confirm': '确定要清空全部搜索历史吗？此操作不可撤销。',
     'hist.clear_done': '历史记录已清空', 'hist.col_funnel': '漏斗',
+    'hist.benchmark_title': '漏斗 Benchmark',
+    'hist.benchmark_empty': '暂无可对比的 benchmark 数据',
+    'hist.benchmark_current': '当前版本',
+    'hist.benchmark_previous': '上一版本',
+    'hist.benchmark_runs': '样本次数',
+    'hist.benchmark_signature': '版本签名',
+    'hist.metric_prefilter_pass': '过滤后占比',
+    'hist.metric_new_yield': '新增产出率',
+    'hist.metric_tokens_filtered': '每个过滤后职位 Token',
+    'hist.metric_tokens_new': '每个新增职位 Token',
+    'hist.metric_assessment_eff': '评估/新增比',
+    'hist.metric_seniority_reject': '年资拦截率',
+    'hist.delta_up': '较上一版 +{0}',
+    'hist.delta_down': '较上一版 -{0}',
+    'hist.delta_flat': '与上一版持平',
     'funnel.toggle': '查看管道漏斗统计', 'funnel.scraped': '①抓取',
     'funnel.title': '②LLM标题', 'funnel.prefilter': '③预筛漏斗',
     'funnel.llm': '④LLM评估', 'funnel.saved': '最终保存',
@@ -882,6 +899,21 @@ const I18N = {
     'hist.total_tokens': 'Total Tokens', 'hist.total_elapsed': 'Total Time',
     'hist.clear': 'Clear History', 'hist.clear_confirm': 'Clear all search history? This cannot be undone.',
     'hist.clear_done': 'History cleared', 'hist.col_funnel': 'Funnel',
+    'hist.benchmark_title': 'Funnel Benchmark',
+    'hist.benchmark_empty': 'No benchmark comparison available yet',
+    'hist.benchmark_current': 'Current Version',
+    'hist.benchmark_previous': 'Previous Version',
+    'hist.benchmark_runs': 'Runs',
+    'hist.benchmark_signature': 'Version Signature',
+    'hist.metric_prefilter_pass': 'Post-filter rate',
+    'hist.metric_new_yield': 'New-job yield',
+    'hist.metric_tokens_filtered': 'Tokens per filtered job',
+    'hist.metric_tokens_new': 'Tokens per new job',
+    'hist.metric_assessment_eff': 'Assess/new ratio',
+    'hist.metric_seniority_reject': 'Seniority reject rate',
+    'hist.delta_up': 'vs previous +{0}',
+    'hist.delta_down': 'vs previous -{0}',
+    'hist.delta_flat': 'same as previous',
     'funnel.toggle': 'View pipeline funnel stats', 'funnel.scraped': '①Scrape',
     'funnel.title': '②LLM Title', 'funnel.prefilter': '③Pre-filter',
     'funnel.llm': '④LLM Assess', 'funnel.saved': 'Saved',
@@ -997,6 +1029,21 @@ const I18N = {
     'hist.total_tokens': 'Tokens totales', 'hist.total_elapsed': 'Tiempo total',
     'hist.clear': 'Limpiar historial', 'hist.clear_confirm': '¿Limpiar todo el historial? No se puede deshacer.',
     'hist.clear_done': 'Historial eliminado', 'hist.col_funnel': 'Embudo',
+    'hist.benchmark_title': 'Benchmark del embudo',
+    'hist.benchmark_empty': 'Todavía no hay datos comparables de benchmark',
+    'hist.benchmark_current': 'Versión actual',
+    'hist.benchmark_previous': 'Versión anterior',
+    'hist.benchmark_runs': 'Ejecuciones',
+    'hist.benchmark_signature': 'Firma de versión',
+    'hist.metric_prefilter_pass': 'Tasa post-filtro',
+    'hist.metric_new_yield': 'Rendimiento de nuevos puestos',
+    'hist.metric_tokens_filtered': 'Tokens por puesto filtrado',
+    'hist.metric_tokens_new': 'Tokens por puesto nuevo',
+    'hist.metric_assessment_eff': 'Ratio evaluación/nuevo',
+    'hist.metric_seniority_reject': 'Tasa de rechazo por seniority',
+    'hist.delta_up': 'vs versión previa +{0}',
+    'hist.delta_down': 'vs versión previa -{0}',
+    'hist.delta_flat': 'igual que la versión previa',
     'funnel.toggle': 'Ver estadísticas del embudo', 'funnel.scraped': '①Extracción',
     'funnel.title': '②Título LLM', 'funnel.prefilter': '③Pre-filtro',
     'funnel.llm': '④Evaluación LLM', 'funnel.saved': 'Guardados',
@@ -1484,6 +1531,7 @@ async function loadHistoryData() {
   try {
     const data = await api("GET", "/api/stats");
     renderHistorySummary(data.summary);
+    renderHistoryBenchmark(data.benchmark);
     renderHistoryTable(data.records);
   } catch(e) {
     console.error("Failed to load stats:", e);
@@ -1503,6 +1551,77 @@ function renderHistorySummary(s) {
       <p class="text-xs text-gray-500 mb-1">${c.label}</p>
       <p class="text-xl font-bold font-mono ${c.color}">${c.value}</p>
     </div>`).join("");
+}
+
+function _fmtPct3(value) {
+  return `${((value || 0) * 100).toFixed(1)}%`;
+}
+
+function _fmtDelta(value, asPercent = false) {
+  if (value === null || value === undefined) return "";
+  const raw = asPercent ? `${(Math.abs(value) * 100).toFixed(1)}%` : Math.abs(value).toFixed(2);
+  if (Math.abs(value) < 0.0005) return t('hist.delta_flat');
+  const tpl = value > 0 ? 'hist.delta_up' : 'hist.delta_down';
+  return t(tpl).replace('{0}', raw);
+}
+
+function renderHistoryBenchmark(benchmark) {
+  const el = document.getElementById("hist-benchmark");
+  if (!benchmark || !benchmark.current) {
+    el.innerHTML = `<div class="bg-gray-800 rounded-xl p-4">
+      <h3 class="text-sm font-bold uppercase tracking-wide text-gray-400 mb-[18px]">${t('hist.benchmark_title')}</h3>
+      <p class="text-xs text-gray-500">${t('hist.benchmark_empty')}</p>
+    </div>`;
+    return;
+  }
+
+  const current = benchmark.current;
+  const previous = benchmark.previous;
+  const delta = benchmark.delta || {};
+  const metricDefs = [
+    { key: 'prefilter_pass_rate', label: t('hist.metric_prefilter_pass'), percent: true, betterHigh: true },
+    { key: 'new_job_yield', label: t('hist.metric_new_yield'), percent: true, betterHigh: true },
+    { key: 'tokens_per_filtered_job', label: t('hist.metric_tokens_filtered'), percent: false, betterHigh: false },
+    { key: 'tokens_per_new_job', label: t('hist.metric_tokens_new'), percent: false, betterHigh: false },
+    { key: 'assessment_efficiency', label: t('hist.metric_assessment_eff'), percent: false, betterHigh: false },
+    { key: 'seniority_rejection_rate', label: t('hist.metric_seniority_reject'), percent: true, betterHigh: true },
+  ];
+
+  const currentMeta = `
+    <div class="flex flex-wrap gap-3 text-[11px] text-gray-500">
+      <span>${t('hist.benchmark_current')}: ${current.versions.match_prompt_version || current.versions.app_version || "—"}</span>
+      <span>${t('hist.benchmark_runs')}: ${_fmtNum(current.count)}</span>
+      <span>${t('hist.benchmark_signature')}: <span class="font-mono">${_esc(current.signature)}</span></span>
+    </div>`;
+  const previousMeta = previous ? `
+    <div class="text-[11px] text-gray-500 mt-2">
+      ${t('hist.benchmark_previous')}: <span class="font-mono">${_esc(previous.signature)}</span> · ${t('hist.benchmark_runs')}: ${_fmtNum(previous.count)}
+    </div>` : "";
+
+  const cards = metricDefs.map(metric => {
+    const value = current.metrics[metric.key] || 0;
+    const deltaValue = delta[metric.key];
+    const improving = deltaValue === undefined ? null : (metric.betterHigh ? deltaValue >= 0 : deltaValue <= 0);
+    const deltaCls = deltaValue === undefined
+      ? "text-gray-500"
+      : improving ? "text-green-400" : "text-orange-300";
+    const display = metric.percent ? _fmtPct3(value) : value.toFixed(2);
+    return `<div class="bg-gray-800 rounded-xl p-4">
+      <p class="text-xs text-gray-500 mb-1">${metric.label}</p>
+      <p class="text-xl font-bold font-mono text-cyan-300">${display}</p>
+      <p class="text-[11px] mt-2 ${deltaCls}">${previous ? _fmtDelta(deltaValue, metric.percent) : t('hist.benchmark_previous') + ': —'}</p>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+      <h3 class="text-sm font-bold uppercase tracking-wide text-gray-400 mb-[18px]">${t('hist.benchmark_title')}</h3>
+      ${currentMeta}
+      ${previousMeta}
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
+        ${cards}
+      </div>
+    </div>`;
 }
 
 function _renderFunnelRow(f, rid) {

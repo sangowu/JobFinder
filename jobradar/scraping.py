@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
+COARSE_FILTER_VERSION = "coarse_filter_v2"
 _COARSE_FILTER_BATCH_SIZE = 10
 _COARSE_FILTER_RETRY_BATCH_SIZE = 5
 _COARSE_FILTER_SNIPPET_LIMIT = 160

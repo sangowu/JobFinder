@@ -99,6 +99,7 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **多来源聚合**：同一职位在 Indeed 和 LinkedIn 均出现时自动合并，卡片徽标可点击跳转对应来源；详情页 Apply 按钮变为多来源下拉菜单
 - **搜索历史**：每条记录可展开 📊 管道漏斗详情，按来源（Indeed / LinkedIn）分项显示
 - **标准化搜索历史指标**：每次搜索都会记录抓取总数、去重后数量、过滤后数量、新增职位数和 token 消耗
+- **漏斗 benchmark 摘要**：搜索历史会记录 pipeline/prompt 版本，并展示过滤后占比、新增产出率、每个新增职位 token 成本等效率指标
 - **动态标题级别过滤**：基于 CV 的 eligible/stretch/blocked 级别，在 JD matching 前去掉明显职级不符的标题
 - **可解释匹配**：职位详情展示评分拆解、风险、技能匹配和 recommendation 分层
 - **Artifact Hub**：在职位详情中统一生成并复用 Interview Prep、Cover Letter、CV Optimization

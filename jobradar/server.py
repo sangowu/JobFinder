@@ -26,11 +26,14 @@ from dotenv import load_dotenv
 
 from jobradar import __version__, cache
 from jobradar.cover_letter import generate_cover_letter
+from jobradar.cv_extractor import PROMPT_VERSION as CV_PROMPT_VERSION
 from jobradar.cv_optimization import generate_cv_optimization
 from jobradar.dedup_check import run_dedup_check
 from jobradar.cv_extractor import extract_cv_profile
 from jobradar.cv_reader import read_cv
+from jobradar.filters import TITLE_GATE_VERSION
 from jobradar.interview_prep import generate_interview_prep
+from jobradar.jd_summary import PROMPT_VERSION as JD_SUMMARY_PROMPT_VERSION
 from jobradar.logger import get_logger
 from jobradar.llm_backend import (
     AVAILABLE_MODELS,
@@ -40,6 +43,8 @@ from jobradar.llm_backend import (
     check_provider_connection,
 )
 from jobradar.jd_summary import summarize_jd
+from jobradar.matching import PROMPT_VERSION as MATCH_PROMPT_VERSION
+from jobradar.scraping import COARSE_FILTER_VERSION
 from jobradar.matching import match_job_to_cv
 
 # Snapshot of the original model list taken at server start (for mock-mode reset)
@@ -587,6 +592,12 @@ async def _run_search_task(req: SearchRequest) -> None:
                 new_jobs=int(funnel_data.get("new_saved", 0)),
                 funnel=funnel_data,
                 cv_hash=req.cv_hash,
+                app_version=__version__,
+                cv_prompt_version=CV_PROMPT_VERSION,
+                jd_summary_prompt_version=JD_SUMMARY_PROMPT_VERSION,
+                match_prompt_version=MATCH_PROMPT_VERSION,
+                title_gate_version=TITLE_GATE_VERSION,
+                coarse_filter_version=COARSE_FILTER_VERSION,
             )
             try:
                 dedup_report = run_dedup_check(list(dedup_keys))
@@ -666,6 +677,7 @@ def get_stats(limit: int = 50) -> dict:
     return {
         "records": cache.get_search_stats(limit=limit),
         "summary": cache.get_stats_summary(),
+        "benchmark": cache.get_benchmark_summary(limit=limit),
     }
 
 

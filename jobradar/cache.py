@@ -81,7 +81,13 @@ CREATE TABLE IF NOT EXISTS search_stats (
     deduped_total INTEGER NOT NULL DEFAULT 0,
     filtered_total INTEGER NOT NULL DEFAULT 0,
     new_jobs    INTEGER NOT NULL DEFAULT 0,
-    cv_hash     TEXT NOT NULL DEFAULT ''
+    cv_hash     TEXT NOT NULL DEFAULT '',
+    app_version TEXT NOT NULL DEFAULT '',
+    cv_prompt_version TEXT NOT NULL DEFAULT '',
+    jd_summary_prompt_version TEXT NOT NULL DEFAULT '',
+    match_prompt_version TEXT NOT NULL DEFAULT '',
+    title_gate_version TEXT NOT NULL DEFAULT '',
+    coarse_filter_version TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS job_summaries (
@@ -172,6 +178,12 @@ def _conn():
             "ALTER TABLE search_stats ADD COLUMN deduped_total INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE search_stats ADD COLUMN filtered_total INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE search_stats ADD COLUMN new_jobs INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE search_stats ADD COLUMN app_version TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN cv_prompt_version TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN jd_summary_prompt_version TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN match_prompt_version TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN title_gate_version TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN coarse_filter_version TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE cv_cache ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''",
         ):
             try:
@@ -959,13 +971,19 @@ def save_search_stats(
     new_jobs: int = 0,
     funnel: dict | None = None,
     cv_hash: str = "",
+    app_version: str = "",
+    cv_prompt_version: str = "",
+    jd_summary_prompt_version: str = "",
+    match_prompt_version: str = "",
+    title_gate_version: str = "",
+    coarse_filter_version: str = "",
 ) -> int:
     """记录一次搜索的耗时和 token 消耗，返回插入行的 id。"""
     with _conn() as con:
         cur = con.execute(
             """INSERT INTO search_stats
-               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, scraped_total, deduped_total, filtered_total, new_jobs, funnel_json, cv_hash)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, scraped_total, deduped_total, filtered_total, new_jobs, funnel_json, cv_hash, app_version, cv_prompt_version, jd_summary_prompt_version, match_prompt_version, title_gate_version, coarse_filter_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 datetime.utcnow().isoformat(),
                 location,
@@ -982,6 +1000,12 @@ def save_search_stats(
                 new_jobs,
                 json.dumps(funnel, ensure_ascii=False) if funnel else None,
                 cv_hash,
+                app_version,
+                cv_prompt_version,
+                jd_summary_prompt_version,
+                match_prompt_version,
+                title_gate_version,
+                coarse_filter_version,
             ),
         )
         return cur.lastrowid or 0
@@ -1018,6 +1042,55 @@ def _derive_history_metrics(row: sqlite3.Row, funnel: dict | None) -> dict[str, 
     }
 
 
+def _safe_div(numerator: float, denominator: float) -> float:
+    if not denominator:
+        return 0.0
+    return round(numerator / denominator, 3)
+
+
+def _version_info(row: sqlite3.Row) -> dict[str, str]:
+    keys = row.keys()
+    return {
+        "app_version": row["app_version"] if "app_version" in keys else "",
+        "cv_prompt_version": row["cv_prompt_version"] if "cv_prompt_version" in keys else "",
+        "jd_summary_prompt_version": row["jd_summary_prompt_version"] if "jd_summary_prompt_version" in keys else "",
+        "match_prompt_version": row["match_prompt_version"] if "match_prompt_version" in keys else "",
+        "title_gate_version": row["title_gate_version"] if "title_gate_version" in keys else "",
+        "coarse_filter_version": row["coarse_filter_version"] if "coarse_filter_version" in keys else "",
+    }
+
+
+def _benchmark_signature(version_info: dict[str, str]) -> str:
+    parts = [
+        version_info.get("app_version", ""),
+        version_info.get("cv_prompt_version", ""),
+        version_info.get("jd_summary_prompt_version", ""),
+        version_info.get("match_prompt_version", ""),
+        version_info.get("title_gate_version", ""),
+        version_info.get("coarse_filter_version", ""),
+    ]
+    return "|".join(part or "-" for part in parts)
+
+
+def _derive_benchmark_metrics(record: dict) -> dict[str, float]:
+    funnel = record.get("funnel") or {}
+    scraped_total = float(record.get("scraped_total") or 0)
+    filtered_total = float(record.get("filtered_total") or 0)
+    new_jobs = float(record.get("new_jobs") or 0)
+    tokens_total = float((record.get("tokens_in") or 0) + (record.get("tokens_out") or 0))
+    prefilter_in = float(funnel.get("prefilter_in") or 0)
+    skip_seniority = float(funnel.get("skip_seniority") or 0)
+    llm_assessed = float(funnel.get("llm_assessed") or 0)
+    return {
+        "prefilter_pass_rate": _safe_div(filtered_total, scraped_total),
+        "new_job_yield": _safe_div(new_jobs, scraped_total),
+        "tokens_per_filtered_job": round(tokens_total / filtered_total, 1) if filtered_total else 0.0,
+        "tokens_per_new_job": round(tokens_total / new_jobs, 1) if new_jobs else 0.0,
+        "assessment_efficiency": _safe_div(llm_assessed, new_jobs),
+        "seniority_rejection_rate": _safe_div(skip_seniority, prefilter_in),
+    }
+
+
 def get_search_stats(limit: int = 50) -> list[dict]:
     """返回最近 N 条搜索记录，最新在前。"""
     with _conn() as con:
@@ -1031,7 +1104,8 @@ def get_search_stats(limit: int = 50) -> list[dict]:
         raw_funnel = row["funnel_json"] if "funnel_json" in keys else None
         funnel = json.loads(raw_funnel) if raw_funnel else None
         derived = _derive_history_metrics(row, funnel)
-        result.append({
+        versions = _version_info(row)
+        record = {
             "id":         row["id"],
             "created_at": row["created_at"],
             "location":   row["location"],
@@ -1047,7 +1121,11 @@ def get_search_stats(limit: int = 50) -> list[dict]:
             "filtered_total": derived["filtered_total"],
             "new_jobs": derived["new_jobs"],
             "funnel":     funnel,
-        })
+            "versions": versions,
+            "benchmark_signature": _benchmark_signature(versions),
+        }
+        record["benchmark"] = _derive_benchmark_metrics(record)
+        result.append(record)
     return result
 
 
@@ -1068,6 +1146,63 @@ def get_stats_summary() -> dict:
         "total_tokens_out":  row["total_tokens_out"] or 0,
         "total_elapsed":     round(row["total_elapsed"] or 0, 1),
         "total_jobs":        row["total_jobs"] or 0,
+    }
+
+
+def get_benchmark_summary(limit: int = 50) -> dict:
+    records = get_search_stats(limit=limit)
+    if not records:
+        return {
+            "current": None,
+            "previous": None,
+            "delta": None,
+        }
+
+    latest_signature = records[0]["benchmark_signature"]
+    current_group = [r for r in records if r["benchmark_signature"] == latest_signature]
+    previous_group: list[dict] = []
+    for record in records:
+        if record["benchmark_signature"] != latest_signature:
+            previous_signature = record["benchmark_signature"]
+            previous_group = [r for r in records if r["benchmark_signature"] == previous_signature]
+            break
+
+    def _aggregate(group: list[dict]) -> dict | None:
+        if not group:
+            return None
+        count = len(group)
+        latest = group[0]
+        keys = (
+            "prefilter_pass_rate",
+            "new_job_yield",
+            "tokens_per_filtered_job",
+            "tokens_per_new_job",
+            "assessment_efficiency",
+            "seniority_rejection_rate",
+        )
+        metrics = {
+            key: round(sum(float((item.get("benchmark") or {}).get(key) or 0) for item in group) / count, 3)
+            for key in keys
+        }
+        return {
+            "count": count,
+            "signature": latest["benchmark_signature"],
+            "versions": latest["versions"],
+            "metrics": metrics,
+        }
+
+    current = _aggregate(current_group)
+    previous = _aggregate(previous_group)
+    delta = None
+    if current and previous:
+        delta = {
+            key: round(current["metrics"][key] - previous["metrics"].get(key, 0), 3)
+            for key in current["metrics"]
+        }
+    return {
+        "current": current,
+        "previous": previous,
+        "delta": delta,
     }
 
 

@@ -12,6 +12,10 @@
   Added a pre-match title-level gate driven by `eligible_seniority_levels`, `stretch_seniority_levels`, and `blocked_seniority_levels`.
   Obvious level mismatches such as `new grad → lead/manager/director` are filtered before JD summary and matching, while `senior` / `lead` CVs keep higher-level titles according to their configured apply bands.
 
+- **History funnel benchmark metadata** (`cache.py` / `server.py` / `index.html`)
+  Search history now persists version metadata for CV extraction, JD summary, matching, title gate, and coarse filter.
+  The History UI adds a funnel benchmark summary with derived efficiency metrics such as post-filter rate, new-job yield, tokens per filtered job, tokens per new job, assessment efficiency, and seniority rejection rate.
+
 ### Improvements
 
 - **JD 评分加入经验年限上限规则**（`assessment.py`）

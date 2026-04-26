@@ -99,6 +99,7 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Agregación multi-fuente**: las ofertas que aparecen en Indeed y LinkedIn se fusionan automáticamente; las insignias de fuente son enlaces clicables; el botón Apply se convierte en menú desplegable cuando hay varias URLs
 - **Historial de búsquedas**: cada registro tiene un botón 📊 para expandir el embudo completo, con desglose por fuente (Indeed / LinkedIn)
 - **Métricas normalizadas del historial**: cada búsqueda guarda total extraído, total tras deduplicación, total filtrado, nuevos puestos guardados y consumo de tokens
+- **Resumen benchmark del embudo**: el historial guarda versiones del pipeline/prompt y muestra métricas derivadas como tasa post-filtro, rendimiento de nuevos puestos y tokens por puesto nuevo
 - **Filtro dinámico de seniority en el título**: usa los niveles eligible/stretch/blocked del CV para quitar desajustes claros antes del JD matching
 - **Matching explicable**: el detalle del JD muestra desglose de puntuación, riesgos, coincidencias de habilidades y recommendation
 - **Artifact hub**: genera y reutiliza Interview Prep, Cover Letter y CV Optimization desde el panel de detalle
