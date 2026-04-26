@@ -824,6 +824,8 @@ const I18N = {
     'detail.work_mode': '工作方式', 'detail.job_type': '职位类型', 'detail.years_required': '年限要求',
     'detail.languages_required': '语言要求', 'detail.languages_preferred': '加分语言',
     'detail.seniority_conflict': 'Title / Description 冲突', 'detail.none': '暂无',
+    'detail.legacy_cache_note': '当前职位仅有旧版评分缓存，结构化 JD 概览暂缺。',
+    'detail.score_total': '总分',
     'detail.action_interview': '面试准备', 'detail.action_cover_letter': '求职信', 'detail.action_cv_opt': 'CV 优化',
     'detail.artifact_hub': '求职助手', 'detail.artifact_not_ready': '此内容尚未生成。可先从上方按钮生成，或返回 Actions 标签查看缓存状态。',
     'detail.interview_title': 'Interview Prep', 'detail.interview_loading': '正在生成面试准备…',
@@ -935,6 +937,8 @@ const I18N = {
     'detail.work_mode': 'Work Mode', 'detail.job_type': 'Job Type', 'detail.years_required': 'Years Required',
     'detail.languages_required': 'Required Languages', 'detail.languages_preferred': 'Preferred Languages',
     'detail.seniority_conflict': 'Title / Description Conflict', 'detail.none': 'None',
+    'detail.legacy_cache_note': 'This job only has legacy scoring cache. Structured JD overview is not available yet.',
+    'detail.score_total': 'Total',
     'detail.action_interview': 'Interview Prep', 'detail.action_cover_letter': 'Cover Letter', 'detail.action_cv_opt': 'CV Optimization',
     'detail.artifact_hub': 'Artifacts', 'detail.artifact_not_ready': 'This artifact has not been generated yet. Use the button above or return to the Actions tab to check cache status.',
     'detail.interview_title': 'Interview Prep', 'detail.interview_loading': 'Generating interview prep…',
@@ -1046,6 +1050,8 @@ const I18N = {
     'detail.work_mode': 'Modalidad', 'detail.job_type': 'Tipo de puesto', 'detail.years_required': 'Años requeridos',
     'detail.languages_required': 'Idiomas requeridos', 'detail.languages_preferred': 'Idiomas preferidos',
     'detail.seniority_conflict': 'Conflicto entre título y descripción', 'detail.none': 'Ninguno',
+    'detail.legacy_cache_note': 'Este puesto solo tiene caché de puntuación antigua. El resumen estructurado del JD aún no está disponible.',
+    'detail.score_total': 'Puntuación total',
     'detail.action_interview': 'Preparación entrevista', 'detail.action_cover_letter': 'Carta de presentación', 'detail.action_cv_opt': 'Optimización CV',
     'detail.artifact_hub': 'Artifacts', 'detail.artifact_not_ready': 'Este artefacto aún no se ha generado. Usa el botón superior o vuelve a Actions para revisar el estado del caché.',
     'detail.interview_title': 'Preparación entrevista', 'detail.interview_loading': 'Generando preparación de entrevista…',
@@ -2307,6 +2313,11 @@ function showJobDetail(job) {
   const recBadge = recommendationBadge(job.recommendation);
   const summary = job.job_summary || {};
   const match = job.match_score || null;
+  const assessment = job.assessment || null;
+  const hasStructuredSummary = !!(job.job_summary && Object.keys(job.job_summary).length);
+  const legacyOverviewNote = !hasStructuredSummary && assessment
+    ? `<p class="text-xs text-gray-400 dark:text-gray-500">${t('detail.legacy_cache_note')}</p>`
+    : "";
 
   const applyBtn = rawSources.length > 1
     ? `<div class="relative flex-shrink-0" id="apply-dropdown-wrap">
@@ -2354,6 +2365,7 @@ function showJobDetail(job) {
           <div>${languageList(summary.preferred_languages)}</div>
           <div><span class="text-gray-400 dark:text-gray-500">${t('detail.keywords_label')}:</span></div>
           <div class="flex flex-wrap gap-1.5">${keywords || `<span class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</span>`}</div>
+          ${legacyOverviewNote}
         </div>
       </div>
       <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
@@ -2391,6 +2403,18 @@ function showJobDetail(job) {
           ...((match.risks || []).length ? match.risks : []),
           ...((match.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
         ])}
+      </div>
+    </div>` : assessment ? `
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
+        <div class="space-y-2 text-xs text-green-800 dark:text-green-300 font-mono">
+          <div>${t('detail.score_total')}: ${Math.round((assessment.score || 0) * 10)}</div>
+        </div>
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.risks')}</h4>
+        ${bulletList(job.weaknesses || [], t('detail.none'))}
       </div>
     </div>` : `
     <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">

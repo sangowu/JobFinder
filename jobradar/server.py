@@ -202,7 +202,12 @@ def _job_to_dict(j) -> dict:
         d["match_score"] = j.match_score.model_dump(mode="json")
         d["overall_score"] = j.match_score.overall_score
         d["recommendation"] = j.match_score.recommendation
-    d["score"] = round(j.effective_score) if j.effective_score is not None and j.match_score else j.effective_score
+    if j.effective_score is None:
+        d["score"] = None
+    elif j.match_score:
+        d["score"] = round(j.effective_score)
+    else:
+        d["score"] = round(j.effective_score * 10)
     d["strengths"] = j.effective_strengths
     d["weaknesses"] = j.effective_weaknesses
     d["matched_keywords"] = j.effective_keywords
