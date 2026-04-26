@@ -247,6 +247,7 @@ class MatchScore(BaseModel):
     language_score: float = Field(ge=0, le=100, default=0)
     risk_penalty: float = Field(ge=0, le=100)
     recommendation: Literal["strong_apply", "apply", "stretch_apply", "low_priority", "skip"] = "skip"
+    matched_keywords: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
     missing_must_haves: list[str] = Field(default_factory=list)
@@ -354,9 +355,9 @@ class JobResult(BaseModel):
     @property
     def effective_keywords(self) -> list[str]:
         if self.match_score is not None and self.job_summary is not None:
-            return self.job_summary.must_have[:4]
+            return self.match_score.matched_keywords[:6]
         if self.assessment is not None:
-            return self.assessment.matched_keywords[:4]
+            return self.assessment.matched_keywords[:6]
         return []
 
     @property

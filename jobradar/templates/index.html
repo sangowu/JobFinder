@@ -1712,7 +1712,7 @@ function bulletList(items, emptyText = t('detail.none')) {
   return `<ul class="text-xs text-gray-700 dark:text-gray-300 space-y-1.5 list-disc list-inside">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
 }
 function languageList(items, emptyText = t('detail.none')) {
-  if (!items || !items.length) return `<span class="text-xs text-gray-400 dark:text-gray-500">${emptyText}</span>`;
+  if (!items || !items.length) return `<span class="text-xs text-gray-700 dark:text-gray-300">${emptyText}</span>`;
   return `<span class="inline-flex flex-wrap gap-1.5 align-middle">${items.map(item => {
     const label = item.level ? `${item.name} (${item.level})` : item.name;
     return `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${label}</span>`;

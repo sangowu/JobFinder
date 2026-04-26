@@ -12,7 +12,7 @@ from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore, Langu
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "match_v2"
+PROMPT_VERSION = "match_v3"
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 
 
@@ -29,6 +29,7 @@ class _MatchEvidence(BaseModel):
     location_score: float = Field(ge=0, le=100)
     language_score: float = Field(ge=0, le=100)
     risk_penalty: float = Field(ge=0, le=100)
+    matched_keywords: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
     missing_must_haves: list[str] = Field(default_factory=list)
@@ -180,6 +181,7 @@ def adjust_match_for_profile(
         location_score=match.location_score,
         language_score=match.language_score,
         risk_penalty=match.risk_penalty,
+        matched_keywords=list(match.matched_keywords),
         strengths=list(match.strengths),
         weaknesses=list(match.weaknesses),
         missing_must_haves=list(match.missing_must_haves),
@@ -229,6 +231,7 @@ def match_job_to_cv(
 - 各维度分数范围 0-100。
 - must_have_score 只针对明确 must-have。
 - language_score 专门评估候选人语言能力与 JD 语言要求的匹配程度。
+- matched_keywords 只输出 3-8 个“候选人已具备且与 JD 明显匹配”的技术栈/工具/领域关键词，禁止复述整句要求。
 - risk_penalty 只用于真实风险，不要把一般弱项重复计入 penalty。
 - 如果职位存在签证、security clearance、强制 onsite、PhD、管理级别明显超出等阻断风险，必须写入 risks。
 
@@ -273,6 +276,7 @@ JD Summary:
         language_score=evidence.language_score,
         risk_penalty=evidence.risk_penalty,
         recommendation=recommendation,
+        matched_keywords=evidence.matched_keywords,
         strengths=evidence.strengths,
         weaknesses=evidence.weaknesses,
         missing_must_haves=evidence.missing_must_haves,
