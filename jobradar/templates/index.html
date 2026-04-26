@@ -849,6 +849,7 @@ const I18N = {
     'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
     'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Domain', 'detail.score_location': 'Location', 'detail.score_language': 'Language', 'detail.score_risk': 'Risk',
+    'detail.score_summary': '评分结论',
     'done.elapsed': '⏱ 总耗时 {0}', 'done.tokens': '🪙 输入 {0} tokens · 输出 {1} tokens',
     'log.title': '日志', 'log.filter_placeholder': '过滤关键词…',
     'log.lines_100': '最近100行', 'log.lines_200': '最近200行', 'log.lines_500': '最近500行',
@@ -963,6 +964,7 @@ const I18N = {
     'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
     'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
     'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Domain', 'detail.score_location': 'Location', 'detail.score_language': 'Language', 'detail.score_risk': 'Risk',
+    'detail.score_summary': 'Score Summary',
     'done.elapsed': '⏱ Elapsed {0}', 'done.tokens': '🪙 Input {0} tokens · Output {1} tokens',
     'log.title': 'Logs', 'log.filter_placeholder': 'Filter keywords…',
     'log.lines_100': 'Last 100 lines', 'log.lines_200': 'Last 200 lines', 'log.lines_500': 'Last 500 lines',
@@ -1077,6 +1079,7 @@ const I18N = {
     'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
     'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
     'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Dominio', 'detail.score_location': 'Ubicación', 'detail.score_language': 'Idioma', 'detail.score_risk': 'Riesgo',
+    'detail.score_summary': 'Resumen de puntuación',
     'done.elapsed': '⏱ Duración {0}', 'done.tokens': '🪙 Entrada {0} tokens · Salida {1} tokens',
     'log.title': 'Registros', 'log.filter_placeholder': 'Filtrar palabras clave…',
     'log.lines_100': 'Últimas 100 líneas', 'log.lines_200': 'Últimas 200 líneas', 'log.lines_500': 'Últimas 500 líneas',
@@ -2396,6 +2399,21 @@ function showJobDetail(job) {
           <div>${t('detail.score_location')}: ${Math.round(match.location_score)}</div>
           <div>${t('detail.score_language')}: ${Math.round(match.language_score)}</div>
           <div>${t('detail.score_risk')}: -${Math.round(match.risk_penalty)}</div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-green-200/80 dark:border-green-800/50">
+          <h5 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.score_summary')}</h5>
+          <div class="space-y-2 text-xs text-green-800 dark:text-green-300 leading-relaxed">
+            ${[
+              match.title_summary,
+              match.seniority_summary,
+              match.must_have_summary,
+              match.nice_to_have_summary,
+              match.domain_summary,
+              match.location_summary,
+              match.language_summary,
+              match.risk_summary,
+            ].filter(Boolean).map(line => `<div>${line}</div>`).join("") || `<p class="text-xs text-green-700/70 dark:text-green-300/70">${t('detail.none')}</p>`}
+          </div>
         </div>
       </div>
       <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">

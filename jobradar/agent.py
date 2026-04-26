@@ -12,6 +12,7 @@ from typing import Callable
 
 from jobradar import cache
 from jobradar.assessment import JDAssessment, batch_assess_jds
+from jobradar.filters import infer_title_seniority, is_title_seniority_ok
 from jobradar.jd_summary import summarize_jd
 from jobradar.logger import get_logger
 from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
@@ -231,8 +232,9 @@ def _prefilter(
     jobs: list[dict],
     seen_urls: set[str],
     cb: Callable[[str], None],
+    profile: CVProfile,
 ) -> _PrefilterResult:
-    """保守预过滤，只做不会误杀的硬条件过滤。"""
+    """保守预过滤，先做高确定性的 title seniority gate。"""
     r = _PrefilterResult()
     seen_dedup_keys: set[str] = set()
 
@@ -250,6 +252,14 @@ def _prefilter(
         title = (job.get("title") or "").strip()
         if not title:
             ss["dup"] += 1; r.skip_dup += 1; continue
+
+        if not is_title_seniority_ok(title, profile):
+            inferred = infer_title_seniority(title)
+            logger.debug("Skip (title seniority gate): %s | inferred=%s | profile=%s", title, inferred, profile.seniority_display)
+            cb(f"Skip (title seniority): {title[:60]}")
+            ss["skip_seniority"] += 1
+            r.skip_seniority += 1
+            continue
 
         # 1a. 跨来源 dedup
         company = (job.get("company") or "").strip()
@@ -454,7 +464,7 @@ def _write_scraped(
 
     job_all_sources = _collect_all_sources(jobs)
 
-    pf = _prefilter(jobs, seen_urls, cb)
+    pf = _prefilter(jobs, seen_urls, cb, profile)
 
     _profile = profile or CVProfile(
         summary=_cv_summary, skills=_cv_skills,

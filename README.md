@@ -46,6 +46,8 @@ CV file
   ▼    User reviews & confirms title list
   ▼ ③ Scraping (Indeed + LinkedIn, JobSpy, no browser)
          batched LLM coarse filter → rate-limited serial (Indeed 2s / LinkedIn 3s) → URL dedup
+  ▼    dynamic title seniority gate
+         blocks obvious level mismatch (e.g. new grad → lead / manager)
   ▼ ④ JD summary extraction
          must-have / nice-to-have / years / seniority conflict / language requirements
   ▼ ⑤ Explainable CV↔JD matching
@@ -97,6 +99,7 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Multi-source dedup**: jobs appearing on both Indeed and LinkedIn are merged; source badges are clickable links; Apply button becomes a dropdown when multiple source URLs exist
 - **Search history**: each record has a 📊 button to expand the full pipeline funnel, with per-source breakdown (Indeed / LinkedIn)
 - **Normalized search history metrics**: each record stores total scraped, deduped, filtered, newly saved jobs, and token consumption
+- **Dynamic title seniority gate**: uses CV eligible/stretch/blocked levels to remove obvious title-level mismatches before JD matching
 - **Explainable matching**: job details include score breakdown, risks, skill matches, and recommendation tiers
 - **Artifact hub**: generate and reuse Interview Prep, Cover Letter, and CV Optimization from the job detail panel
 - **Log panel**: level filtering, keyword highlight, auto-refresh

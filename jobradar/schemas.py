@@ -247,6 +247,14 @@ class MatchScore(BaseModel):
     language_score: float = Field(ge=0, le=100, default=0)
     risk_penalty: float = Field(ge=0, le=100)
     recommendation: Literal["strong_apply", "apply", "stretch_apply", "low_priority", "skip"] = "skip"
+    title_summary: str = ""
+    seniority_summary: str = ""
+    must_have_summary: str = ""
+    nice_to_have_summary: str = ""
+    domain_summary: str = ""
+    location_summary: str = ""
+    language_summary: str = ""
+    risk_summary: str = ""
     matched_keywords: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)

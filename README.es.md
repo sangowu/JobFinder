@@ -46,6 +46,8 @@ Archivo CV
   ▼    El usuario revisa y confirma la lista de títulos
   ▼ ③ Extracción (Indeed + LinkedIn, JobSpy, sin navegador)
          filtro grueso LLM por lotes → serie limitada (Indeed 2s / LinkedIn 3s) → dedup
+  ▼    title seniority gate dinámico
+         bloquea títulos con desajuste obvio de nivel (p. ej. new grad → lead / manager)
   ▼ ④ Extracción de JD Summary
          must-have / nice-to-have / años / conflicto de seniority / requisitos de idioma
   ▼ ⑤ Matching explicable CV↔JD
@@ -97,6 +99,7 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Agregación multi-fuente**: las ofertas que aparecen en Indeed y LinkedIn se fusionan automáticamente; las insignias de fuente son enlaces clicables; el botón Apply se convierte en menú desplegable cuando hay varias URLs
 - **Historial de búsquedas**: cada registro tiene un botón 📊 para expandir el embudo completo, con desglose por fuente (Indeed / LinkedIn)
 - **Métricas normalizadas del historial**: cada búsqueda guarda total extraído, total tras deduplicación, total filtrado, nuevos puestos guardados y consumo de tokens
+- **Filtro dinámico de seniority en el título**: usa los niveles eligible/stretch/blocked del CV para quitar desajustes claros antes del JD matching
 - **Matching explicable**: el detalle del JD muestra desglose de puntuación, riesgos, coincidencias de habilidades y recommendation
 - **Artifact hub**: genera y reutiliza Interview Prep, Cover Letter y CV Optimization desde el panel de detalle
 - **Panel de logs**: filtrado por nivel, resaltado de palabras clave, actualización automática

@@ -8,6 +8,10 @@
   JD-CV matching now uses an explicit scoring rubric for `title / seniority / must-have / nice-to-have / domain / location / language / risk`.
   The prompt instructs the LLM to score by anchor bands (`95 / 80 / 60 / 30`) instead of free-form scoring; backend post-processing snaps each dimension to 5-point increments before programmatic weighted scoring.
 
+- **Dynamic title seniority gate** (`filters.py` / `agent.py`)
+  Added a pre-match title-level gate driven by `eligible_seniority_levels`, `stretch_seniority_levels`, and `blocked_seniority_levels`.
+  Obvious level mismatches such as `new grad → lead/manager/director` are filtered before JD summary and matching, while `senior` / `lead` CVs keep higher-level titles according to their configured apply bands.
+
 ### Improvements
 
 - **JD 评分加入经验年限上限规则**（`assessment.py`）

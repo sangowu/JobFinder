@@ -12,7 +12,7 @@ from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore, Langu
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "match_v4"
+PROMPT_VERSION = "match_v5"
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 
 
@@ -29,6 +29,14 @@ class _MatchEvidence(BaseModel):
     location_score: float = Field(ge=0, le=100)
     language_score: float = Field(ge=0, le=100)
     risk_penalty: float = Field(ge=0, le=100)
+    title_summary: str = ""
+    seniority_summary: str = ""
+    must_have_summary: str = ""
+    nice_to_have_summary: str = ""
+    domain_summary: str = ""
+    location_summary: str = ""
+    language_summary: str = ""
+    risk_summary: str = ""
     matched_keywords: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
@@ -71,6 +79,14 @@ def _stabilize_evidence(evidence: _MatchEvidence) -> _MatchEvidence:
             "location_score": _stabilize_score(evidence.location_score),
             "language_score": _stabilize_score(evidence.language_score),
             "risk_penalty": _stabilize_score(evidence.risk_penalty),
+            "title_summary": (evidence.title_summary or "").strip(),
+            "seniority_summary": (evidence.seniority_summary or "").strip(),
+            "must_have_summary": (evidence.must_have_summary or "").strip(),
+            "nice_to_have_summary": (evidence.nice_to_have_summary or "").strip(),
+            "domain_summary": (evidence.domain_summary or "").strip(),
+            "location_summary": (evidence.location_summary or "").strip(),
+            "language_summary": (evidence.language_summary or "").strip(),
+            "risk_summary": (evidence.risk_summary or "").strip(),
             "matched_keywords": _dedupe_text_items(evidence.matched_keywords)[:8],
             "strengths": _dedupe_text_items(evidence.strengths),
             "weaknesses": _dedupe_text_items(evidence.weaknesses),
@@ -134,6 +150,7 @@ Additional rules:
 - Each score must be supported by strengths, weaknesses, missing_must_haves, or risks.
 - Do not count the same issue twice across dimensions.
 - matched_keywords must be concise skills/tools/domains already present in the candidate background, not copied JD sentences.
+- For each dimension, also return one concise sentence summary in the same language: title_summary, seniority_summary, must_have_summary, nice_to_have_summary, domain_summary, location_summary, language_summary, risk_summary.
 """
     if language == "es":
         return """
@@ -188,6 +205,7 @@ Reglas adicionales:
 - Cada puntuación debe estar respaldada por strengths, weaknesses, missing_must_haves o risks.
 - No cuentes el mismo problema dos veces entre dimensiones.
 - matched_keywords debe contener habilidades/herramientas/dominios concisos ya presentes en el perfil del candidato, no frases copiadas del JD.
+- Para cada dimensión, devuelve también una frase breve en el mismo idioma: title_summary, seniority_summary, must_have_summary, nice_to_have_summary, domain_summary, location_summary, language_summary, risk_summary.
 """
     return """
 评分规则：
@@ -241,6 +259,7 @@ Reglas adicionales:
 - 每个分数都必须能被 strengths、weaknesses、missing_must_haves 或 risks 支撑。
 - 同一个问题不要在多个维度重复计分。
 - matched_keywords 只能输出候选人已具备、且与 JD 明显匹配的技能/工具/领域关键词，禁止复述整句 JD 要求。
+- 每个维度都额外返回一句简短结论，字段名分别为 title_summary、seniority_summary、must_have_summary、nice_to_have_summary、domain_summary、location_summary、language_summary、risk_summary，且必须使用当前语言输出。
 """
 
 
@@ -445,6 +464,14 @@ def adjust_match_for_profile(
         location_score=match.location_score,
         language_score=match.language_score,
         risk_penalty=match.risk_penalty,
+        title_summary=match.title_summary,
+        seniority_summary=match.seniority_summary,
+        must_have_summary=match.must_have_summary,
+        nice_to_have_summary=match.nice_to_have_summary,
+        domain_summary=match.domain_summary,
+        location_summary=match.location_summary,
+        language_summary=match.language_summary,
+        risk_summary=match.risk_summary,
         matched_keywords=list(match.matched_keywords),
         strengths=list(match.strengths),
         weaknesses=list(match.weaknesses),
@@ -462,6 +489,14 @@ def adjust_match_for_profile(
             "language_score": adjusted.language_score,
             "risk_penalty": adjusted.risk_penalty,
             "recommendation": recommendation,
+            "title_summary": adjusted.title_summary,
+            "seniority_summary": adjusted.seniority_summary,
+            "must_have_summary": adjusted.must_have_summary,
+            "nice_to_have_summary": adjusted.nice_to_have_summary,
+            "domain_summary": adjusted.domain_summary,
+            "location_summary": adjusted.location_summary,
+            "language_summary": adjusted.language_summary,
+            "risk_summary": adjusted.risk_summary,
             "weaknesses": _dedupe_text_items(adjusted.weaknesses),
             "missing_must_haves": _dedupe_text_items(adjusted.missing_must_haves),
             "risks": adjusted.risks,
@@ -546,6 +581,14 @@ JD Summary:
         language_score=evidence.language_score,
         risk_penalty=evidence.risk_penalty,
         recommendation=recommendation,
+        title_summary=evidence.title_summary,
+        seniority_summary=evidence.seniority_summary,
+        must_have_summary=evidence.must_have_summary,
+        nice_to_have_summary=evidence.nice_to_have_summary,
+        domain_summary=evidence.domain_summary,
+        location_summary=evidence.location_summary,
+        language_summary=evidence.language_summary,
+        risk_summary=evidence.risk_summary,
         matched_keywords=evidence.matched_keywords,
         strengths=evidence.strengths,
         weaknesses=evidence.weaknesses,
