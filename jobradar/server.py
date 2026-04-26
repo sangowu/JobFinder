@@ -219,8 +219,8 @@ def _job_to_dict(j) -> dict:
 
 
 @app.get("/api/jobs")
-def get_jobs(limit: int = 200) -> list[dict]:
-    jobs = cache.get_recent_jobs(limit)
+def get_jobs(limit: int = 200, language: str = "zh") -> list[dict]:
+    jobs = cache.get_recent_jobs(limit, language=language)
     jobs = [j for j in jobs if j.is_effectively_relevant]
     jobs.sort(key=lambda j: (j.effective_score if j.effective_score is not None else -1), reverse=True)
     return [_job_to_dict(j) for j in jobs]
@@ -511,7 +511,7 @@ async def start_search(req: SearchRequest, background_tasks: BackgroundTasks) ->
 async def _run_search_task(req: SearchRequest) -> None:
     """在后台线程运行真实搜索，通过 on_job 逐条 emit 职位到前端。"""
     def on_job(key: str) -> None:
-        job = cache.get_job(key)
+        job = cache.get_job(key, language=req.language)
         if job:
             _emit("job", job=_job_to_dict(job))
 

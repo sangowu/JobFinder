@@ -344,8 +344,8 @@ def _flush_assessments(
             if assessment.relevant:
                 try:
                     cached_job = cache.get_job(cached_job.dedup_key) or cached_job
-                    summary = summarize_jd(cached_job, llm)
-                    match_job_to_cv(profile, summary, cached_job.description_snippet, llm, cv_hash=cv_hash)
+                    summary = summarize_jd(cached_job, llm, language=language)
+                    match_job_to_cv(profile, summary, cached_job.description_snippet, llm, cv_hash=cv_hash, language=language)
                 except Exception as e:
                     logger.warning("JD summary failed for cached job %s: %s", cached_job.dedup_key, e)
             if assessment.relevant:
@@ -402,8 +402,8 @@ def _flush_assessments(
                 summary_job = cache.get_job(key)
                 if summary_job is not None and llm is not None:
                     try:
-                        summary = summarize_jd(summary_job, llm)
-                        match_job_to_cv(profile, summary, summary_job.description_snippet, llm, cv_hash=cv_hash)
+                        summary = summarize_jd(summary_job, llm, language=language)
+                        match_job_to_cv(profile, summary, summary_job.description_snippet, llm, cv_hash=cv_hash, language=language)
                     except Exception as e:
                         logger.warning("JD summary/matching failed for %s: %s", key, e)
                 keys.append(key)

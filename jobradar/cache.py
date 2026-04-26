@@ -181,7 +181,7 @@ def _conn():
 # ─── JobResult ────────────────────────────────────────────────────────────────
 
 
-def get_job(dedup_key: str) -> JobResult | None:
+def get_job(dedup_key: str, language: str = "zh") -> JobResult | None:
     with _conn() as con:
         row = con.execute(
             "SELECT * FROM job_cache WHERE dedup_key = ?", (dedup_key,)
@@ -189,8 +189,12 @@ def get_job(dedup_key: str) -> JobResult | None:
     if row is None:
         return None
     job = _row_to_job(row)
-    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
-    _attach_latest_match(job)
+    from jobradar.jd_summary import summary_prompt_version
+
+    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
+    if job.job_summary is None:
+        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    _attach_latest_match(job, language=language)
     return job
 
 
@@ -276,20 +280,24 @@ def merge_job_source(dedup_key: str, source: str) -> None:
             )
 
 
-def get_recent_jobs(limit: int = 50) -> list[JobResult]:
+def get_recent_jobs(limit: int = 50, language: str = "zh") -> list[JobResult]:
     """按抓取时间倒序返回最近 limit 条未过期职位。"""
     with _conn() as con:
         rows = con.execute(
             "SELECT * FROM job_cache ORDER BY fetched_at DESC LIMIT ?", (limit,)
         ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
+    from jobradar.jd_summary import summary_prompt_version
+
     for job in jobs:
-        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
-        _attach_latest_match(job)
+        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
+        if job.job_summary is None:
+            job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+        _attach_latest_match(job, language=language)
     return [j for j in jobs if not j.is_expired]
 
 
-def get_job_by_url(url: str) -> JobResult | None:
+def get_job_by_url(url: str, language: str = "zh") -> JobResult | None:
     with _conn() as con:
         row = con.execute(
             "SELECT * FROM job_cache WHERE url = ?", (url,)
@@ -297,12 +305,16 @@ def get_job_by_url(url: str) -> JobResult | None:
     if row is None:
         return None
     job = _row_to_job(row)
-    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
-    _attach_latest_match(job)
+    from jobradar.jd_summary import summary_prompt_version
+
+    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
+    if job.job_summary is None:
+        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    _attach_latest_match(job, language=language)
     return job
 
 
-def get_jobs_by_keys(dedup_keys: list[str]) -> list[JobResult]:
+def get_jobs_by_keys(dedup_keys: list[str], language: str = "zh") -> list[JobResult]:
     if not dedup_keys:
         return []
     placeholders = ",".join("?" * len(dedup_keys))
@@ -312,9 +324,13 @@ def get_jobs_by_keys(dedup_keys: list[str]) -> list[JobResult]:
             dedup_keys,
         ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
+    from jobradar.jd_summary import summary_prompt_version
+
     for job in jobs:
-        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
-        _attach_latest_match(job)
+        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
+        if job.job_summary is None:
+            job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+        _attach_latest_match(job, language=language)
     return [j for j in jobs if not j.is_expired]
 
 
@@ -345,15 +361,17 @@ def _description_hash(description: str) -> str:
     return hashlib.sha256((description or "").encode("utf-8")).hexdigest()
 
 
-def get_job_summary(job_id: str, description: str = "") -> JobSummary | None:
+def get_job_summary(job_id: str, description: str = "", prompt_version: str = "") -> JobSummary | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT summary_json, description_hash FROM job_summaries WHERE job_id = ?",
+            "SELECT summary_json, description_hash, prompt_version FROM job_summaries WHERE job_id = ?",
             (job_id,),
         ).fetchone()
     if row is None:
         return None
     if description and row["description_hash"] != _description_hash(description):
+        return None
+    if prompt_version and row["prompt_version"] != prompt_version:
         return None
     return JobSummary.model_validate_json(row["summary_json"])
 
@@ -391,31 +409,38 @@ def save_job_summary(
         )
 
 
-def get_job_match(job_id: str, cv_hash: str, description: str = "") -> MatchScore | None:
+def get_job_match(job_id: str, cv_hash: str, description: str = "", prompt_version: str = "") -> MatchScore | None:
     with _conn() as con:
         row = con.execute(
-            "SELECT score_json, description_hash FROM job_matches WHERE job_id = ? AND cv_hash = ?",
+            "SELECT score_json, description_hash, prompt_version FROM job_matches WHERE job_id = ? AND cv_hash = ?",
             (job_id, cv_hash),
         ).fetchone()
     if row is None:
         return None
     if description and row["description_hash"] != _description_hash(description):
         return None
+    if prompt_version and row["prompt_version"] != prompt_version:
+        return None
     return MatchScore.model_validate_json(row["score_json"])
 
 
-def _attach_latest_match(job: JobResult) -> None:
+def _attach_latest_match(job: JobResult, language: str = "zh") -> None:
     latest_cv_hash = get_latest_cv_hash()
     if not latest_cv_hash:
         return
-    match = get_job_match(job.dedup_key, latest_cv_hash, job.description_snippet)
-    profile = get_cv_profile(latest_cv_hash)
-    if match is None and profile is not None:
-        from jobradar.matching import cv_profile_hash
+    from jobradar.matching import cv_profile_hash, match_prompt_version
 
+    prompt_version = match_prompt_version(language)
+    match = get_job_match(job.dedup_key, latest_cv_hash, job.description_snippet, prompt_version=prompt_version)
+    profile = get_cv_profile(latest_cv_hash)
+    if match is None:
+        match = get_job_match(job.dedup_key, latest_cv_hash, job.description_snippet)
+    if match is None and profile is not None:
         legacy_hash = cv_profile_hash(profile)
         if legacy_hash != latest_cv_hash:
-            match = get_job_match(job.dedup_key, legacy_hash, job.description_snippet)
+            match = get_job_match(job.dedup_key, legacy_hash, job.description_snippet, prompt_version=prompt_version)
+            if match is None:
+                match = get_job_match(job.dedup_key, legacy_hash, job.description_snippet)
     if match is None:
         return
     if profile is not None and job.job_summary is not None:

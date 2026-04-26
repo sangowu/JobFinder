@@ -13,6 +13,11 @@ from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore
 logger = get_logger(__name__)
 
 PROMPT_VERSION = "match_v1"
+_LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
+
+
+def match_prompt_version(language: str) -> str:
+    return f"{PROMPT_VERSION}:{language}"
 
 
 class _MatchEvidence(BaseModel):
@@ -151,19 +156,24 @@ def match_job_to_cv(
     full_jd: str,
     llm: LLMConfig,
     cv_hash: str = "",
+    language: str = "zh",
 ) -> MatchScore:
     effective_cv_hash = cv_hash or cv_profile_hash(profile)
-    cached = cache.get_job_match(job_summary.job_id, effective_cv_hash, full_jd)
+    prompt_version = match_prompt_version(language)
+    cached = cache.get_job_match(job_summary.job_id, effective_cv_hash, full_jd, prompt_version=prompt_version)
     if cached is None and cv_hash:
         legacy_hash = cv_profile_hash(profile)
         if legacy_hash != effective_cv_hash:
-            cached = cache.get_job_match(job_summary.job_id, legacy_hash, full_jd)
+            cached = cache.get_job_match(job_summary.job_id, legacy_hash, full_jd, prompt_version=prompt_version)
     if cached is not None:
         return adjust_match_for_profile(profile, job_summary, cached)
+
+    lang_name = _LANGUAGE_NAMES.get(language, "中文")
 
     prompt = f"""你是招聘匹配分析助手。请根据候选人 CV 和结构化 JD summary，对该职位做可解释匹配评分。
 
 规则：
+- 所有文字字段必须使用 {lang_name} 输出。
 - 只返回各维度分数和解释，不要直接返回 overall_score 或 recommendation。
 - 各维度分数范围 0-100。
 - must_have_score 只针对明确 must-have。
@@ -220,7 +230,7 @@ JD Summary:
         result,
         description=full_jd,
         model_name=f"{llm.provider}/{llm.model}",
-        prompt_version=PROMPT_VERSION,
+        prompt_version=prompt_version,
     )
     logger.info("JD match saved: %s / %s", job_summary.job_id, effective_cv_hash[:8])
     return result

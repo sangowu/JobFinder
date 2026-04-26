@@ -11,6 +11,11 @@ from jobradar.schemas import JobResult, JobSummary
 logger = get_logger(__name__)
 
 PROMPT_VERSION = "jd_summary_v1"
+_LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
+
+
+def summary_prompt_version(language: str) -> str:
+    return f"{PROMPT_VERSION}:{language}"
 
 
 class _JobSummaryPayload(BaseModel):
@@ -34,14 +39,21 @@ class _JobSummaryPayload(BaseModel):
     red_flags: list[str] = Field(default_factory=list)
 
 
-def summarize_jd(job: JobResult, llm: LLMConfig) -> JobSummary:
-    cached = cache.get_job_summary(job.dedup_key, job.description_snippet)
+def summarize_jd(job: JobResult, llm: LLMConfig, language: str = "zh") -> JobSummary:
+    cached = cache.get_job_summary(
+        job.dedup_key,
+        job.description_snippet,
+        prompt_version=summary_prompt_version(language),
+    )
     if cached is not None:
         return cached
+
+    lang_name = _LANGUAGE_NAMES.get(language, "中文")
 
     prompt = f"""请基于以下职位信息输出结构化 JD summary。
 
 规则：
+- 所有文字字段必须使用 {lang_name} 输出。
 - 只基于提供的 title / company / location / description 提取，不要编造。
 - years_required 无法明确判断时返回 null。
 - 如果 title 的 seniority 和 description 的要求冲突，必须标记 seniority_conflict=true。
@@ -74,7 +86,7 @@ description:
         description=job.description_snippet,
         summary=summary,
         model_name=f"{llm.provider}/{llm.model}",
-        prompt_version=PROMPT_VERSION,
+        prompt_version=summary_prompt_version(language),
     )
     logger.info("JD summary saved: %s", job.dedup_key)
     return summary
