@@ -17,6 +17,10 @@ if TYPE_CHECKING:
     from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
+_COARSE_FILTER_BATCH_SIZE = 10
+_COARSE_FILTER_RETRY_BATCH_SIZE = 5
+_COARSE_FILTER_SNIPPET_LIMIT = 160
+_COARSE_FILTER_RETRY_SNIPPET_LIMIT = 80
 
 
 # ── LLM 粗筛 ──────────────────────────────────────────────────────────────────
@@ -25,20 +29,38 @@ class _CoarseFilterBatchResult(BaseModel):
     results: list[CoarseFilterResult]
 
 
-def _filter_cards_by_llm(
+def _default_keep_results(cards_meta: list[dict], reason: str = "粗筛失败，默认保留") -> dict[int, CoarseFilterResult]:
+    return {
+        c["id"]: CoarseFilterResult(
+            job_card_id=c["id"],
+            keep=True,
+            priority="unknown",
+            title_match="unknown",
+            location_match="unknown",
+            inferred_seniority="unknown",
+            seniority_confidence="low",
+            reason=reason,
+        )
+        for c in cards_meta
+    }
+
+
+def _filter_card_batch_by_llm(
     cards_meta: list[dict],
     cv_profile: "CVProfile",
     provider: str,
     model: str,
     target_location: str = "",
+    snippet_limit: int = _COARSE_FILTER_SNIPPET_LIMIT,
+    batch_label: str = "",
 ) -> dict[int, CoarseFilterResult]:
-    """单次 LLM 调用批量执行保守粗筛；失败时保留全部。"""
+    """单次 LLM 调用批量执行保守粗筛；失败时抛出异常。"""
     from jobradar.llm_backend import complete_structured
 
     roles_str = ", ".join(cv_profile.preferred_roles[:10])
     skills_str = ", ".join(cv_profile.skills[:15])
     cards_text = "\n".join(
-        f"id={c['id']} | title={c['title']} | company={c['company']} | location={c['location']} | snippet={c.get('snippet', '')[:300]}"
+        f"id={c['id']} | title={c['title']} | company={c['company']} | location={c['location']} | snippet={c.get('snippet', '')[:snippet_limit]}"
         for c in cards_meta
     )
 
@@ -98,23 +120,99 @@ def _filter_cards_by_llm(
             item.job_card_id: _apply_coarse_filter_policy(item, cv_profile)
             for item in result.results
         }
-        logger.debug("LLM 粗筛：%d/%d 返回结果", len(normalized), len(cards_meta))
+        for card in cards_meta:
+            if card["id"] not in normalized:
+                normalized[card["id"]] = CoarseFilterResult(
+                    job_card_id=card["id"],
+                    keep=True,
+                    priority="unknown",
+                    title_match="unknown",
+                    location_match="unknown",
+                    inferred_seniority="unknown",
+                    seniority_confidence="low",
+                    reason="缺少粗筛结果，默认保留",
+                )
+        logger.debug(
+            "LLM 粗筛批次完成：%s returned=%d/%d snippet=%d",
+            batch_label or "single",
+            len(normalized),
+            len(cards_meta),
+            snippet_limit,
+        )
         return normalized
     except Exception as e:
-        logger.warning("Card LLM filter failed, keeping all: %s", e)
-        return {
-            c["id"]: CoarseFilterResult(
-                job_card_id=c["id"],
-                keep=True,
-                priority="unknown",
-                title_match="unknown",
-                location_match="unknown",
-                inferred_seniority="unknown",
-                seniority_confidence="low",
-                reason="粗筛失败，默认保留",
+        logger.warning(
+            "Card LLM filter batch failed (%s size=%d snippet=%d): %s",
+            batch_label or "single",
+            len(cards_meta),
+            snippet_limit,
+            e,
+        )
+        raise
+
+
+def _filter_cards_by_llm(
+    cards_meta: list[dict],
+    cv_profile: "CVProfile",
+    provider: str,
+    model: str,
+    target_location: str = "",
+) -> dict[int, CoarseFilterResult]:
+    """分批执行保守粗筛；失败批次自动降级重试，最终仅保留失败小批为 keep-all。"""
+    if not cards_meta:
+        return {}
+
+    batches = [
+        cards_meta[i:i + _COARSE_FILTER_BATCH_SIZE]
+        for i in range(0, len(cards_meta), _COARSE_FILTER_BATCH_SIZE)
+    ]
+    merged: dict[int, CoarseFilterResult] = {}
+
+    for batch_index, batch in enumerate(batches, start=1):
+        batch_label = f"{batch_index}/{len(batches)}"
+        try:
+            merged.update(
+                _filter_card_batch_by_llm(
+                    batch,
+                    cv_profile,
+                    provider,
+                    model,
+                    target_location=target_location,
+                    snippet_limit=_COARSE_FILTER_SNIPPET_LIMIT,
+                    batch_label=batch_label,
+                )
             )
-            for c in cards_meta
-        }
+            continue
+        except Exception:
+            pass
+
+        retry_batches = [
+            batch[i:i + _COARSE_FILTER_RETRY_BATCH_SIZE]
+            for i in range(0, len(batch), _COARSE_FILTER_RETRY_BATCH_SIZE)
+        ]
+        logger.info(
+            "Retrying coarse filter batch %s as %d smaller batches",
+            batch_label,
+            len(retry_batches),
+        )
+        for retry_index, retry_batch in enumerate(retry_batches, start=1):
+            retry_label = f"{batch_label}.{retry_index}/{len(retry_batches)}"
+            try:
+                merged.update(
+                    _filter_card_batch_by_llm(
+                        retry_batch,
+                        cv_profile,
+                        provider,
+                        model,
+                        target_location=target_location,
+                        snippet_limit=_COARSE_FILTER_RETRY_SNIPPET_LIMIT,
+                        batch_label=retry_label,
+                    )
+                )
+            except Exception as e:
+                logger.warning("Card LLM filter failed, keeping retry batch %s: %s", retry_label, e)
+                merged.update(_default_keep_results(retry_batch))
+    return merged
 
 
 def _apply_coarse_filter_policy(result: CoarseFilterResult, cv_profile: "CVProfile") -> CoarseFilterResult:

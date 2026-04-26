@@ -1708,11 +1708,11 @@ function bulletList(items, emptyText = t('detail.none')) {
   return `<ul class="text-xs text-gray-700 dark:text-gray-300 space-y-1.5 list-disc list-inside">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
 }
 function languageList(items, emptyText = t('detail.none')) {
-  if (!items || !items.length) return `<p class="text-xs text-gray-400 dark:text-gray-500">${emptyText}</p>`;
-  return `<div class="flex flex-wrap gap-1.5">${items.map(item => {
+  if (!items || !items.length) return `<span class="text-xs text-gray-400 dark:text-gray-500">${emptyText}</span>`;
+  return `<span class="inline-flex flex-wrap gap-1.5 align-middle">${items.map(item => {
     const label = item.level ? `${item.name} (${item.level})` : item.name;
     return `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${label}</span>`;
-  }).join("")}</div>`;
+  }).join("")}</span>`;
 }
 function detailTabButton(tab, key) {
   const active = detailTab === tab;
@@ -2359,10 +2359,8 @@ function showJobDetail(job) {
           <div><span class="text-gray-400 dark:text-gray-500">${t('detail.work_mode')}:</span> ${summary.work_mode || t('detail.none')}</div>
           <div><span class="text-gray-400 dark:text-gray-500">${t('detail.job_type')}:</span> ${summary.job_type || t('detail.none')}</div>
           <div><span class="text-gray-400 dark:text-gray-500">${t('detail.years_required')}:</span> ${summary.years_required ?? t('detail.none')}</div>
-          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.languages_required')}:</span></div>
-          <div>${languageList(summary.required_languages)}</div>
-          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.languages_preferred')}:</span></div>
-          <div>${languageList(summary.preferred_languages)}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.languages_required')}:</span> ${languageList(summary.required_languages)}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.languages_preferred')}:</span> ${languageList(summary.preferred_languages)}</div>
           <div><span class="text-gray-400 dark:text-gray-500">${t('detail.keywords_label')}:</span></div>
           <div class="flex flex-wrap gap-1.5">${keywords || `<span class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</span>`}</div>
           ${legacyOverviewNote}
