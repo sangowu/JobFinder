@@ -165,7 +165,7 @@ _ROLE_STOPWORDS = {
     "and", "or", "the", "of", "in", "at", "ii", "iii", "i",
 }
 
-_SS_KEYS = ("in", "dup", "cache_hit", "no_desc", "closed", "llm_rejected", "saved")
+_SS_KEYS = ("in", "dup", "skip_seniority", "cache_hit", "no_desc", "closed", "llm_rejected", "saved")
 
 
 def _build_role_keywords(roles: list[str]) -> set[str]:

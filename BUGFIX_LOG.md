@@ -65,4 +65,34 @@ sources=[s if isinstance(s, str) else s.get("source", "") for s in json.loads(ro
 
 ---
 
+## 2026-04-27
+
+### BUG-003 · dynamic title seniority gate 触发后整轮搜索被中断
+
+**错误**
+```
+2026-04-27 00:28:24 [WARNING] jobradar.agent: Scrape error, skipping: 'skip_seniority'
+2026-04-27 00:28:24 [INFO] jobradar.agent: Search complete, 0 jobs collected
+```
+
+**原因**
+`agent.py` 新增 title seniority gate 后，在预过滤阶段会对每个来源的 `source_stats` 执行 `ss["skip_seniority"] += 1`。
+但 `_SS_KEYS` 里没有初始化 `skip_seniority` 这个键，第一条被该 gate 拦截的职位就会触发 `KeyError`，外层异常处理把整轮搜索当成 scrape error 跳过。
+
+**解决方案**
+将 `skip_seniority` 补进 `_SS_KEYS`，保证每个来源的漏斗统计字典从一开始就包含这个计数字段。
+
+```python
+# Before
+_SS_KEYS = ("in", "dup", "cache_hit", "no_desc", "closed", "llm_rejected", "saved")
+
+# After
+_SS_KEYS = ("in", "dup", "skip_seniority", "cache_hit", "no_desc", "closed", "llm_rejected", "saved")
+```
+
+**结果**
+title seniority gate 现在会正常计数，不再把整轮搜索中断为 `0 jobs collected`。
+
+---
+
 <!-- 新 bug 请在此行上方添加，格式同上 -->
