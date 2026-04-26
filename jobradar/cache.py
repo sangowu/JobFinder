@@ -456,7 +456,7 @@ def _attach_latest_match(job: JobResult, language: str = "zh") -> None:
     if profile is not None and job.job_summary is not None:
         from jobradar.matching import adjust_match_for_profile
 
-        match = adjust_match_for_profile(profile, job.job_summary, match)
+        match = adjust_match_for_profile(profile, job.job_summary, match, language=language)
     job.match_score = match
 
 

@@ -82,6 +82,63 @@ def _language_set(items: list[LanguageProficiency]) -> set[str]:
     return {_normalize_language_name(item.name) for item in items if item.name}
 
 
+def _generic_experience_gap_weakness(profile_years: float | None, years_required: int | None, language: str) -> str:
+    years = profile_years or 0
+    if language == "en":
+        return f"Years of experience are below the JD requirement (candidate ~{years:g} years, JD requires {years_required}+ years)"
+    if language == "es":
+        return f"La experiencia laboral está por debajo del requisito del JD (candidato ~{years:g} años, el JD requiere {years_required}+ años)"
+    return f"工作年限低于 JD 要求（候选人约 {years:g} 年，JD 要求 {years_required}+ 年）"
+
+
+def _generic_experience_gap_risk(language: str) -> str:
+    if language == "en":
+        return "The role's experience requirement is higher than the candidate's current work experience, which may reduce interview competitiveness"
+    if language == "es":
+        return "El requisito de experiencia del puesto es superior a la experiencia laboral actual del candidato, lo que puede reducir su competitividad"
+    return "岗位资历要求高于候选人当前工作年限，可能影响面试竞争力"
+
+
+def _normalize_experience_gap_language(
+    profile: CVProfile,
+    job_summary: JobSummary,
+    match: MatchScore,
+    language: str,
+) -> MatchScore:
+    years_required = job_summary.years_required
+    profile_years = profile.years_of_experience or 0
+    if years_required is None or profile_years >= years_required:
+        return match
+
+    mismatch_terms = (
+        "junior", "mid", "new grad", "graduate", "transition", "level mismatch",
+        "应届", "过渡阶段", "junior向mid", "初中级", "职级不匹配", "级别差距",
+    )
+
+    filtered_weaknesses = [
+        item for item in match.weaknesses
+        if not any(term in item.lower() for term in mismatch_terms)
+    ]
+    filtered_risks = [
+        item for item in match.risks
+        if not any(term in item.lower() for term in mismatch_terms)
+    ]
+
+    generic_weakness = _generic_experience_gap_weakness(profile_years, years_required, language)
+    generic_risk = _generic_experience_gap_risk(language)
+
+    filtered_weaknesses.insert(0, generic_weakness)
+    if generic_risk not in filtered_risks:
+        filtered_risks.insert(0, generic_risk)
+
+    return match.model_copy(
+        update={
+            "weaknesses": filtered_weaknesses,
+            "risks": filtered_risks,
+        }
+    )
+
+
 def _recommendation(score: float, risks: list[str]) -> str:
     blocking_signals = (
         "visa",
@@ -171,6 +228,7 @@ def adjust_match_for_profile(
     profile: CVProfile,
     job_summary: JobSummary,
     match: MatchScore,
+    language: str = "zh",
 ) -> MatchScore:
     evidence = _MatchEvidence(
         title_score=match.title_score,
@@ -191,7 +249,7 @@ def adjust_match_for_profile(
     adjusted = _apply_profile_guards(profile, job_summary, evidence)
     overall = _overall_score(adjusted)
     recommendation = _recommendation(overall, adjusted.risks)
-    return match.model_copy(
+    updated = match.model_copy(
         update={
             "overall_score": overall,
             "seniority_score": adjusted.seniority_score,
@@ -201,6 +259,7 @@ def adjust_match_for_profile(
             "risks": adjusted.risks,
         }
     )
+    return _normalize_experience_gap_language(profile, job_summary, updated, language)
 
 
 def match_job_to_cv(
@@ -219,7 +278,7 @@ def match_job_to_cv(
         if legacy_hash != effective_cv_hash:
             cached = cache.get_job_match(job_summary.job_id, legacy_hash, full_jd, prompt_version=prompt_version)
     if cached is not None:
-        return adjust_match_for_profile(profile, job_summary, cached)
+        return adjust_match_for_profile(profile, job_summary, cached, language=language)
 
     lang_name = _LANGUAGE_NAMES.get(language, "中文")
 
@@ -283,7 +342,7 @@ JD Summary:
         risks=evidence.risks,
         explanation=evidence.explanation,
     )
-    result = adjust_match_for_profile(profile, job_summary, result)
+    result = adjust_match_for_profile(profile, job_summary, result, language=language)
     cache.save_job_match(
         result,
         description=full_jd,
