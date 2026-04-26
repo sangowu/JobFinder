@@ -41,14 +41,19 @@ uv run jobradar find cv.docx  # Modo CLI
 Archivo CV
   │
   ▼ ① Análisis de CV (LLM → CVProfile)  ← caché permanente SHA-256
+         bandas estructuradas de seniority + extracción explícita de idiomas
   ▼ ② Descubrimiento de títulos (Adzuna API + LLM)  ← caché 7 días
   ▼    El usuario revisa y confirma la lista de títulos
   ▼ ③ Extracción (Indeed + LinkedIn, JobSpy, sin navegador)
-         Pre-filtro LLM de títulos → serie limitada (Indeed 2s / LinkedIn 3s) → dedup
-  ▼ ④ Embudo de filtros: antigüedad → relevancia → caché URL → cerrada → exp → habilidades
-  ▼ ⑤ Evaluación LLM por lotes (score / strengths / weaknesses / matched_keywords)
-  ▼ ⑥ Estadísticas escritas en reports/pipeline_stats.jsonl
-  ▼    Web UI / terminal
+         filtro grueso LLM por lotes → serie limitada (Indeed 2s / LinkedIn 3s) → dedup
+  ▼ ④ Extracción de JD Summary
+         must-have / nice-to-have / años / conflicto de seniority / requisitos de idioma
+  ▼ ⑤ Matching explicable CV↔JD
+         puntuación por rúbrica → score ponderado programático → recommendation
+  ▼ ⑥ Generación de artifacts
+         interview prep / cover letter / CV optimization
+  ▼ ⑦ Estadísticas de búsqueda y caché
+         métricas históricas, informes, Web UI / terminal
 ```
 
 Embudo real (datos reales):
@@ -91,6 +96,9 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Diseño de tres columnas**: lista de trabajos + detalle + panel de subida de CV/búsqueda
 - **Agregación multi-fuente**: las ofertas que aparecen en Indeed y LinkedIn se fusionan automáticamente; las insignias de fuente son enlaces clicables; el botón Apply se convierte en menú desplegable cuando hay varias URLs
 - **Historial de búsquedas**: cada registro tiene un botón 📊 para expandir el embudo completo, con desglose por fuente (Indeed / LinkedIn)
+- **Métricas normalizadas del historial**: cada búsqueda guarda total extraído, total tras deduplicación, total filtrado, nuevos puestos guardados y consumo de tokens
+- **Matching explicable**: el detalle del JD muestra desglose de puntuación, riesgos, coincidencias de habilidades y recommendation
+- **Artifact hub**: genera y reutiliza Interview Prep, Cover Letter y CV Optimization desde el panel de detalle
 - **Panel de logs**: filtrado por nivel, resaltado de palabras clave, actualización automática
 - **Página de configuración**: gestiona API Keys de LLM y API de búsqueda Adzuna, selecciona modelo por defecto, limpia caché — los nuevos usuarios pueden completar toda la configuración sin editar `.env`
 - **Multilingüe**: la interfaz soporta 中文 / English / Español

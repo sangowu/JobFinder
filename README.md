@@ -41,14 +41,19 @@ uv run jobradar find cv.docx  # CLI mode
 CV file
   │
   ▼ ① CV parsing (LLM → CVProfile)  ← permanent SHA-256 cache
+         structured seniority bands + explicit language extraction
   ▼ ② Title discovery (Adzuna API + LLM)  ← 7-day cache
   ▼    User reviews & confirms title list
   ▼ ③ Scraping (Indeed + LinkedIn, JobSpy, no browser)
-         LLM title pre-filter → rate-limited serial (Indeed 2s / LinkedIn 3s) → URL dedup
-  ▼ ④ Filter funnel: seniority → relevance → URL cache hit → closed → exp limit → skills
-  ▼ ⑤ Batch LLM assessment (score / strengths / weaknesses / matched_keywords)
-  ▼ ⑥ Pipeline stats written to reports/pipeline_stats.jsonl
-  ▼    Web UI / terminal display
+         batched LLM coarse filter → rate-limited serial (Indeed 2s / LinkedIn 3s) → URL dedup
+  ▼ ④ JD summary extraction
+         must-have / nice-to-have / years / seniority conflict / language requirements
+  ▼ ⑤ Explainable CV↔JD matching
+         rubric-based dimension scores → programmatic weighted score → recommendation
+  ▼ ⑥ Artifact generation
+         interview prep / cover letter / CV optimization
+  ▼ ⑦ Search stats + cache
+         history metrics, reports, Web UI / terminal display
 ```
 
 Real-world funnel (actual data):
@@ -91,6 +96,9 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Three-column layout**: job list + detail + CV upload/search panel
 - **Multi-source dedup**: jobs appearing on both Indeed and LinkedIn are merged; source badges are clickable links; Apply button becomes a dropdown when multiple source URLs exist
 - **Search history**: each record has a 📊 button to expand the full pipeline funnel, with per-source breakdown (Indeed / LinkedIn)
+- **Normalized search history metrics**: each record stores total scraped, deduped, filtered, newly saved jobs, and token consumption
+- **Explainable matching**: job details include score breakdown, risks, skill matches, and recommendation tiers
+- **Artifact hub**: generate and reuse Interview Prep, Cover Letter, and CV Optimization from the job detail panel
 - **Log panel**: level filtering, keyword highlight, auto-refresh
 - **Config page**: manage LLM API keys and Adzuna job search API, select default model, clear cache — new users can complete all setup without editing `.env`
 - **Multilingual**: UI supports Chinese / English / Español

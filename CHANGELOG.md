@@ -2,11 +2,20 @@
 
 ## [Unreleased]
 
+### New Features
+
+- **Rubric-based explainable matching** (`matching.py`)
+  JD-CV matching now uses an explicit scoring rubric for `title / seniority / must-have / nice-to-have / domain / location / language / risk`.
+  The prompt instructs the LLM to score by anchor bands (`95 / 80 / 60 / 30`) instead of free-form scoring; backend post-processing snaps each dimension to 5-point increments before programmatic weighted scoring.
+
 ### Improvements
 
 - **JD 评分加入经验年限上限规则**（`assessment.py`）
   当 JD 要求年限超过候选人实际年限时，score 按差距限制上限：差距 ≤ 2 年不限制，3~5 年上限 5 分，> 5 年上限 3 分。
   避免技能方向匹配但经验严重不足的职位获得虚高评分。
+
+- **README pipeline/docs refreshed**
+  Updated `README.md` / `README.zh.md` / `README.es.md` to reflect the current LLM pipeline: batched coarse filter, JD summary extraction, rubric-based explainable matching, artifact hub, and normalized search history metrics.
 
 ### Bug Fixes
 

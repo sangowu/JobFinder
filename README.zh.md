@@ -41,14 +41,19 @@ uv run jobradar find cv.docx  # CLI 模式
 CV 文件
   │
   ▼ ① CV 解析（LLM → CVProfile）← SHA-256 永久缓存
+         结构化 seniority 区间 + 显式语言能力提取
   ▼ ② Title 发现（Adzuna API + LLM）← 7 天缓存
   ▼    用户确认 title 列表
   ▼ ③ 抓取（Indeed + LinkedIn，JobSpy，无浏览器）
-         LLM 标题预筛 → 串行限速（Indeed 2s / LinkedIn 3s）→ URL 去重
-  ▼ ④ 预筛漏斗：年资 → 相关性 → URL 缓存命中 → 关闭检测 → 经验年限 → 技能关键词
-  ▼ ⑤ LLM 批量评估（score / strengths / weaknesses / matched_keywords）
-  ▼ ⑥ 统计报告写入 reports/pipeline_stats.jsonl
-  ▼    Web UI / 终端展示
+         分批 LLM 粗筛 → 串行限速（Indeed 2s / LinkedIn 3s）→ URL 去重
+  ▼ ④ JD Summary 提取
+         must-have / nice-to-have / 年限 / seniority 冲突 / 语言要求
+  ▼ ⑤ 可解释 CV↔JD 匹配
+         rubric 分维打分 → 程序化加权总分 → recommendation
+  ▼ ⑥ 衍生材料生成
+         面试准备 / 求职信 / CV 优化
+  ▼ ⑦ 搜索统计与缓存
+         历史指标、报告、Web UI / 终端展示
 ```
 
 典型漏斗（真实数据）：
@@ -91,6 +96,9 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **三栏布局**：职位列表 + 详情 + CV 上传/搜索面板
 - **多来源聚合**：同一职位在 Indeed 和 LinkedIn 均出现时自动合并，卡片徽标可点击跳转对应来源；详情页 Apply 按钮变为多来源下拉菜单
 - **搜索历史**：每条记录可展开 📊 管道漏斗详情，按来源（Indeed / LinkedIn）分项显示
+- **标准化搜索历史指标**：每次搜索都会记录抓取总数、去重后数量、过滤后数量、新增职位数和 token 消耗
+- **可解释匹配**：职位详情展示评分拆解、风险、技能匹配和 recommendation 分层
+- **Artifact Hub**：在职位详情中统一生成并复用 Interview Prep、Cover Letter、CV Optimization
 - **日志面板**：级别过滤、关键词高亮、自动刷新
 - **配置页**：在线管理 LLM API Key 和 Adzuna 职位检索 API、选择默认模型、清除缓存；新用户无需编辑 `.env`，直接在页面完成所有配置
 - **多语言**：界面支持中文 / English / Español 切换
