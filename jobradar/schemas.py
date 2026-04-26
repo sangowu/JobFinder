@@ -64,6 +64,7 @@ def is_closed_posting(text: str) -> bool:
 class CVProfile(BaseModel):
     summary: str = Field(description="一句话专业定位")
     skills: list[str] = Field(default_factory=list)
+    languages: list["LanguageProficiency"] = Field(default_factory=list)
     years_of_experience: float | None = Field(default=0, ge=0)
     preferred_locations: list[str] = Field(default_factory=list)
     preferred_roles: list[str] = Field(default_factory=list)
@@ -204,6 +205,11 @@ class CoarseFilterResult(BaseModel):
     reject_reason: str | None = None
 
 
+class LanguageProficiency(BaseModel):
+    name: str
+    level: str = ""
+
+
 class JobSummary(BaseModel):
     job_id: str
     title: str
@@ -218,6 +224,8 @@ class JobSummary(BaseModel):
     seniority_conflict_reason: str | None = None
     must_have: list[str] = Field(default_factory=list)
     good_to_have: list[str] = Field(default_factory=list)
+    required_languages: list[LanguageProficiency] = Field(default_factory=list)
+    preferred_languages: list[LanguageProficiency] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
     business_overview: str = ""
     company_overview: str | None = None
@@ -236,6 +244,7 @@ class MatchScore(BaseModel):
     nice_to_have_score: float = Field(ge=0, le=100)
     domain_score: float = Field(ge=0, le=100)
     location_score: float = Field(ge=0, le=100)
+    language_score: float = Field(ge=0, le=100, default=0)
     risk_penalty: float = Field(ge=0, le=100)
     recommendation: Literal["strong_apply", "apply", "stretch_apply", "low_priority", "skip"] = "skip"
     strengths: list[str] = Field(default_factory=list)

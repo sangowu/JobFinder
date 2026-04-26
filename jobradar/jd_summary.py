@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_structured
 from jobradar.logger import get_logger
-from jobradar.schemas import JobResult, JobSummary
+from jobradar.schemas import JobResult, JobSummary, LanguageProficiency
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "jd_summary_v1"
+PROMPT_VERSION = "jd_summary_v2"
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 
 
@@ -31,6 +31,8 @@ class _JobSummaryPayload(BaseModel):
     seniority_conflict_reason: str | None = None
     must_have: list[str] = Field(default_factory=list)
     good_to_have: list[str] = Field(default_factory=list)
+    required_languages: list[LanguageProficiency] = Field(default_factory=list)
+    preferred_languages: list[LanguageProficiency] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
     business_overview: str = ""
     company_overview: str | None = None
@@ -60,6 +62,8 @@ def summarize_jd(job: JobResult, llm: LLMConfig, language: str = "zh") -> JobSum
 - 判断 seniority 时，description 的要求优先级高于 title。
 - must_have 只保留明确要求。
 - good_to_have 只保留加分项或 preferred / nice to have。
+- required_languages：只提取 JD 中明确要求的语言能力，输出 [{name, level}]；若只写语言不写级别，level 置空。
+- preferred_languages：只提取 JD 中加分项语言能力，输出 [{name, level}]。
 - red_flags 只记录求职者风险，例如要求过高年限、签证限制、title/description 冲突、强制 onsite 等。
 
 title: {job.title}

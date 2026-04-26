@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_structured
 from jobradar.logger import get_logger
-from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore
+from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore, LanguageProficiency
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "match_v1"
+PROMPT_VERSION = "match_v2"
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 
 
@@ -27,6 +27,7 @@ class _MatchEvidence(BaseModel):
     nice_to_have_score: float = Field(ge=0, le=100)
     domain_score: float = Field(ge=0, le=100)
     location_score: float = Field(ge=0, le=100)
+    language_score: float = Field(ge=0, le=100)
     risk_penalty: float = Field(ge=0, le=100)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
@@ -42,15 +43,42 @@ def cv_profile_hash(profile: CVProfile) -> str:
 
 def _overall_score(e: _MatchEvidence) -> float:
     total = (
-        e.title_score * 0.20
-        + e.seniority_score * 0.20
-        + e.must_have_score * 0.30
-        + e.nice_to_have_score * 0.10
-        + e.domain_score * 0.10
-        + e.location_score * 0.10
+        e.title_score * 0.18
+        + e.seniority_score * 0.18
+        + e.must_have_score * 0.27
+        + e.nice_to_have_score * 0.09
+        + e.domain_score * 0.09
+        + e.location_score * 0.09
+        + e.language_score * 0.10
         - e.risk_penalty
     )
     return max(0.0, min(100.0, round(total, 1)))
+
+
+def _normalize_language_name(value: str) -> str:
+    raw = (value or "").strip().lower()
+    aliases = {
+        "english": "english",
+        "en": "english",
+        "inglés": "english",
+        "mandarin": "mandarin",
+        "mandarin chinese": "mandarin",
+        "chinese": "chinese",
+        "cantonese": "cantonese",
+        "spanish": "spanish",
+        "español": "spanish",
+        "german": "german",
+        "deutsch": "german",
+        "french": "french",
+        "français": "french",
+        "irish": "irish",
+        "gaelic": "irish",
+    }
+    return aliases.get(raw, raw)
+
+
+def _language_set(items: list[LanguageProficiency]) -> set[str]:
+    return {_normalize_language_name(item.name) for item in items if item.name}
 
 
 def _recommendation(score: float, risks: list[str]) -> str:
@@ -108,6 +136,27 @@ def _apply_profile_guards(
     if job_summary.seniority_conflict and job_summary.seniority_conflict_reason:
         updated.risks = [*updated.risks, f"Title / Description 冲突: {job_summary.seniority_conflict_reason}"]
 
+    candidate_languages = _language_set(profile.languages)
+    required_languages = _language_set(job_summary.required_languages)
+    preferred_languages = _language_set(job_summary.preferred_languages)
+
+    if required_languages:
+        missing_required = sorted(required_languages - candidate_languages)
+        if missing_required:
+            updated.language_score = min(updated.language_score, 20)
+            updated.risk_penalty = min(100, updated.risk_penalty + 20)
+            guard_risks.append(f"缺少 JD 明确要求的语言能力: {', '.join(missing_required)}")
+        else:
+            updated.language_score = max(updated.language_score, 85)
+    elif preferred_languages:
+        overlap = preferred_languages & candidate_languages
+        if overlap:
+            updated.language_score = max(updated.language_score, 75)
+        elif not candidate_languages:
+            updated.language_score = min(updated.language_score, 45)
+    elif not candidate_languages:
+        updated.language_score = max(updated.language_score, 50)
+
     if guard_risks:
         seen = {risk.lower() for risk in updated.risks}
         for risk in guard_risks:
@@ -129,6 +178,7 @@ def adjust_match_for_profile(
         nice_to_have_score=match.nice_to_have_score,
         domain_score=match.domain_score,
         location_score=match.location_score,
+        language_score=match.language_score,
         risk_penalty=match.risk_penalty,
         strengths=list(match.strengths),
         weaknesses=list(match.weaknesses),
@@ -143,6 +193,7 @@ def adjust_match_for_profile(
         update={
             "overall_score": overall,
             "seniority_score": adjusted.seniority_score,
+            "language_score": adjusted.language_score,
             "risk_penalty": adjusted.risk_penalty,
             "recommendation": recommendation,
             "risks": adjusted.risks,
@@ -177,11 +228,13 @@ def match_job_to_cv(
 - 只返回各维度分数和解释，不要直接返回 overall_score 或 recommendation。
 - 各维度分数范围 0-100。
 - must_have_score 只针对明确 must-have。
+- language_score 专门评估候选人语言能力与 JD 语言要求的匹配程度。
 - risk_penalty 只用于真实风险，不要把一般弱项重复计入 penalty。
 - 如果职位存在签证、security clearance、强制 onsite、PhD、管理级别明显超出等阻断风险，必须写入 risks。
 
 候选人摘要：{profile.summary}
 候选人技能：{", ".join(profile.skills[:25])}
+候选人语言：{", ".join(f"{item.name} ({item.level})" if item.level else item.name for item in profile.languages) or "None listed"}
 候选人可投级别：{", ".join(profile.eligible_seniority_levels)}
 候选人 stretch 级别：{", ".join(profile.stretch_seniority_levels)}
 目标职位：{", ".join(profile.preferred_roles[:10])}
@@ -217,6 +270,7 @@ JD Summary:
         nice_to_have_score=evidence.nice_to_have_score,
         domain_score=evidence.domain_score,
         location_score=evidence.location_score,
+        language_score=evidence.language_score,
         risk_penalty=evidence.risk_penalty,
         recommendation=recommendation,
         strengths=evidence.strengths,

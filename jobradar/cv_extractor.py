@@ -9,6 +9,7 @@ from jobradar.logger import get_logger
 from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
+PROMPT_VERSION = "cv_extract_v2"
 
 _SYSTEM = """你是一名专业的简历解析助手。
 从用户提供的简历文本中提取关键信息，填入指定的 JSON 结构。
@@ -16,6 +17,7 @@ _SYSTEM = """你是一名专业的简历解析助手。
 规则：
 - summary：一句话概括候选人的专业定位，如 "3年经验的全栈工程师，擅长 React + Python"，不包含姓名
 - skills：提取技术技能，去除软技能（如"团队合作"）
+- languages：提取候选人在 CV 中明确写出的语言能力，输出为 [{name, level}]；例如 English/C1、Mandarin/Native。不要臆测没写出的语言。
 - preferred_locations：提取候选人明确表达的工作地点偏好，统一为英文地名
 - years_of_experience：估算总工作年限，无法判断填 0
 - seniority 相关字段必须一起输出：
@@ -80,7 +82,7 @@ def extract_cv_profile(
     cv_hash = hashlib.sha256(cv_text.encode()).hexdigest()
 
     if use_cache:
-        cached = cache.get_cv_profile(cv_hash)
+        cached = cache.get_cv_profile(cv_hash, prompt_version=PROMPT_VERSION)
         if cached is not None:
             logger.info("CV parse cache hit (hash=%s)", cv_hash[:12])
             return cached
@@ -95,6 +97,6 @@ def extract_cv_profile(
         system=_SYSTEM,
         _step="CV 解析",
     )
-    cache.save_cv_profile(cv_hash, profile)
+    cache.save_cv_profile(cv_hash, profile, prompt_version=PROMPT_VERSION)
     logger.info("CV 解析完成，结果已缓存（hash=%s）", cv_hash[:12])
     return profile

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS failed_urls (
 CREATE TABLE IF NOT EXISTS cv_cache (
     cv_hash     TEXT PRIMARY KEY,  -- SHA-256(cv_text)
     profile_json TEXT NOT NULL,    -- CVProfile JSON
+    prompt_version TEXT NOT NULL DEFAULT '',
     cached_at   TEXT NOT NULL
 );
 
@@ -163,6 +164,7 @@ def _conn():
             "ALTER TABLE job_cache ADD COLUMN raw_sources TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE search_stats ADD COLUMN funnel_json TEXT",
             "ALTER TABLE search_stats ADD COLUMN cv_hash TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE cv_cache ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''",
         ):
             try:
                 con.execute(migration)
@@ -782,13 +784,15 @@ def record_url_visit(url: str, title: str, status: str) -> None:
 # ─── CV 缓存 ──────────────────────────────────────────────────────────────────
 
 
-def get_cv_profile(cv_hash: str) -> CVProfile | None:
+def get_cv_profile(cv_hash: str, prompt_version: str = "") -> CVProfile | None:
     """按 CV 文本哈希查找缓存的解析结果，未命中返回 None。"""
     with _conn() as con:
         row = con.execute(
-            "SELECT profile_json FROM cv_cache WHERE cv_hash = ?", (cv_hash,)
+            "SELECT profile_json, prompt_version FROM cv_cache WHERE cv_hash = ?", (cv_hash,)
         ).fetchone()
     if row is None:
+        return None
+    if prompt_version and row["prompt_version"] != prompt_version:
         return None
     return CVProfile.model_validate_json(row["profile_json"])
 
@@ -824,17 +828,18 @@ def save_title_cache(cache_key: str, result_json: str) -> None:
         )
 
 
-def save_cv_profile(cv_hash: str, profile: CVProfile) -> None:
+def save_cv_profile(cv_hash: str, profile: CVProfile, prompt_version: str = "") -> None:
     """将 CVProfile 解析结果写入缓存（已存在则覆盖）。"""
     with _conn() as con:
         con.execute(
             """
-            INSERT INTO cv_cache (cv_hash, profile_json, cached_at)
-            VALUES (?, ?, ?)
+            INSERT INTO cv_cache (cv_hash, profile_json, prompt_version, cached_at)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(cv_hash) DO UPDATE SET profile_json = excluded.profile_json,
+                                               prompt_version = excluded.prompt_version,
                                                cached_at = excluded.cached_at
             """,
-            (cv_hash, profile.model_dump_json(), datetime.utcnow().isoformat()),
+            (cv_hash, profile.model_dump_json(), prompt_version, datetime.utcnow().isoformat()),
         )
 
 
