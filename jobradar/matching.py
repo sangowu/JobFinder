@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_structured
 from jobradar.logger import get_logger
-from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore, LanguageProficiency
+from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore, LanguageProficiency, normalize_language_code
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "match_v5"
+PROMPT_VERSION = "match_v6"
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 
 
@@ -263,30 +263,22 @@ Reglas adicionales:
 """
 
 
-def _normalize_language_name(value: str) -> str:
-    raw = (value or "").strip().lower()
-    aliases = {
-        "english": "english",
-        "en": "english",
-        "inglés": "english",
-        "mandarin": "mandarin",
-        "mandarin chinese": "mandarin",
-        "chinese": "chinese",
-        "cantonese": "cantonese",
-        "spanish": "spanish",
-        "español": "spanish",
-        "german": "german",
-        "deutsch": "german",
-        "french": "french",
-        "français": "french",
-        "irish": "irish",
-        "gaelic": "irish",
-    }
-    return aliases.get(raw, raw)
-
-
 def _language_set(items: list[LanguageProficiency]) -> set[str]:
-    return {_normalize_language_name(item.name) for item in items if item.name}
+    result: set[str] = set()
+    for item in items:
+        code = normalize_language_code(item.code or item.name)
+        if code:
+            result.add(code)
+    return result
+
+
+def _required_language_display(items: list[LanguageProficiency], missing_codes: list[str]) -> list[str]:
+    names_by_code: dict[str, str] = {}
+    for item in items:
+        code = normalize_language_code(item.code or item.name)
+        if code and item.name and code not in names_by_code:
+            names_by_code[code] = item.name
+    return [names_by_code.get(code, code) for code in missing_codes]
 
 
 def _dedupe_text_items(items: list[str]) -> list[str]:
@@ -302,6 +294,16 @@ def _dedupe_text_items(items: list[str]) -> list[str]:
         seen.add(key)
         result.append(text)
     return result
+
+
+def _is_language_requirement_risk(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    markers = (
+        "缺少 jd 明确要求的语言能力",
+        "missing explicit jd language requirement",
+        "faltan los idiomas exigidos explícitamente por el jd",
+    )
+    return any(marker in normalized for marker in markers)
 
 
 def _generic_experience_gap_weakness(profile_years: float | None, years_required: int | None, language: str) -> str:
@@ -390,6 +392,7 @@ def _apply_profile_guards(
     profile: CVProfile,
     job_summary: JobSummary,
     evidence: _MatchEvidence,
+    language: str = "zh",
 ) -> _MatchEvidence:
     updated = evidence.model_copy(deep=True)
     years_required = job_summary.years_required
@@ -416,6 +419,8 @@ def _apply_profile_guards(
     if job_summary.seniority_conflict and job_summary.seniority_conflict_reason:
         updated.risks = [*updated.risks, f"Title / Description 冲突: {job_summary.seniority_conflict_reason}"]
 
+    updated.risks = [risk for risk in updated.risks if not _is_language_requirement_risk(risk)]
+
     candidate_languages = _language_set(profile.languages)
     required_languages = _language_set(job_summary.required_languages)
     preferred_languages = _language_set(job_summary.preferred_languages)
@@ -425,9 +430,18 @@ def _apply_profile_guards(
         if missing_required:
             updated.language_score = min(updated.language_score, 20)
             updated.risk_penalty = min(100, updated.risk_penalty + 20)
-            guard_risks.append(f"缺少 JD 明确要求的语言能力: {', '.join(missing_required)}")
+            missing_display = _required_language_display(job_summary.required_languages, missing_required)
+            guard_risks.append(f"缺少 JD 明确要求的语言能力: {', '.join(missing_display)}")
+            updated.language_summary = {
+                "en": "Required language coverage is incomplete for this role.",
+                "es": "La cobertura de idiomas requeridos es incompleta para este puesto.",
+            }.get(language, "候选人的语言能力未能完整覆盖 JD 的明确要求。")
         else:
             updated.language_score = max(updated.language_score, 85)
+            updated.language_summary = {
+                "en": "The candidate fully covers the JD's explicit language requirements.",
+                "es": "El candidato cubre plenamente los requisitos explícitos de idioma del JD.",
+            }.get(language, "候选人的语言能力已完整覆盖 JD 的明确要求。")
     elif preferred_languages:
         overlap = preferred_languages & candidate_languages
         if overlap:
@@ -479,7 +493,7 @@ def adjust_match_for_profile(
         risks=list(match.risks),
         explanation=match.explanation,
     )
-    adjusted = _apply_profile_guards(profile, job_summary, evidence)
+    adjusted = _apply_profile_guards(profile, job_summary, evidence, language=language)
     overall = _overall_score(adjusted)
     recommendation = _recommendation(overall, adjusted.risks)
     updated = match.model_copy(
@@ -565,7 +579,7 @@ JD Summary:
         _step="JD CV Matching",
     )
     evidence = _stabilize_evidence(evidence)
-    evidence = _apply_profile_guards(profile, job_summary, evidence)
+    evidence = _apply_profile_guards(profile, job_summary, evidence, language=language)
     overall = _overall_score(evidence)
     recommendation = _recommendation(overall, evidence.risks)
     result = MatchScore(

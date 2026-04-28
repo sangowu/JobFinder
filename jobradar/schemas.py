@@ -205,9 +205,85 @@ class CoarseFilterResult(BaseModel):
     reject_reason: str | None = None
 
 
+_LANGUAGE_CODE_ALIASES = {
+    "en": "en",
+    "english": "en",
+    "英语": "en",
+    "inglés": "en",
+    "zh": "zh",
+    "chinese": "zh",
+    "中文": "zh",
+    "汉语": "zh",
+    "mandarin": "zh",
+    "mandarin chinese": "zh",
+    "普通话": "zh",
+    "yue": "yue",
+    "cantonese": "yue",
+    "cantonese chinese": "yue",
+    "粤语": "yue",
+    "es": "es",
+    "spanish": "es",
+    "español": "es",
+    "西班牙语": "es",
+    "de": "de",
+    "german": "de",
+    "deutsch": "de",
+    "德语": "de",
+    "fr": "fr",
+    "french": "fr",
+    "français": "fr",
+    "法语": "fr",
+    "ga": "ga",
+    "irish": "ga",
+    "gaelic": "ga",
+    "爱尔兰语": "ga",
+    "ja": "ja",
+    "japanese": "ja",
+    "日语": "ja",
+    "ko": "ko",
+    "korean": "ko",
+    "韩语": "ko",
+    "pt": "pt",
+    "portuguese": "pt",
+    "葡萄牙语": "pt",
+    "it": "it",
+    "italian": "it",
+    "意大利语": "it",
+    "nl": "nl",
+    "dutch": "nl",
+    "荷兰语": "nl",
+    "pl": "pl",
+    "polish": "pl",
+    "波兰语": "pl",
+    "ru": "ru",
+    "russian": "ru",
+    "俄语": "ru",
+    "ar": "ar",
+    "arabic": "ar",
+    "阿拉伯语": "ar",
+    "hi": "hi",
+    "hindi": "hi",
+    "印地语": "hi",
+}
+
+
+def normalize_language_code(value: str) -> str:
+    raw = (value or "").strip().lower()
+    return _LANGUAGE_CODE_ALIASES.get(raw, raw)
+
+
 class LanguageProficiency(BaseModel):
+    code: str = ""
     name: str
     level: str = ""
+
+    @model_validator(mode="after")
+    def _populate_code(self) -> "LanguageProficiency":
+        if self.code:
+            self.code = normalize_language_code(self.code)
+        elif self.name:
+            self.code = normalize_language_code(self.name)
+        return self
 
 
 class JobSummary(BaseModel):

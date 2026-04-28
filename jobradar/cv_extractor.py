@@ -9,7 +9,7 @@ from jobradar.logger import get_logger
 from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
-PROMPT_VERSION = "cv_extract_v2"
+PROMPT_VERSION = "cv_extract_v3"
 
 _SYSTEM = """你是一名专业的简历解析助手。
 从用户提供的简历文本中提取关键信息，填入指定的 JSON 结构。
@@ -17,7 +17,11 @@ _SYSTEM = """你是一名专业的简历解析助手。
 规则：
 - summary：一句话概括候选人的专业定位，如 "3年经验的全栈工程师，擅长 React + Python"，不包含姓名
 - skills：提取技术技能，去除软技能（如"团队合作"）
-- languages：提取候选人在 CV 中明确写出的语言能力，输出为 [{name, level}]；例如 English/C1、Mandarin/Native。不要臆测没写出的语言。
+- languages：提取候选人在 CV 中明确写出的语言能力，输出为 [{code, name, level}]。
+    - code：输出稳定的 ISO 风格语言代码，如 en / zh / yue / es / de / fr / ga。
+    - name：保留 CV 中最自然的显示名称，如 English、Mandarin Chinese。
+    - level：如 Fluent / Native / C1；未写则置空。
+    - 不要臆测没写出的语言。
 - preferred_locations：提取候选人明确表达的工作地点偏好，统一为英文地名
 - years_of_experience：估算总工作年限，无法判断填 0
 - seniority 相关字段必须一起输出：
