@@ -1797,7 +1797,7 @@ function showToast(msg, isError = false) {
 // ─── Job list rendering ───────────────────────────────────────────────────────
 function scoreColor(s) {
   if (s === null || s === undefined) return "bg-gray-400";
-  const normalized = s > 10 ? s / 10 : s;
+  const normalized = Number(s) / 10;
   if (normalized >= 8) return "bg-green-500";
   if (normalized >= 6) return "bg-yellow-400";
   if (normalized >= 4) return "bg-orange-400";
@@ -1810,7 +1810,7 @@ function scoreBadge(s) {
 }
 function normalizedScore(s) {
   if (s === null || s === undefined) return null;
-  return s > 10 ? s / 10 : s;
+  return Number(s) / 10;
 }
 function recommendationLabel(rec) {
   if (!rec) return "";
@@ -2229,8 +2229,10 @@ function jobMatchesFilters(job) {
     if (!job.title.toLowerCase().includes(q) && !job.company.toLowerCase().includes(q)) return false;
   }
   if (dateRange !== "all") {
-    const posted = new Date(job.fetched_at);
-    const diffMs = Date.now() - posted;
+    const rawDate = job.date_posted || job.fetched_at;
+    const posted = new Date(rawDate);
+    if (isNaN(posted)) return false;
+    const diffMs = Date.now() - posted.getTime();
     if (dateRange === "today" && diffMs > 86400000)   return false;
     if (dateRange === "week"  && diffMs > 7*86400000) return false;
   }

@@ -4,6 +4,7 @@ from __future__ import annotations
 import random
 import re
 import time
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable
 
 from pydantic import BaseModel
@@ -22,6 +23,59 @@ _COARSE_FILTER_BATCH_SIZE = 10
 _COARSE_FILTER_RETRY_BATCH_SIZE = 5
 _COARSE_FILTER_SNIPPET_LIMIT = 160
 _COARSE_FILTER_RETRY_SNIPPET_LIMIT = 80
+
+
+def _parse_job_date(value: str) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    normalized = raw.replace("Z", "+00:00")
+    for candidate in (
+        normalized,
+        normalized[:19],
+        normalized[:10],
+    ):
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is not None:
+                return parsed.astimezone().replace(tzinfo=None)
+            return parsed
+        except ValueError:
+            continue
+    return None
+
+
+def _filter_by_posted_date(
+    jobs: list[dict],
+    hours_old: int | None,
+    cb: Callable[[str], None] | None = None,
+) -> list[dict]:
+    if hours_old in (None, 0):
+        return jobs
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours_old)
+    kept: list[dict] = []
+    removed = 0
+    unknown = 0
+    for job in jobs:
+        posted = _parse_job_date(str(job.get("date_posted") or ""))
+        if posted is None:
+            unknown += 1
+            kept.append(job)
+            continue
+        if posted < cutoff:
+            removed += 1
+            continue
+        kept.append(job)
+
+    if removed:
+        logger.info(
+            "Strict posted-date filter: %d → %d jobs (removed=%d, unknown_date=%d, hours_old=%s)",
+            len(jobs), len(kept), removed, unknown, hours_old,
+        )
+        if cb:
+            cb(f"Strict posted-date filter: {len(jobs)} → {len(kept)} jobs")
+    return kept
 
 
 # ── LLM 粗筛 ──────────────────────────────────────────────────────────────────
@@ -563,6 +617,11 @@ def scrape_sources(
     if not raw:
         _cb("JobSpy: no results returned")
         return []
+
+    before_date_filter = len(raw)
+    raw = _filter_by_posted_date(raw, hours_old, cb)
+    if stats is not None and before_date_filter != len(raw):
+        stats.scraped_total = len(raw)
 
     # LLM 粗筛
     if cv_profile is not None:
