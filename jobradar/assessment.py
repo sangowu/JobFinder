@@ -8,7 +8,7 @@ import re
 
 from pydantic import BaseModel
 
-from jobradar.llm_backend import LLMConfig, complete_structured
+from jobradar.llm_backend import LLMConfig, complete_via_tool
 from jobradar.logger import get_logger
 from jobradar.schemas import CVProfile, JobAssessment
 
@@ -242,12 +242,14 @@ def batch_assess_jds(
 results 数组长度必须等于 {len(llm_batch)}，顺序与编号一一对应。"""
 
         try:
-            batch_result = complete_structured(
+            batch_result = complete_via_tool(
                 prompt=prompt,
-                response_schema=_BatchAssessmentResult,
+                args_schema=_BatchAssessmentResult,
+                tool_name="assess_jd_batch",
+                tool_description="Assess a batch of job descriptions against the candidate profile.",
                 provider=llm.provider,
                 model=llm.model,
-                system=system,
+                system=system + " 你必须调用指定工具并填写结构化参数。",
                 _step="JD 批量评估",
             )
             assessments = batch_result.results
@@ -324,12 +326,14 @@ def batch_assess_titles(
 
 results 数组长度必须等于 {len(batch)}，顺序与编号一一对应。"""
         try:
-            batch_result = complete_structured(
+            batch_result = complete_via_tool(
                 prompt=prompt,
-                response_schema=_BatchTitleAssessmentResult,
+                args_schema=_BatchTitleAssessmentResult,
+                tool_name="assess_title_batch",
+                tool_description="Assess whether a batch of job titles should be kept for further processing.",
                 provider=llm.provider,
                 model=llm.model,
-                system=system,
+                system=system + " 你必须调用指定工具并填写结构化参数。",
                 _step="Title 粗筛",
             )
             assessments = batch_result.results
