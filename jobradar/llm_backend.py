@@ -181,6 +181,66 @@ def complete_with_tools(
     raise ValueError(f"不支持的 provider：{provider}")
 
 
+def complete_via_tool(
+    *,
+    prompt: str,
+    args_schema: type[BaseModel],
+    tool_name: str,
+    tool_description: str,
+    provider: str = "gemini",
+    model: str | None = None,
+    system: str = "你是一个专业的信息提取助手，严格调用指定工具输出结构化参数。",
+    _step: str = "",
+) -> BaseModel:
+    """通过单工具调用返回结构化参数；若 provider 未返回 tool_use，则回退到 complete_structured。"""
+    import time
+    from jobradar.telemetry import telemetry
+
+    m = model or DEFAULT_MODELS.get(provider, "")
+    t0 = time.monotonic()
+    tools = [
+        {
+            "name": tool_name,
+            "description": tool_description,
+            "input_schema": args_schema.model_json_schema(),
+        }
+    ]
+    messages = [{"role": "user", "content": prompt}]
+
+    try:
+        response = complete_with_tools(
+            messages=messages,
+            tools=tools,
+            system=system,
+            provider=provider,
+            model=m,
+        )
+        for block in response.content:
+            if isinstance(block, ToolUseBlock) and block.name == tool_name:
+                result = args_schema.model_validate(block.input)
+                if _step:
+                    telemetry.record_llm(
+                        step=_step,
+                        provider=provider,
+                        model=m,
+                        input_tokens=0,
+                        output_tokens=0,
+                        elapsed=time.monotonic() - t0,
+                    )
+                return result
+    except Exception:
+        pass
+
+    return complete_structured(
+        prompt=prompt,
+        response_schema=args_schema,
+        provider=provider,
+        model=m,
+        system=system,
+        _step=_step,
+    )
+
+
 # ─── 工具函数 ─────────────────────────────────────────────────────────────────
 
 

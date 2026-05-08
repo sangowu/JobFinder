@@ -9,9 +9,10 @@ from datetime import datetime
 import hashlib
 from pathlib import Path
 
-from jobradar.schemas import CVOptimization, CoarseFilterResult, CoverLetter, CVProfile, FailedURL, InterviewPrep, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
+from jobradar.schemas import CVOptimization, CoarseFilterResult, CoverLetter, CVProfile, FailedURL, InterviewPrep, JDProfile, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
+from jobradar.paths import DATA_DIR, ensure_parent
 
-_DEFAULT_DB_PATH = "jobradar_cache.db"
+_DEFAULT_DB_PATH = str(DATA_DIR / "jobradar_cache.db")
 
 _INIT_SQL = """
 CREATE TABLE IF NOT EXISTS job_cache (
@@ -53,12 +54,6 @@ CREATE TABLE IF NOT EXISTS cv_cache (
     cached_at   TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS title_cache (
-    cache_key   TEXT PRIMARY KEY,  -- cv_hash + "::" + countries
-    result_json TEXT NOT NULL,     -- JSON: {titles: [...], keywords_used: [...]}
-    cached_at   TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS url_visits (
     url         TEXT PRIMARY KEY,
     title       TEXT NOT NULL DEFAULT '',
@@ -69,6 +64,9 @@ CREATE TABLE IF NOT EXISTS url_visits (
 CREATE TABLE IF NOT EXISTS search_stats (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at  TEXT NOT NULL,
+    run_id      TEXT NOT NULL DEFAULT '',
+    experiment_name TEXT NOT NULL DEFAULT '',
+    notes       TEXT NOT NULL DEFAULT '',
     location    TEXT NOT NULL DEFAULT '',
     roles       TEXT NOT NULL DEFAULT '[]',  -- JSON array
     provider    TEXT NOT NULL DEFAULT '',
@@ -86,14 +84,40 @@ CREATE TABLE IF NOT EXISTS search_stats (
     cv_prompt_version TEXT NOT NULL DEFAULT '',
     jd_summary_prompt_version TEXT NOT NULL DEFAULT '',
     match_prompt_version TEXT NOT NULL DEFAULT '',
+    title_relevance_prompt_version TEXT NOT NULL DEFAULT '',
     title_gate_version TEXT NOT NULL DEFAULT '',
-    coarse_filter_version TEXT NOT NULL DEFAULT ''
+    coarse_filter_version TEXT NOT NULL DEFAULT '',
+    module_metrics_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS filter_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,
+    run_id      TEXT NOT NULL DEFAULT '',
+    stage       TEXT NOT NULL,
+    title       TEXT NOT NULL DEFAULT '',
+    company     TEXT NOT NULL DEFAULT '',
+    location    TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT '',
+    url         TEXT NOT NULL DEFAULT '',
+    reason      TEXT NOT NULL DEFAULT '',
+    details_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS job_summaries (
     job_id            TEXT PRIMARY KEY,
     description_hash  TEXT NOT NULL,
     summary_json      TEXT NOT NULL,
+    model_name        TEXT NOT NULL DEFAULT '',
+    prompt_version    TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS jd_profiles (
+    job_id            TEXT PRIMARY KEY,
+    description_hash  TEXT NOT NULL,
+    profile_json      TEXT NOT NULL,
     model_name        TEXT NOT NULL DEFAULT '',
     prompt_version    TEXT NOT NULL DEFAULT '',
     created_at        TEXT NOT NULL,
@@ -161,6 +185,7 @@ ALTER TABLE search_stats ADD COLUMN cv_hash TEXT NOT NULL DEFAULT '';
 @contextmanager
 def _conn():
     db_path = Path(os.getenv("CACHE_DB_PATH", _DEFAULT_DB_PATH))
+    ensure_parent(db_path)
     con = sqlite3.connect(str(db_path))
     con.row_factory = sqlite3.Row
     try:
@@ -173,7 +198,10 @@ def _conn():
             "ALTER TABLE job_cache ADD COLUMN date_posted TEXT DEFAULT ''",
             "ALTER TABLE job_cache ADD COLUMN raw_sources TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE search_stats ADD COLUMN funnel_json TEXT",
+            "ALTER TABLE search_stats ADD COLUMN run_id TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE search_stats ADD COLUMN cv_hash TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN experiment_name TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE search_stats ADD COLUMN scraped_total INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE search_stats ADD COLUMN deduped_total INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE search_stats ADD COLUMN filtered_total INTEGER NOT NULL DEFAULT 0",
@@ -182,8 +210,10 @@ def _conn():
             "ALTER TABLE search_stats ADD COLUMN cv_prompt_version TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE search_stats ADD COLUMN jd_summary_prompt_version TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE search_stats ADD COLUMN match_prompt_version TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN title_relevance_prompt_version TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE search_stats ADD COLUMN title_gate_version TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE search_stats ADD COLUMN coarse_filter_version TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE search_stats ADD COLUMN module_metrics_json TEXT",
             "ALTER TABLE cv_cache ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''",
         ):
             try:
@@ -211,11 +241,12 @@ def get_job(dedup_key: str, language: str = "zh") -> JobResult | None:
     if row is None:
         return None
     job = _row_to_job(row)
-    from jobradar.jd_summary import summary_prompt_version
+    from jobradar.jd_profile import jd_profile_prompt_version
 
-    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
-    if job.job_summary is None:
-        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet, prompt_version=jd_profile_prompt_version(language))
+    if job.jd_profile is None:
+        job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet)
+    _sync_legacy_job_summary(job)
     _attach_latest_match(job, language=language)
     return job
 
@@ -309,12 +340,13 @@ def get_recent_jobs(limit: int = 50, language: str = "zh") -> list[JobResult]:
             "SELECT * FROM job_cache ORDER BY fetched_at DESC LIMIT ?", (limit,)
         ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
-    from jobradar.jd_summary import summary_prompt_version
+    from jobradar.jd_profile import jd_profile_prompt_version
 
     for job in jobs:
-        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
-        if job.job_summary is None:
-            job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+        job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet, prompt_version=jd_profile_prompt_version(language))
+        if job.jd_profile is None:
+            job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet)
+        _sync_legacy_job_summary(job)
         _attach_latest_match(job, language=language)
     return [j for j in jobs if not j.is_expired]
 
@@ -327,11 +359,12 @@ def get_job_by_url(url: str, language: str = "zh") -> JobResult | None:
     if row is None:
         return None
     job = _row_to_job(row)
-    from jobradar.jd_summary import summary_prompt_version
+    from jobradar.jd_profile import jd_profile_prompt_version
 
-    job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
-    if job.job_summary is None:
-        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+    job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet, prompt_version=jd_profile_prompt_version(language))
+    if job.jd_profile is None:
+        job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet)
+    _sync_legacy_job_summary(job)
     _attach_latest_match(job, language=language)
     return job
 
@@ -346,12 +379,13 @@ def get_jobs_by_keys(dedup_keys: list[str], language: str = "zh") -> list[JobRes
             dedup_keys,
         ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
-    from jobradar.jd_summary import summary_prompt_version
+    from jobradar.jd_profile import jd_profile_prompt_version
 
     for job in jobs:
-        job.job_summary = get_job_summary(job.dedup_key, job.description_snippet, prompt_version=summary_prompt_version(language))
-        if job.job_summary is None:
-            job.job_summary = get_job_summary(job.dedup_key, job.description_snippet)
+        job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet, prompt_version=jd_profile_prompt_version(language))
+        if job.jd_profile is None:
+            job.jd_profile = get_jd_profile(job.dedup_key, job.description_snippet)
+        _sync_legacy_job_summary(job)
         _attach_latest_match(job, language=language)
     return [j for j in jobs if not j.is_expired]
 
@@ -379,8 +413,66 @@ def _row_to_job(row: sqlite3.Row) -> JobResult:
     )
 
 
+def _sync_legacy_job_summary(job: JobResult) -> None:
+    if job.jd_profile is not None and job.job_summary is None:
+        job.job_summary = JobSummary.model_validate(job.jd_profile.model_dump(mode="json"))
+
+
 def _description_hash(description: str) -> str:
     return hashlib.sha256((description or "").encode("utf-8")).hexdigest()
+
+
+def get_jd_profile(job_id: str, description: str = "", prompt_version: str = "") -> JDProfile | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT profile_json, description_hash, prompt_version FROM jd_profiles WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    if row is not None:
+        if description and row["description_hash"] != _description_hash(description):
+            return None
+        if prompt_version and row["prompt_version"] != prompt_version:
+            return None
+        return JDProfile.model_validate_json(row["profile_json"])
+
+    # Legacy fallback: read older job_summaries rows and upcast them.
+    legacy = get_job_summary(job_id, description=description, prompt_version=prompt_version)
+    if legacy is None:
+        return None
+    return JDProfile.model_validate(legacy.model_dump(mode="json"))
+
+
+def save_jd_profile(
+    job_id: str,
+    description: str,
+    profile: JDProfile,
+    model_name: str = "",
+    prompt_version: str = "",
+) -> None:
+    now = datetime.utcnow().isoformat()
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO jd_profiles
+              (job_id, description_hash, profile_json, model_name, prompt_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+              description_hash = excluded.description_hash,
+              profile_json = excluded.profile_json,
+              model_name = excluded.model_name,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """,
+            (
+                job_id,
+                _description_hash(description),
+                profile.model_dump_json(),
+                model_name,
+                prompt_version,
+                now,
+                now,
+            ),
+        )
 
 
 def get_job_summary(job_id: str, description: str = "", prompt_version: str = "") -> JobSummary | None:
@@ -465,10 +557,10 @@ def _attach_latest_match(job: JobResult, language: str = "zh") -> None:
                 match = get_job_match(job.dedup_key, legacy_hash, job.description_snippet)
     if match is None:
         return
-    if profile is not None and job.job_summary is not None:
+    if profile is not None and job.jd_profile is not None:
         from jobradar.matching import adjust_match_for_profile
 
-        match = adjust_match_for_profile(profile, job.job_summary, match, language=language)
+        match = adjust_match_for_profile(profile, job.jd_profile, match, language=language)
     job.match_score = match
 
 
@@ -817,37 +909,6 @@ def get_cv_profile(cv_hash: str, prompt_version: str = "") -> CVProfile | None:
     return CVProfile.model_validate_json(row["profile_json"])
 
 
-_TITLE_CACHE_TTL_DAYS = 7
-
-
-def get_title_cache(cache_key: str) -> dict | None:
-    """返回缓存的 title 发现结果（{titles, keywords_used}），过期或未命中返回 None。"""
-    with _conn() as con:
-        row = con.execute(
-            "SELECT result_json, cached_at FROM title_cache WHERE cache_key = ?",
-            (cache_key,),
-        ).fetchone()
-    if row is None:
-        return None
-    age = (datetime.utcnow() - datetime.fromisoformat(row["cached_at"])).days
-    if age > _TITLE_CACHE_TTL_DAYS:
-        return None
-    return json.loads(row["result_json"])
-
-
-def save_title_cache(cache_key: str, result_json: str) -> None:
-    with _conn() as con:
-        con.execute(
-            """
-            INSERT INTO title_cache (cache_key, result_json, cached_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(cache_key) DO UPDATE SET result_json = excluded.result_json,
-                                                 cached_at = excluded.cached_at
-            """,
-            (cache_key, result_json, datetime.utcnow().isoformat()),
-        )
-
-
 def save_cv_profile(cv_hash: str, profile: CVProfile, prompt_version: str = "") -> None:
     """将 CVProfile 解析结果写入缓存（已存在则覆盖）。"""
     with _conn() as con:
@@ -911,6 +972,7 @@ def clear_all() -> None:
     """清空所有缓存。"""
     with _conn() as con:
         con.execute("DELETE FROM job_cache")
+        con.execute("DELETE FROM jd_profiles")
         con.execute("DELETE FROM job_summaries")
         con.execute("DELETE FROM job_matches")
         con.execute("DELETE FROM interview_preps")
@@ -919,8 +981,9 @@ def clear_all() -> None:
         con.execute("DELETE FROM search_sessions")
         con.execute("DELETE FROM failed_urls")
         con.execute("DELETE FROM cv_cache")
-        con.execute("DELETE FROM title_cache")
         con.execute("DELETE FROM url_visits")
+        con.execute("DELETE FROM search_stats")
+        con.execute("DELETE FROM filter_events")
 
 
 def delete_jobs(dedup_keys: list[str]) -> int:
@@ -929,6 +992,10 @@ def delete_jobs(dedup_keys: list[str]) -> int:
         return 0
     placeholders = ",".join("?" * len(dedup_keys))
     with _conn() as con:
+        con.execute(
+            f"DELETE FROM jd_profiles WHERE job_id IN ({placeholders})",
+            dedup_keys,
+        )
         con.execute(
             f"DELETE FROM job_summaries WHERE job_id IN ({placeholders})",
             dedup_keys,
@@ -965,6 +1032,9 @@ def save_search_stats(
     tokens_in: int,
     tokens_out: int,
     jobs_found: int,
+    run_id: str = "",
+    experiment_name: str = "",
+    notes: str = "",
     scraped_total: int = 0,
     deduped_total: int = 0,
     filtered_total: int = 0,
@@ -975,17 +1045,22 @@ def save_search_stats(
     cv_prompt_version: str = "",
     jd_summary_prompt_version: str = "",
     match_prompt_version: str = "",
+    title_relevance_prompt_version: str = "",
     title_gate_version: str = "",
     coarse_filter_version: str = "",
+    module_metrics: dict | None = None,
 ) -> int:
     """记录一次搜索的耗时和 token 消耗，返回插入行的 id。"""
     with _conn() as con:
         cur = con.execute(
             """INSERT INTO search_stats
-               (created_at, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, scraped_total, deduped_total, filtered_total, new_jobs, funnel_json, cv_hash, app_version, cv_prompt_version, jd_summary_prompt_version, match_prompt_version, title_gate_version, coarse_filter_version)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (created_at, run_id, experiment_name, notes, location, roles, provider, model, elapsed, tokens_in, tokens_out, jobs_found, scraped_total, deduped_total, filtered_total, new_jobs, funnel_json, cv_hash, app_version, cv_prompt_version, jd_summary_prompt_version, match_prompt_version, title_relevance_prompt_version, title_gate_version, coarse_filter_version, module_metrics_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 datetime.utcnow().isoformat(),
+                run_id,
+                experiment_name,
+                notes,
                 location,
                 json.dumps(roles, ensure_ascii=False),
                 provider,
@@ -1004,11 +1079,66 @@ def save_search_stats(
                 cv_prompt_version,
                 jd_summary_prompt_version,
                 match_prompt_version,
+                title_relevance_prompt_version,
                 title_gate_version,
                 coarse_filter_version,
+                json.dumps(module_metrics, ensure_ascii=False) if module_metrics else None,
             ),
         )
         return cur.lastrowid or 0
+
+
+def record_filter_event(
+    *,
+    stage: str,
+    title: str,
+    company: str = "",
+    location: str = "",
+    source: str = "",
+    url: str = "",
+    reason: str = "",
+    details: dict | None = None,
+    run_id: str = "",
+) -> None:
+    with _conn() as con:
+        con.execute(
+            """INSERT INTO filter_events
+               (created_at, run_id, stage, title, company, location, source, url, reason, details_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                datetime.utcnow().isoformat(),
+                run_id,
+                stage,
+                title,
+                company,
+                location,
+                source,
+                url,
+                reason,
+                json.dumps(details, ensure_ascii=False) if details else None,
+            ),
+        )
+
+
+def get_filter_events(run_id: str = "", limit: int = 500) -> list[dict]:
+    with _conn() as con:
+        if run_id:
+            rows = con.execute(
+                "SELECT * FROM filter_events WHERE run_id = ? ORDER BY id ASC LIMIT ?",
+                (run_id, limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM filter_events ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+    result: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        raw_details = item.pop("details_json", None)
+        item["details"] = json.loads(raw_details) if raw_details else {}
+        result.append(item)
+    return result
 
 
 def _derive_history_metrics(row: sqlite3.Row, funnel: dict | None) -> dict[str, int]:
@@ -1055,6 +1185,7 @@ def _version_info(row: sqlite3.Row) -> dict[str, str]:
         "cv_prompt_version": row["cv_prompt_version"] if "cv_prompt_version" in keys else "",
         "jd_summary_prompt_version": row["jd_summary_prompt_version"] if "jd_summary_prompt_version" in keys else "",
         "match_prompt_version": row["match_prompt_version"] if "match_prompt_version" in keys else "",
+        "title_relevance_prompt_version": row["title_relevance_prompt_version"] if "title_relevance_prompt_version" in keys else "",
         "title_gate_version": row["title_gate_version"] if "title_gate_version" in keys else "",
         "coarse_filter_version": row["coarse_filter_version"] if "coarse_filter_version" in keys else "",
     }
@@ -1066,6 +1197,7 @@ def _benchmark_signature(version_info: dict[str, str]) -> str:
         version_info.get("cv_prompt_version", ""),
         version_info.get("jd_summary_prompt_version", ""),
         version_info.get("match_prompt_version", ""),
+        version_info.get("title_relevance_prompt_version", ""),
         version_info.get("title_gate_version", ""),
         version_info.get("coarse_filter_version", ""),
     ]
@@ -1103,11 +1235,16 @@ def get_search_stats(limit: int = 50) -> list[dict]:
         keys = row.keys()
         raw_funnel = row["funnel_json"] if "funnel_json" in keys else None
         funnel = json.loads(raw_funnel) if raw_funnel else None
+        raw_module_metrics = row["module_metrics_json"] if "module_metrics_json" in keys else None
+        module_metrics = json.loads(raw_module_metrics) if raw_module_metrics else None
         derived = _derive_history_metrics(row, funnel)
         versions = _version_info(row)
         record = {
             "id":         row["id"],
             "created_at": row["created_at"],
+            "run_id": row["run_id"] if "run_id" in keys else "",
+            "experiment_name": row["experiment_name"] if "experiment_name" in keys else "",
+            "notes": row["notes"] if "notes" in keys else "",
             "location":   row["location"],
             "roles":      json.loads(row["roles"]),
             "provider":   row["provider"],
@@ -1121,6 +1258,7 @@ def get_search_stats(limit: int = 50) -> list[dict]:
             "filtered_total": derived["filtered_total"],
             "new_jobs": derived["new_jobs"],
             "funnel":     funnel,
+            "module_metrics": module_metrics,
             "versions": versions,
             "benchmark_signature": _benchmark_signature(versions),
         }
@@ -1210,6 +1348,7 @@ def clear_search_stats() -> None:
     """清空全部搜索历史记录。"""
     with _conn() as con:
         con.execute("DELETE FROM search_stats")
+        con.execute("DELETE FROM filter_events")
 
 
 def clean_expired() -> int:
@@ -1227,6 +1366,10 @@ def clean_expired() -> int:
         expired_job_ids = [row["dedup_key"] for row in expired_rows]
         if expired_job_ids:
             placeholders = ",".join("?" * len(expired_job_ids))
+            con.execute(
+                f"DELETE FROM jd_profiles WHERE job_id IN ({placeholders})",
+                expired_job_ids,
+            )
             con.execute(
                 f"DELETE FROM job_summaries WHERE job_id IN ({placeholders})",
                 expired_job_ids,

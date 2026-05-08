@@ -4,6 +4,14 @@
 
 ### New Features
 
+- **Persisted filter-event audit trail** (`cache.py` / `server.py` / `agent.py` / `scraping.py`)
+  Added `run_id` to each search and a new `filter_events` table that stores per-title rejections with `stage / title / reason / details`.
+  New API endpoint `/api/filter-events` lets you inspect where a title was filtered out, and mock-cache clearing now wipes both `search_stats` and `filter_events` in the mock database.
+
+- **Offline filter-event inspection script** (`scripts/show_filter_events.py`)
+  Added a database reader that inspects the latest or a specific `run_id` from `data/jobradar_test_cache.db` and exports the filtered jobs as terminal text, JSON, or Markdown.
+  This makes it possible to audit `title_relevance`, `coarse_filter`, `experience_gap`, `jd_assessment`, and `final_match` without rerunning a search.
+
 - **Rubric-based explainable matching** (`matching.py`)
   JD-CV matching now uses an explicit scoring rubric for `title / seniority / must-have / nice-to-have / domain / location / language / risk`.
   The prompt instructs the LLM to score by anchor bands (`95 / 80 / 60 / 30`) instead of free-form scoring; backend post-processing snaps each dimension to 5-point increments before programmatic weighted scoring.
@@ -18,14 +26,31 @@
 
 ### Improvements
 
+- **Title gate moved before coarse filter** (`scraping.py` / `agent.py`)
+  Reordered the early funnel so the conservative title-only relevance gate runs before the broader card-level coarse filter.
+  This keeps the responsibilities cleaner: title-only semantic rejection happens first, then coarse card-level keep/reject uses title + location + snippet.
+
+- **Experience-gap direct rejection in prefilter and JD assessment** (`agent.py` / `assessment.py`)
+  Added `skip_exp` / `experience_gap` handling to the prefilter and a direct `jd_assessment` short-circuit for roles whose explicit years-required exceeds the candidate's experience by more than 3 years.
+  These items are now rejected with a structured reason before or inside assessment instead of receiving a normal free-form LLM analysis.
+
+- **Relocation and office-attendance semantics moved to risk handling** (`matching.py`)
+  Same-country city relocation and office-attendance requirements such as `hybrid`, `onsite`, or fixed in-office days are now treated as `risks / risk_penalty`.
+  `location_score` is reserved for broader geographic compatibility and should no longer be lowered by those two practical-friction factors.
+
 - **JD 评分加入经验年限上限规则**（`assessment.py`）
   当 JD 要求年限超过候选人实际年限时，score 按差距限制上限：差距 ≤ 2 年不限制，3~5 年上限 5 分，> 5 年上限 3 分。
   避免技能方向匹配但经验严重不足的职位获得虚高评分。
 
 - **README pipeline/docs refreshed**
-  Updated `README.md` / `README.zh.md` / `README.es.md` to reflect the current LLM pipeline: batched coarse filter, JD summary extraction, rubric-based explainable matching, artifact hub, and normalized search history metrics.
+  Updated `README.md` / `README.zh.md` / `README.es.md` to reflect the current LLM pipeline: title gate before coarse filter, persisted filter events, compare / inspection scripts, experience-gap rejection, and risk-only relocation / office-attendance handling.
 
 ### Bug Fixes
+
+- **`matching.py` missing `import re` aborted searches** (`matching.py`)
+  After adding relocation / office-attendance helper functions using regex, the module forgot to import `re`.
+  The first matching pass raised `name 're' is not defined`, which bubbled up as a generic `Scrape error, skipping` and ended the run with `0 jobs collected`.
+  Added the missing import so the matching stage no longer crashes on those risk checks.
 
 - **Title seniority gate caused full search abort** (`agent.py`)
   After adding the dynamic title seniority gate, `source_stats` did not initialize the `skip_seniority` key.

@@ -1,6 +1,7 @@
 """JobSpy 抓取层：Indeed + LinkedIn 抓取实现 + LLM 标题过滤 + 公开入口 scrape_sources。"""
 from __future__ import annotations
 
+import os
 import random
 import re
 import time
@@ -9,6 +10,8 @@ from typing import TYPE_CHECKING, Callable
 
 from pydantic import BaseModel
 
+from jobradar import cache
+from jobradar.assessment import batch_assess_titles
 from jobradar.logger import get_logger
 from jobradar.schemas import CoarseFilterResult
 
@@ -23,6 +26,11 @@ _COARSE_FILTER_BATCH_SIZE = 10
 _COARSE_FILTER_RETRY_BATCH_SIZE = 5
 _COARSE_FILTER_SNIPPET_LIMIT = 160
 _COARSE_FILTER_RETRY_SNIPPET_LIMIT = 80
+
+
+def _title_relevance_gate_enabled() -> bool:
+    value = (os.getenv("JOBRADAR_ENABLE_TITLE_RELEVANCE_GATE", "1") or "1").strip().lower()
+    return value not in {"0", "false", "off", "no"}
 
 
 def _parse_job_date(value: str) -> datetime | None:
@@ -568,6 +576,7 @@ def scrape_sources(
     linkedin_limit_per_role: int = 30,
     hours_old: int | None = 72,
     stats: "PipelineStats | None" = None,
+    run_id: str = "",
 ) -> list[dict]:
     """抓取 Indeed + LinkedIn，LLM 保守粗筛后合并返回。"""
     def _cb(msg: str) -> None:
@@ -623,6 +632,46 @@ def scrape_sources(
     if stats is not None and before_date_filter != len(raw):
         stats.scraped_total = len(raw)
 
+    # pre-coarse title relevance gate
+    if cv_profile is not None and llm is not None:
+        stats_title_in = len(raw)
+        title_gate_enabled = _title_relevance_gate_enabled()
+        if title_gate_enabled and raw:
+            _cb(f"Title relevance gate: {len(raw)} titles")
+            title_results = batch_assess_titles(
+                [job.get("title", "") for job in raw],
+                cv_profile,
+                llm,
+            )
+            kept: list[dict] = []
+            rejected = 0
+            for job, assessment in zip(raw, title_results):
+                if assessment.keep:
+                    kept.append(job)
+                else:
+                    rejected += 1
+                    cache.record_filter_event(
+                        run_id=run_id,
+                        stage="title_relevance",
+                        title=job.get("title", ""),
+                        company=job.get("company", ""),
+                        location=job.get("location", ""),
+                        source=job.get("source", ""),
+                        url=job.get("url", ""),
+                        reason=assessment.reason,
+                    )
+                    _cb(f"Skip (title not relevant): {job.get('title', '')[:60]} — {assessment.reason}")
+            raw = kept
+            logger.info("Title relevance gate: %d → %d jobs", stats_title_in, len(raw))
+            _cb(f"Title relevance gate: {stats_title_in} → {len(raw)} jobs")
+            if stats is not None:
+                stats.title_relevance_in = stats_title_in
+                stats.title_relevance_rejected = rejected
+                stats.skip_irrelevant = rejected
+        elif stats is not None:
+            stats.title_relevance_in = 0
+            stats.title_relevance_rejected = 0
+
     # LLM 粗筛
     if cv_profile is not None:
         cards_meta = [
@@ -655,6 +704,26 @@ def scrape_sources(
             job["coarse_filter"] = coarse.model_dump(mode="json")
             if coarse.keep:
                 kept.append(job)
+            else:
+                reason = coarse.reject_reason or coarse.reason or "coarse filter rejected"
+                cache.record_filter_event(
+                    run_id=run_id,
+                    stage="coarse_filter",
+                    title=job.get("title", ""),
+                    company=job.get("company", ""),
+                    location=job.get("location", ""),
+                    source=job.get("source", ""),
+                    url=job.get("url", ""),
+                    reason=reason,
+                    details={
+                        "priority": coarse.priority,
+                        "title_match": coarse.title_match,
+                        "location_match": coarse.location_match,
+                        "inferred_seniority": coarse.inferred_seniority,
+                        "seniority_confidence": coarse.seniority_confidence,
+                    },
+                )
+                _cb(f"Skip (coarse filter): {job['title'][:60]} — {reason}")
         raw = kept
         logger.info("LLM coarse filter done: %d → %d jobs", before, len(raw))
         _cb(f"LLM coarse filter: {before} → {len(raw)} jobs")

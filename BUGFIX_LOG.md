@@ -95,4 +95,30 @@ title seniority gate 现在会正常计数，不再把整轮搜索中断为 `0 j
 
 ---
 
+## 2026-05-05
+
+### BUG-004 · matching 风险辅助函数漏导入 `re`，整轮搜索被误记为 scrape error
+
+**错误**
+```text
+2026-05-04 20:42:33 [WARNING] jobradar.agent: Scrape error, skipping: name 're' is not defined
+2026-05-04 20:42:33 [INFO] jobradar.agent: Search complete, 0 jobs collected
+```
+
+**原因**
+`matching.py` 新增了用于识别跨城市搬迁和办公室到岗要求的正则辅助函数，但文件顶部漏写了 `import re`。
+运行到 matching 阶段时抛出 `NameError`，外层统一异常处理把它记录成了 `Scrape error, skipping`，因此日志表面看像抓取失败，实际是匹配阶段的 Python 异常。
+
+**解决方案**
+在 `jobradar/matching.py` 顶部补上：
+
+```python
+import re
+```
+
+**结果**
+`python -m compileall jobradar/matching.py` 通过，matching 风险检查不再因为缺少 `re` 导致整轮搜索返回 `0 jobs collected`。
+
+---
+
 <!-- 新 bug 请在此行上方添加，格式同上 -->

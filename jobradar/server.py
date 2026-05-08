@@ -1,8 +1,8 @@
 """FastAPI Web 服务器：为 Web UI 提供 REST API 和 SSE 进度流。
 
 启动方式：
-    uv run jobfinder serve            # 正常模式（使用 jobradar_cache.db）
-    uv run jobfinder serve --mock     # 测试模式（使用 jobradar_test_cache.db，API 调用真实发生）
+    uv run jobradar serve            # 正常模式（使用 data/jobradar_cache.db）
+    uv run jobradar serve --mock     # 测试模式（使用 data/jobradar_test_cache.db，API 调用真实发生）
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 
 from jobradar import __version__, cache
 from jobradar.cover_letter import generate_cover_letter
+from jobradar.assessment import TITLE_RELEVANCE_PROMPT_VERSION
 from jobradar.cv_extractor import PROMPT_VERSION as CV_PROMPT_VERSION
 from jobradar.cv_optimization import generate_cv_optimization
 from jobradar.dedup_check import run_dedup_check
@@ -33,7 +34,7 @@ from jobradar.cv_extractor import extract_cv_profile
 from jobradar.cv_reader import read_cv
 from jobradar.filters import TITLE_GATE_VERSION
 from jobradar.interview_prep import generate_interview_prep
-from jobradar.jd_summary import PROMPT_VERSION as JD_SUMMARY_PROMPT_VERSION
+from jobradar.jd_profile import PROMPT_VERSION as JD_PROFILE_PROMPT_VERSION
 from jobradar.logger import get_logger
 from jobradar.llm_backend import (
     AVAILABLE_MODELS,
@@ -42,10 +43,11 @@ from jobradar.llm_backend import (
     LLMConfig,
     check_provider_connection,
 )
-from jobradar.jd_summary import summarize_jd
+from jobradar.jd_profile import extract_jd_profile
 from jobradar.matching import PROMPT_VERSION as MATCH_PROMPT_VERSION
 from jobradar.scraping import COARSE_FILTER_VERSION
 from jobradar.matching import match_job_to_cv
+from jobradar.paths import DATA_DIR
 
 # Snapshot of the original model list taken at server start (for mock-mode reset)
 _ORIGINAL_AVAILABLE_MODELS: dict[str, list[str]] = {
@@ -56,7 +58,7 @@ load_dotenv()
 
 logger = get_logger(__name__)
 
-# ─── 测试模式开关（--mock：使用 jobradar_test_cache.db，所有 API 调用真实发生） ──
+# ─── 测试模式开关（--mock：使用 data/jobradar_test_cache.db，所有 API 调用真实发生） ──
 
 MOCK_MODE: bool = os.getenv("JOBFINDER_MOCK") == "1"
 # mock 模式下需要保护的运行时 env var，不允许被 load_dotenv(override=True) 覆盖
@@ -71,11 +73,11 @@ def _reload_dotenv() -> None:
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
 
-app = FastAPI(title="JobFinder")
+app = FastAPI(title="JobRadar")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -86,13 +88,24 @@ _progress_q: asyncio.Queue[str] = asyncio.Queue()
 _search_running = False
 _main_loop: asyncio.AbstractEventLoop | None = None
 
+_MODULE_STEP_MAP = {
+    "CV 解析": "cv_parse",
+    "Title 粗筛": "title_relevance",
+    "JD 批量评估": "jd_assessment",
+    "JD Profile": "jd_profile",
+    "JD CV Matching": "matching",
+    "Interview Prep": "interview_prep",
+    "Cover Letter": "cover_letter",
+    "CV Optimization": "cv_optimization",
+}
+
 
 @app.on_event("startup")
 async def _capture_loop() -> None:
     global _main_loop
     _main_loop = asyncio.get_event_loop()
-    db_path = os.getenv("CACHE_DB_PATH", "jobradar_cache.db")
-    logger.info("JobFinder server started | mock=%s | db=%s", MOCK_MODE, db_path)
+    db_path = os.getenv("CACHE_DB_PATH", str(DATA_DIR / "jobradar_cache.db"))
+    logger.info("JobRadar server started | mock=%s | db=%s", MOCK_MODE, db_path)
 
 
 def _emit(event_type: str, **kwargs) -> None:
@@ -100,6 +113,47 @@ def _emit(event_type: str, **kwargs) -> None:
     payload = json.dumps({"type": event_type, **kwargs}, ensure_ascii=False)
     if _main_loop and not _main_loop.is_closed():
         _main_loop.call_soon_threadsafe(_progress_q.put_nowait, payload)
+
+
+def _collect_module_metrics(pipeline_stats=None) -> dict:
+    from jobradar.telemetry import telemetry
+
+    raw = telemetry.summarize_llm_by_step()
+    metrics: dict[str, dict] = {}
+    for step, data in raw.items():
+        key = _MODULE_STEP_MAP.get(step, step.lower().replace(" ", "_"))
+        metrics[key] = {
+            "step": step,
+            "calls": int(data.get("calls", 0)),
+            "input_tokens": int(data.get("input_tokens", 0)),
+            "output_tokens": int(data.get("output_tokens", 0)),
+            "elapsed": round(float(data.get("elapsed", 0.0)), 3),
+            "provider": data.get("provider", ""),
+            "model": data.get("model", ""),
+        }
+
+    if pipeline_stats is not None:
+        title_gate = metrics.setdefault(
+            "title_relevance",
+            {"step": "Title 粗筛", "calls": 0, "input_tokens": 0, "output_tokens": 0, "elapsed": 0.0, "provider": "", "model": ""},
+        )
+        title_gate["processed"] = int(getattr(pipeline_stats, "title_relevance_in", 0))
+        title_gate["rejected"] = int(getattr(pipeline_stats, "title_relevance_rejected", 0))
+        title_gate["kept"] = max(0, int(title_gate["processed"]) - int(title_gate["rejected"]))
+
+        jd_assessment = metrics.setdefault(
+            "jd_assessment",
+            {"step": "JD 批量评估", "calls": 0, "input_tokens": 0, "output_tokens": 0, "elapsed": 0.0, "provider": "", "model": ""},
+        )
+        jd_assessment["processed"] = int(getattr(pipeline_stats, "llm_assessed", 0))
+        jd_assessment["rejected"] = int(getattr(pipeline_stats, "llm_rejected", 0))
+        jd_assessment["kept"] = max(0, int(jd_assessment["processed"]) - int(jd_assessment["rejected"]))
+
+    total_in = sum(int(item.get("input_tokens", 0)) for item in metrics.values())
+    total_out = sum(int(item.get("output_tokens", 0)) for item in metrics.values())
+    total_calls = sum(int(item.get("calls", 0)) for item in metrics.values())
+    metrics["_summary"] = {"calls": total_calls, "input_tokens": total_in, "output_tokens": total_out}
+    return metrics
 
 
 # ─── 环境变量工具 ─────────────────────────────────────────────────────────────
@@ -149,10 +203,6 @@ def get_config() -> dict:
         "default_models": DEFAULT_MODELS,
         "mock_mode": MOCK_MODE,
         "version": __version__,
-        "providers_extra": {
-            "adzuna_id":  bool(os.getenv("ADZUNA_APP_ID")),
-            "adzuna_key": bool(os.getenv("ADZUNA_APP_KEY")),
-        },
     }
 
 
@@ -167,10 +217,9 @@ _ALLOWED_ENV_KEYS: set[str] = {
     "XAI_API_KEY", "MISTRAL_API_KEY", "DASHSCOPE_API_KEY",
     "ZHIPUAI_API_KEY", "MOONSHOT_API_KEY", "DEEPSEEK_API_KEY",
     "MINIMAX_API_KEY", "LOCAL_LLM_API_KEY",
-    "ADZUNA_APP_ID", "ADZUNA_APP_KEY",
     "LLAMACPP_BASE_URL", "LLAMACPP_API_KEY", "LOCAL_LLM_BASE_URL",
     "DEFAULT_PROVIDER", "DEFAULT_MODEL",
-    "JOB_TTL_DAYS", "SESSION_TTL_HOURS", "CACHE_DB_PATH",
+    "JOB_TTL_DAYS", "SESSION_TTL_HOURS",
 }
 
 
@@ -219,12 +268,16 @@ def _job_to_dict(j) -> dict:
     if j.coarse_filter:
         d["coarse_priority"] = j.coarse_filter.priority
         d["coarse_reason"] = j.coarse_filter.reason
-    if j.job_summary:
-        d["job_summary"] = j.job_summary.model_dump(mode="json")
-        d["work_mode"] = j.job_summary.work_mode
-        d["job_type"] = j.job_summary.job_type
-        d["years_required"] = j.job_summary.years_required
-        d["seniority_conflict"] = j.job_summary.seniority_conflict
+    if j.jd_profile:
+        legacy_summary = j.jd_profile.model_dump(mode="json")
+        legacy_summary["must_have"] = list(j.jd_profile.must_have_requirements)
+        legacy_summary["good_to_have"] = list(j.jd_profile.preferred_skills)
+        d["jd_profile"] = j.jd_profile.model_dump(mode="json")
+        d["job_summary"] = legacy_summary
+        d["work_mode"] = j.jd_profile.work_mode
+        d["job_type"] = j.jd_profile.job_type
+        d["years_required"] = j.jd_profile.years_required
+        d["seniority_conflict"] = j.jd_profile.seniority_conflict
     return d
 
 
@@ -281,9 +334,9 @@ def _resolve_artifact_context(dedup_key: str, req: ArtifactRequest):
 
     _model = req.model or DEFAULT_MODELS.get(req.provider, "")
     llm = LLMConfig(provider=req.provider, model=_model)
-    summary = job.job_summary or summarize_jd(job, llm)
-    match = match_job_to_cv(profile, summary, job.description_snippet, llm, cv_hash=cv_hash)
-    return job, profile, cv_hash, llm, summary, match
+    jd_profile = job.jd_profile or extract_jd_profile(job, llm)
+    match = match_job_to_cv(profile, jd_profile, job.description_snippet, llm, cv_hash=cv_hash)
+    return job, profile, cv_hash, llm, jd_profile, match
 
 
 def _run_artifact_endpoint(
@@ -293,9 +346,12 @@ def _run_artifact_endpoint(
     response_key: str,
     generator: Callable,
 ) -> dict:
+    from jobradar.telemetry import telemetry
+
     try:
-        job, profile, cv_hash, llm, summary, match = _resolve_artifact_context(dedup_key, req)
-        artifact = generator(profile, cv_hash, job, summary, match, llm)
+        telemetry.reset()
+        job, profile, cv_hash, llm, jd_profile, match = _resolve_artifact_context(dedup_key, req)
+        artifact = generator(profile, cv_hash, job, jd_profile, match, llm)
     except HTTPException:
         raise
     except Exception as e:
@@ -305,6 +361,7 @@ def _run_artifact_endpoint(
     return {
         "job_id": dedup_key,
         response_key: artifact.model_dump(mode="json"),
+        "module_metrics": _collect_module_metrics(),
     }
 
 
@@ -361,7 +418,7 @@ def clear_cache() -> dict:
 @app.post("/api/config/clear-keys")
 def clear_api_keys() -> dict:
     """Clear all configured API keys from .env and os.environ."""
-    key_names = {v for v in _PROVIDER_KEY_MAP.values() if v} | {"ADZUNA_APP_ID", "ADZUNA_APP_KEY"}
+    key_names = {v for v in _PROVIDER_KEY_MAP.values() if v}
     cleared: list[str] = []
     for key in key_names:
         if os.getenv(key):
@@ -422,6 +479,9 @@ async def parse_cv(
         tmp_path = Path(tmp.name)
 
     try:
+        from jobradar.telemetry import telemetry
+
+        telemetry.reset()
         cv_text = read_cv(tmp_path)
         _model = model or DEFAULT_MODELS.get(provider, "")
         llm = LLMConfig(provider=provider, model=_model)
@@ -429,68 +489,12 @@ async def parse_cv(
         profile = extract_cv_profile(cv_text, llm=llm)
         cv_hash = hashlib.sha256(cv_text.encode()).hexdigest()
         logger.info("CV parse done | hash=%s seniority=%s skills=%d", cv_hash[:8], profile.seniority_display, len(profile.skills))
-        return {"cv_hash": cv_hash, "profile": profile.model_dump(mode="json")}
+        return {"cv_hash": cv_hash, "profile": profile.model_dump(mode="json"), "module_metrics": _collect_module_metrics()}
     except Exception as e:
         logger.error("CV parse failed | file=%s error=%s", file.filename, e, exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         tmp_path.unlink(missing_ok=True)
-
-
-# ─── Title 发现 API ───────────────────────────────────────────────────────────
-
-class DiscoverTitlesRequest(BaseModel):
-    cv_hash: str
-    provider: str = "gemini"
-    model: str = ""
-    countries: list[str] = ["us", "gb"]
-    profile: dict | None = None  # 前端传来的 CVProfile，缓存丢失时作兜底
-
-
-@app.post("/api/titles/discover")
-def discover_titles_endpoint(req: DiscoverTitlesRequest) -> dict:
-    from jobradar.schemas import CVProfile
-    from jobradar.title_discovery import discover_titles
-
-    profile = cache.get_cv_profile(req.cv_hash) or cache.get_latest_cv_profile()
-    if profile is None and req.profile:
-        try:
-            profile = CVProfile.model_validate(req.profile)
-            cache.save_cv_profile(req.cv_hash, profile)  # 重新写入缓存
-            logger.info("CV profile restored from request body | hash=%s", req.cv_hash[:8])
-        except Exception as e:
-            logger.warning("Failed to restore CV profile from request body: %s", e)
-    if profile is None:
-        raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
-
-    cache_key = f"{req.cv_hash}::{'_'.join(sorted(req.countries))}"
-    cached = cache.get_title_cache(cache_key)
-    if cached:
-        return cached
-
-    _model = req.model or DEFAULT_MODELS.get(req.provider, "")
-    llm = LLMConfig(provider=req.provider, model=_model)
-    logger.info("Title discovery started | cv_hash=%s countries=%s provider=%s", req.cv_hash[:8], req.countries, req.provider)
-
-    try:
-        result = discover_titles(
-            skills=profile.skills,
-            cv_summary=profile.summary,
-            seniority=profile.effective_seniority,
-            llm=llm,
-            top_keywords=8,
-            countries=req.countries,
-        )
-        data = {
-            "titles": [t.model_dump() for t in result.titles],
-            "keywords_used": result.keywords_used,
-        }
-        cache.save_title_cache(cache_key, json.dumps(data))
-        logger.info("Title discovery done | titles=%d", len(result.titles))
-        return data
-    except Exception as e:
-        logger.error("Title discovery failed | error=%s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ─── 搜索 API ─────────────────────────────────────────────────────────────────
@@ -499,6 +503,8 @@ class SearchRequest(BaseModel):
     cv_hash: str
     roles: list[str]
     location: str
+    experiment_name: str = ""
+    notes: str = ""
     provider: str = "gemini"
     model: str = ""
     refresh: bool = False
@@ -546,8 +552,8 @@ async def _run_search_task(req: SearchRequest) -> None:
             _model = req.model or DEFAULT_MODELS.get(req.provider, "")
             llm = LLMConfig(provider=req.provider, model=_model)
             logger.info(
-                "Search started | location=%s roles=%s provider=%s model=%s refresh=%s",
-                req.location, req.roles, req.provider, _model, req.refresh,
+                "Search started | location=%s roles=%s provider=%s model=%s refresh=%s experiment=%s",
+                req.location, req.roles, req.provider, _model, req.refresh, req.experiment_name,
             )
 
             telemetry.reset()
@@ -577,7 +583,11 @@ async def _run_search_task(req: SearchRequest) -> None:
                 len(dedup_keys), elapsed, tokens_in, tokens_out,
             )
             funnel_data = pipeline_stats.to_dict()
+            module_metrics = _collect_module_metrics(pipeline_stats)
             cache.save_search_stats(
+                run_id=getattr(pipeline_stats, "run_id", ""),
+                experiment_name=req.experiment_name,
+                notes=req.notes,
                 location=req.location,
                 roles=req.roles,
                 provider=req.provider,
@@ -594,10 +604,12 @@ async def _run_search_task(req: SearchRequest) -> None:
                 cv_hash=req.cv_hash,
                 app_version=__version__,
                 cv_prompt_version=CV_PROMPT_VERSION,
-                jd_summary_prompt_version=JD_SUMMARY_PROMPT_VERSION,
+                jd_summary_prompt_version=JD_PROFILE_PROMPT_VERSION,
                 match_prompt_version=MATCH_PROMPT_VERSION,
+                title_relevance_prompt_version=TITLE_RELEVANCE_PROMPT_VERSION,
                 title_gate_version=TITLE_GATE_VERSION,
                 coarse_filter_version=COARSE_FILTER_VERSION,
+                module_metrics=module_metrics,
             )
             try:
                 dedup_report = run_dedup_check(list(dedup_keys))
@@ -608,6 +620,7 @@ async def _run_search_task(req: SearchRequest) -> None:
                   elapsed=round(elapsed, 1),
                   tokens_in=tokens_in, tokens_out=tokens_out,
                   pipeline_stats=funnel_data,
+                  module_metrics=module_metrics,
                   dedup=dedup_report)
         except Exception as e:
             logger.error("Search failed | error=%s", e, exc_info=True)
@@ -678,6 +691,14 @@ def get_stats(limit: int = 50) -> dict:
         "records": cache.get_search_stats(limit=limit),
         "summary": cache.get_stats_summary(),
         "benchmark": cache.get_benchmark_summary(limit=limit),
+    }
+
+
+@app.get("/api/filter-events")
+def get_filter_events(run_id: str = "", limit: int = 500) -> dict:
+    return {
+        "run_id": run_id,
+        "events": cache.get_filter_events(run_id=run_id, limit=limit),
     }
 
 

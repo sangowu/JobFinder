@@ -238,44 +238,6 @@
       </div>
     </div>
 
-    <!-- Job Search API (optional) -->
-    <div class="flex gap-4 mb-8 items-start">
-      <!-- Left: spacer matching model API button column -->
-      <div class="flex-shrink-0 w-32"></div>
-      <!-- Right: Adzuna card -->
-      <div class="flex-1 min-w-0">
-        <h2 class="text-sm font-semibold text-white mb-3 text-center" data-i18n="cfg.job_api_title"></h2>
-        <div class="bg-gray-800 rounded-xl p-4 relative space-y-3">
-        <p class="text-xs text-gray-400" data-i18n="cfg.job_api_desc"></p>
-          <div class="flex items-center justify-between">
-            <span class="font-medium text-sm text-white">Adzuna</span>
-            <span id="status-adzuna" class="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-500"></span>
-          </div>
-          <div class="flex gap-2 items-center">
-            <input type="text" id="key-adzuna-id" placeholder="ADZUNA_APP_ID"
-              class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white text-xs rounded-lg px-3 py-2
-                     focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
-              autocomplete="off"/>
-            <button onclick="saveAdzunaKey()"
-              class="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors whitespace-nowrap">
-              <span data-i18n="cfg.save"></span>
-            </button>
-          </div>
-          <div class="flex gap-2 items-center">
-            <input type="password" id="key-adzuna-key" placeholder="ADZUNA_APP_KEY"
-              class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white text-xs rounded-lg px-3 py-2
-                     focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
-              autocomplete="off"/>
-            <button onclick="saveAdzunaKey()"
-              class="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors whitespace-nowrap opacity-0 pointer-events-none">
-              <span data-i18n="cfg.save"></span>
-            </button>
-          </div>
-          <p id="test-msg-adzuna" class="absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-transparent"></p>
-        </div>
-      </div>
-    </div>
-
     <button id="cfg-continue"
       class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed
              text-white font-semibold rounded-xl transition-colors"
@@ -537,18 +499,6 @@
           <div>
             <div class="flex items-center justify-between mb-2">
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300" data-i18n="titles.roles"></label>
-              <button id="discover-btn" onclick="discoverTitles()"
-                class="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                <span data-i18n="titles.discover"></span>
-              </button>
-            </div>
-            <!-- 市场发现进度条 -->
-            <div id="discover-progress" class="hidden h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden mb-2">
-              <div class="h-full w-1/3 rounded-full bg-blue-500 animate-discover-slide"></div>
             </div>
             <div id="titles-list" class="space-y-1.5"></div>
             <div class="flex gap-2 mt-2">
@@ -611,6 +561,22 @@
             </select>
           </div>
 
+          <label class="flex items-center gap-3 cursor-pointer select-none">
+            <input id="force-refresh" type="checkbox"
+              class="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"/>
+            <span class="text-xs text-gray-500 dark:text-gray-400" data-i18n="titles.force_refresh"></span>
+          </label>
+
+          <input id="experiment-name" type="text" data-i18n-ph="titles.experiment_name_ph"
+            class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                   text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            placeholder="实验名称（可选）"/>
+
+          <textarea id="experiment-notes" rows="2" data-i18n-ph="titles.experiment_notes_ph"
+            class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                   text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+            placeholder="实验备注（可选）"></textarea>
+
           <!-- Search button -->
           <button id="search-btn" onclick="startSearch()"
             class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
@@ -643,6 +609,7 @@
             <p id="done-tokens"></p>
           </div>
           <div id="done-funnel" class="hidden text-gray-400 dark:text-gray-500"></div>
+          <div id="done-modules" class="hidden text-gray-400 dark:text-gray-500"></div>
           <div id="done-dedup" class="hidden text-xs font-mono mt-1"></div>
           <button onclick="resetSearchPanel()"
             class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
@@ -767,6 +734,7 @@ const I18N = {
     'hist.col_total': '总数', 'hist.col_deduped': '去重后', 'hist.col_filtered': '过滤后', 'hist.col_new_jobs': '新增职位', 'hist.col_tokens': 'Token',
     'hist.empty': '暂无搜索记录', 'hist.total_searches': '总搜索次数', 'hist.total_jobs': '累计职位数',
     'hist.total_tokens': '累计 tokens', 'hist.total_elapsed': '累计耗时',
+    'hist.experiment': '实验：{0}', 'hist.notes': '备注：{0}',
     'hist.clear': '清空历史', 'hist.clear_confirm': '确定要清空全部搜索历史吗？此操作不可撤销。',
     'hist.clear_done': '历史记录已清空', 'hist.col_funnel': '漏斗',
     'hist.benchmark_title': '漏斗 Benchmark',
@@ -781,6 +749,14 @@ const I18N = {
     'hist.metric_tokens_new': '每个新增职位 Token',
     'hist.metric_assessment_eff': '评估/新增比',
     'hist.metric_seniority_reject': '年资拦截率',
+    'hist.module_title': '模块级监控',
+    'hist.module_empty': '暂无模块监控数据',
+    'hist.module_calls': '调用',
+    'hist.module_tokens': 'Token',
+    'hist.module_elapsed': '耗时',
+    'hist.module_processed': '处理',
+    'hist.module_rejected': '拒绝',
+    'hist.module_kept': '保留',
     'hist.delta_up': '较上一版 +{0}',
     'hist.delta_down': '较上一版 -{0}',
     'hist.delta_flat': '与上一版持平',
@@ -831,6 +807,9 @@ const I18N = {
     'titles.limit_label': '每个职位抓取上限', 'titles.limit_unit': '条/role',
     'titles.linkedin_tip': 'LinkedIn 建议不超过 100 条/role，否则可能触发限流。设为 0 可跳过 LinkedIn 抓取。',
     'titles.date_range': '发布时间范围',
+    'titles.force_refresh': '强制重新检索（忽略本次搜索会话缓存）',
+    'titles.experiment_name_ph': '实验名称（可选）',
+    'titles.experiment_notes_ph': '实验备注（可选）',
     'hours.24h': '24 小时', 'hours.3d': '3 天', 'hours.7d': '7 天', 'hours.14d': '14 天', 'hours.30d': '30 天', 'hours.unlimited': '不限',
     'progress.title': '搜索中…', 'done.restart': '重新搜索',
     'detail.back': '返回搜索', 'detail.source': '来源：{0}', 'detail.apply': '投递 →',
@@ -889,6 +868,14 @@ const I18N = {
     'msg.deleted': '已删除 {0} 个职位', 'msg.delete_fail': '删除失败：',
     'msg.model_saved': '默认模型已保存：', 'msg.testing': '测试中…',
     'summary.showing': '显示 {0} / {1} 个职位', 'summary.total': '{0} 个职位',
+    'module.cv_parse': 'CV 解析',
+    'module.title_relevance': '标题语义粗筛',
+    'module.jd_assessment': 'JD 批量评估',
+    'module.jd_profile': 'JD Profile',
+    'module.matching': 'CV↔JD 匹配',
+    'module.interview_prep': '面试准备',
+    'module.cover_letter': '求职信',
+    'module.cv_optimization': 'CV 优化',
   },
   en: {
     'nav.config': 'API Config', 'nav.history': 'History', 'nav.logs': 'Logs', 'nav.light': 'Light', 'nav.dark': 'Dark',
@@ -897,6 +884,7 @@ const I18N = {
     'hist.col_total': 'Total', 'hist.col_deduped': 'Deduped', 'hist.col_filtered': 'Filtered', 'hist.col_new_jobs': 'New Jobs', 'hist.col_tokens': 'Tokens',
     'hist.empty': 'No search history yet', 'hist.total_searches': 'Total Searches', 'hist.total_jobs': 'Total Jobs Found',
     'hist.total_tokens': 'Total Tokens', 'hist.total_elapsed': 'Total Time',
+    'hist.experiment': 'Experiment: {0}', 'hist.notes': 'Notes: {0}',
     'hist.clear': 'Clear History', 'hist.clear_confirm': 'Clear all search history? This cannot be undone.',
     'hist.clear_done': 'History cleared', 'hist.col_funnel': 'Funnel',
     'hist.benchmark_title': 'Funnel Benchmark',
@@ -911,6 +899,14 @@ const I18N = {
     'hist.metric_tokens_new': 'Tokens per new job',
     'hist.metric_assessment_eff': 'Assess/new ratio',
     'hist.metric_seniority_reject': 'Seniority reject rate',
+    'hist.module_title': 'Module Telemetry',
+    'hist.module_empty': 'No module telemetry available',
+    'hist.module_calls': 'calls',
+    'hist.module_tokens': 'tokens',
+    'hist.module_elapsed': 'elapsed',
+    'hist.module_processed': 'processed',
+    'hist.module_rejected': 'rejected',
+    'hist.module_kept': 'kept',
     'hist.delta_up': 'vs previous +{0}',
     'hist.delta_down': 'vs previous -{0}',
     'hist.delta_flat': 'same as previous',
@@ -961,6 +957,9 @@ const I18N = {
     'titles.limit_label': 'Results per role', 'titles.limit_unit': 'jobs/role',
     'titles.linkedin_tip': 'LinkedIn: recommended ≤ 100/role to avoid rate limiting. Set to 0 to skip LinkedIn.',
     'titles.date_range': 'Date posted',
+    'titles.force_refresh': 'Force re-search (ignore this search session cache)',
+    'titles.experiment_name_ph': 'Experiment name (optional)',
+    'titles.experiment_notes_ph': 'Experiment notes (optional)',
     'hours.24h': '24h', 'hours.3d': '3 days', 'hours.7d': '7 days', 'hours.14d': '14 days', 'hours.30d': '30 days', 'hours.unlimited': 'No limit',
     'progress.title': 'Searching…', 'done.restart': 'Search Again',
     'detail.back': '← Back', 'detail.source': 'Source: {0}', 'detail.apply': 'Apply →',
@@ -1019,6 +1018,14 @@ const I18N = {
     'msg.deleted': 'Deleted {0} jobs', 'msg.delete_fail': 'Delete failed: ',
     'msg.model_saved': 'Default model saved: ', 'msg.testing': 'Testing…',
     'summary.showing': 'Showing {0} / {1} jobs', 'summary.total': '{0} jobs',
+    'module.cv_parse': 'CV Parse',
+    'module.title_relevance': 'Title Relevance Gate',
+    'module.jd_assessment': 'JD Batch Assessment',
+    'module.jd_profile': 'JD Profile',
+    'module.matching': 'CV↔JD Matching',
+    'module.interview_prep': 'Interview Prep',
+    'module.cover_letter': 'Cover Letter',
+    'module.cv_optimization': 'CV Optimization',
   },
   es: {
     'nav.config': 'Config. API', 'nav.history': 'Historial', 'nav.logs': 'Registros', 'nav.light': 'Claro', 'nav.dark': 'Oscuro',
@@ -1027,6 +1034,7 @@ const I18N = {
     'hist.col_total': 'Total', 'hist.col_deduped': 'Tras dedup', 'hist.col_filtered': 'Tras filtro', 'hist.col_new_jobs': 'Nuevos', 'hist.col_tokens': 'Tokens',
     'hist.empty': 'Sin historial de búsquedas', 'hist.total_searches': 'Total búsquedas', 'hist.total_jobs': 'Empleos encontrados',
     'hist.total_tokens': 'Tokens totales', 'hist.total_elapsed': 'Tiempo total',
+    'hist.experiment': 'Experimento: {0}', 'hist.notes': 'Notas: {0}',
     'hist.clear': 'Limpiar historial', 'hist.clear_confirm': '¿Limpiar todo el historial? No se puede deshacer.',
     'hist.clear_done': 'Historial eliminado', 'hist.col_funnel': 'Embudo',
     'hist.benchmark_title': 'Benchmark del embudo',
@@ -1041,6 +1049,14 @@ const I18N = {
     'hist.metric_tokens_new': 'Tokens por puesto nuevo',
     'hist.metric_assessment_eff': 'Ratio evaluación/nuevo',
     'hist.metric_seniority_reject': 'Tasa de rechazo por seniority',
+    'hist.module_title': 'Telemetría por módulo',
+    'hist.module_empty': 'Todavía no hay telemetría por módulo',
+    'hist.module_calls': 'llamadas',
+    'hist.module_tokens': 'tokens',
+    'hist.module_elapsed': 'duración',
+    'hist.module_processed': 'procesados',
+    'hist.module_rejected': 'rechazados',
+    'hist.module_kept': 'conservados',
     'hist.delta_up': 'vs versión previa +{0}',
     'hist.delta_down': 'vs versión previa -{0}',
     'hist.delta_flat': 'igual que la versión previa',
@@ -1091,6 +1107,9 @@ const I18N = {
     'titles.limit_label': 'Resultados por puesto', 'titles.limit_unit': 'empleos/rol',
     'titles.linkedin_tip': 'LinkedIn: se recomienda ≤ 100/puesto para evitar limitación. Pon 0 para omitir LinkedIn.',
     'titles.date_range': 'Fecha de publicación',
+    'titles.force_refresh': 'Forzar nueva búsqueda (ignorar la caché de esta sesión de búsqueda)',
+    'titles.experiment_name_ph': 'Nombre del experimento (opcional)',
+    'titles.experiment_notes_ph': 'Notas del experimento (opcional)',
     'hours.24h': '24h', 'hours.3d': '3 días', 'hours.7d': '7 días', 'hours.14d': '14 días', 'hours.30d': '30 días', 'hours.unlimited': 'Sin límite',
     'progress.title': 'Buscando…', 'done.restart': 'Nueva búsqueda',
     'detail.back': '← Volver', 'detail.source': 'Fuente: {0}', 'detail.apply': 'Postular →',
@@ -1149,6 +1168,14 @@ const I18N = {
     'msg.deleted': 'Se eliminaron {0} empleos', 'msg.delete_fail': 'Error al eliminar: ',
     'msg.model_saved': 'Modelo guardado: ', 'msg.testing': 'Probando…',
     'summary.showing': 'Mostrando {0} / {1} empleos', 'summary.total': '{0} empleos',
+    'module.cv_parse': 'Análisis CV',
+    'module.title_relevance': 'Filtro semántico de título',
+    'module.jd_assessment': 'Evaluación masiva JD',
+    'module.jd_profile': 'JD Profile',
+    'module.matching': 'Matching CV↔JD',
+    'module.interview_prep': 'Preparación entrevista',
+    'module.cover_letter': 'Carta de presentación',
+    'module.cv_optimization': 'Optimización CV',
   },
 };
 
@@ -1197,7 +1224,6 @@ function setLang(l) {
     renderActiveArtifact();
   }
   renderProviderList();
-  renderAdzunaStatus();
 }
 
 // ─── Dark mode ────────────────────────────────────────────────────────────────
@@ -1321,7 +1347,6 @@ function renderConfigPage() {
   renderProviderList();
 
   // Adzuna status
-  renderAdzunaStatus();
 }
 
 function renderProviderList() {
@@ -1380,39 +1405,6 @@ function renderProviderList() {
 function toggleProviderList() {
   _providersExpanded = !_providersExpanded;
   renderProviderList();
-}
-
-function renderAdzunaStatus() {
-  if (!cfgData) return;
-  const idConfigured  = !!cfgData.providers_extra?.adzuna_id;
-  const keyConfigured = !!cfgData.providers_extra?.adzuna_key;
-  const both = idConfigured && keyConfigured;
-  const el = document.getElementById("status-adzuna");
-  if (!el) return;
-  el.textContent  = both ? t('cfg.configured') : t('cfg.unconfigured');
-  el.className = `text-xs px-2 py-0.5 rounded-full ${both
-    ? "bg-green-900/50 text-green-400"
-    : "bg-gray-700 text-gray-500"}`;
-}
-
-async function saveAdzunaKey() {
-  const idVal  = document.getElementById("key-adzuna-id")?.value.trim();
-  const keyVal = document.getElementById("key-adzuna-key")?.value.trim();
-  const msgEl  = document.getElementById("test-msg-adzuna");
-  if (!idVal && !keyVal) return;
-  try {
-    if (idVal)  await api("POST", "/api/config", { key: "ADZUNA_APP_ID",  value: idVal });
-    if (keyVal) await api("POST", "/api/config", { key: "ADZUNA_APP_KEY", value: keyVal });
-    if (idVal)  document.getElementById("key-adzuna-id").value  = "";
-    if (keyVal) document.getElementById("key-adzuna-key").value = "";
-    if (!cfgData.providers_extra) cfgData.providers_extra = {};
-    if (idVal)  cfgData.providers_extra.adzuna_id  = true;
-    if (keyVal) cfgData.providers_extra.adzuna_key = true;
-    renderAdzunaStatus();
-    if (msgEl) { msgEl.textContent = t('cfg.saved_ok') || "Saved"; msgEl.className = "absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-green-400"; }
-  } catch(e) {
-    if (msgEl) { msgEl.textContent = e.message; msgEl.className = "absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-red-400"; }
-  }
 }
 
 function populateModelSelect(provider) {
@@ -1624,48 +1616,136 @@ function renderHistoryBenchmark(benchmark) {
     </div>`;
 }
 
-function _renderFunnelRow(f, rid) {
-  if (!f) return "";
-  const steps = [
-    { label: t('funnel.scraped'),   value: `Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total}`, color: "text-blue-300" },
-    { label: t('funnel.title'),     value: f.title_filter_in ? `${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out}  (${f.llm_title_pass_rate}%)` : "—", color: "text-purple-300" },
-    { label: t('funnel.prefilter'), value: (() => {
-        const parts = [];
-        if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
-        if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
-        if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
-        if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
-        if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
-        if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
-        if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
-        if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
-        return (parts.length ? parts.join(" | ") : t('funnel.no_filter')) + `  (${t('funnel.entered')} ${f.prefilter_in})`;
-      })(), color: "text-yellow-300" },
-    { label: t('funnel.llm'),       value: f.llm_assessed ? `${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%` : "—", color: "text-orange-300" },
-    { label: t('funnel.saved'),     value: `${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`, color: "text-green-400 font-semibold" },
-  ];
-  const tableRows = steps.map(s =>
-    `<tr class="border-t border-gray-700/40">
-      <td class="py-1 pr-6 text-gray-500 whitespace-nowrap">${s.label}</td>
-      <td class="py-1 ${s.color} font-mono">${s.value}</td>
-    </tr>`
-  ).join("");
+function _moduleOrder() {
+  return ['cv_parse', 'title_relevance', 'jd_assessment', 'jd_profile', 'matching', 'interview_prep', 'cover_letter', 'cv_optimization'];
+}
 
+function _moduleLabel(key, item) {
+  const mapKey = `module.${key}`;
+  const translated = t(mapKey);
+  if (translated !== mapKey) return translated;
+  return item?.step || key;
+}
+
+function _moduleRows(metrics) {
+  if (!metrics) return [];
+  const rows = [];
+  const order = _moduleOrder();
+  order.forEach(key => {
+    if (metrics[key]) rows.push([key, metrics[key]]);
+  });
+  Object.entries(metrics).forEach(([key, value]) => {
+    if (key !== '_summary' && !order.includes(key)) rows.push([key, value]);
+  });
+  return rows;
+}
+
+function _renderModuleMetrics(metrics, compact = false) {
+  const rows = _moduleRows(metrics);
+  if (!rows.length) {
+    return `<p class="text-xs text-gray-500 dark:text-gray-400">${t('hist.module_empty')}</p>`;
+  }
+
+  const total = metrics?._summary || {};
+  const summaryLine = `
+    <div class="flex flex-wrap gap-3 text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+      <span>${t('hist.module_calls')}: <span class="font-mono text-gray-300 dark:text-gray-200">${_fmtNum(total.calls || 0)}</span></span>
+      <span>${t('hist.module_tokens')}: <span class="font-mono text-cyan-300">${_fmtNum((total.input_tokens || 0) + (total.output_tokens || 0))}</span></span>
+    </div>`;
+
+  if (compact) {
+    const cards = rows.map(([key, item]) => {
+      const processed = item.processed != null ? `${t('hist.module_processed')} ${_fmtNum(item.processed)}` : '';
+      const rejected = item.rejected != null ? `${t('hist.module_rejected')} ${_fmtNum(item.rejected)}` : '';
+      const kept = item.kept != null ? `${t('hist.module_kept')} ${_fmtNum(item.kept)}` : '';
+      const effect = [processed, rejected, kept].filter(Boolean).join(' · ');
+      return `<div class="bg-gray-800/80 dark:bg-gray-900/40 rounded-xl p-4">
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">${_esc(_moduleLabel(key, item))}</p>
+        <p class="text-sm font-mono text-cyan-300">${_fmtNum((item.input_tokens || 0) + (item.output_tokens || 0))} ${t('hist.module_tokens')}</p>
+        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">${t('hist.module_calls')} ${_fmtNum(item.calls || 0)} · ${t('hist.module_elapsed')} ${_fmtElapsed(item.elapsed || 0)}</p>
+        ${effect ? `<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">${effect}</p>` : ''}
+      </div>`;
+    }).join("");
+
+    return `
+      <div class="mt-2 pt-2 border-t border-gray-600/50 text-left">
+        <h4 class="text-sm font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-[18px]">${t('hist.module_title')}</h4>
+        ${summaryLine}
+        <div class="grid grid-cols-1 gap-3">
+          ${cards}
+        </div>
+      </div>`;
+  }
+
+  const tableRows = rows.map(([key, item]) => {
+    const effectParts = [];
+    if (item.processed != null) effectParts.push(`${t('hist.module_processed')} ${_fmtNum(item.processed)}`);
+    if (item.rejected != null) effectParts.push(`${t('hist.module_rejected')} ${_fmtNum(item.rejected)}`);
+    if (item.kept != null) effectParts.push(`${t('hist.module_kept')} ${_fmtNum(item.kept)}`);
+    return `<tr class="border-t border-gray-700/30">
+      <td class="py-1 pr-6 text-gray-400 dark:text-gray-300">${_esc(_moduleLabel(key, item))}</td>
+      <td class="py-1 pr-4 text-gray-500 dark:text-gray-400 font-mono whitespace-nowrap">${t('hist.module_calls')} ${_fmtNum(item.calls || 0)}</td>
+      <td class="py-1 pr-4 text-cyan-300 font-mono whitespace-nowrap">${t('hist.module_tokens')} ${_fmtNum((item.input_tokens || 0) + (item.output_tokens || 0))}</td>
+      <td class="py-1 pr-4 text-yellow-300 font-mono whitespace-nowrap">${t('hist.module_elapsed')} ${_fmtElapsed(item.elapsed || 0)}</td>
+      <td class="py-1 text-gray-500 dark:text-gray-400 font-mono">${effectParts.join(' · ') || '—'}</td>
+    </tr>`;
+  }).join("");
+
+  return `
+    <div class="mt-4">
+      <h4 class="text-sm font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-[18px]">${t('hist.module_title')}</h4>
+      ${summaryLine}
+      <table class="text-xs w-full">${tableRows}</table>
+    </div>`;
+}
+
+function _renderFunnelRow(f, rid, moduleMetrics) {
+  if (!f && !moduleMetrics) return "";
+  let tableRows = "";
   let srcHtml = "";
-  if (f.by_source && Object.keys(f.by_source).length > 1) {
-    const srcRows = Object.entries(f.by_source).map(([src, st]) =>
-      `<tr class="border-t border-gray-700/30">
-        <td class="py-0.5 pr-6 text-gray-600">${_esc(src)}</td>
-        <td class="py-0.5 text-gray-400 font-mono">${t('funnel.src_in')} ${st.in || 0}  ${t('funnel.src_saved')} ${st.saved || 0}</td>
+  if (f) {
+    const steps = [
+      { label: t('funnel.scraped'),   value: `Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total}`, color: "text-blue-300" },
+      { label: t('funnel.title'),     value: f.title_filter_in ? `${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out}  (${f.llm_title_pass_rate}%)` : "—", color: "text-purple-300" },
+      { label: t('funnel.prefilter'), value: (() => {
+          const parts = [];
+          if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
+          if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
+          if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
+          if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
+          if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
+          if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
+          if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
+          if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
+          return (parts.length ? parts.join(" | ") : t('funnel.no_filter')) + `  (${t('funnel.entered')} ${f.prefilter_in})`;
+        })(), color: "text-yellow-300" },
+      { label: t('funnel.llm'),       value: f.llm_assessed ? `${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%` : "—", color: "text-orange-300" },
+      { label: t('funnel.saved'),     value: `${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`, color: "text-green-400 font-semibold" },
+    ];
+    tableRows = steps.map(s =>
+      `<tr class="border-t border-gray-700/40">
+        <td class="py-1 pr-6 text-gray-500 whitespace-nowrap">${s.label}</td>
+        <td class="py-1 ${s.color} font-mono">${s.value}</td>
       </tr>`
     ).join("");
-    srcHtml = `<p class="text-gray-500 text-xs mt-2 mb-1">${t('funnel.by_source')}</p><table class="text-xs w-full">${srcRows}</table>`;
+
+    if (f.by_source && Object.keys(f.by_source).length > 1) {
+      const srcRows = Object.entries(f.by_source).map(([src, st]) =>
+        `<tr class="border-t border-gray-700/30">
+          <td class="py-0.5 pr-6 text-gray-600">${_esc(src)}</td>
+          <td class="py-0.5 text-gray-400 font-mono">${t('funnel.src_in')} ${st.in || 0}  ${t('funnel.src_saved')} ${st.saved || 0}</td>
+        </tr>`
+      ).join("");
+      srcHtml = `<p class="text-gray-500 text-xs mt-2 mb-1">${t('funnel.by_source')}</p><table class="text-xs w-full">${srcRows}</table>`;
+    }
   }
+  const moduleHtml = _renderModuleMetrics(moduleMetrics, false);
 
   return `<tr id="funnel-row-${rid}" class="hidden bg-gray-900/60">
     <td colspan="8" class="px-8 py-3">
       <table class="text-xs w-full">${tableRows}</table>
       ${srcHtml}
+      ${moduleHtml}
     </td>
   </tr>`;
 }
@@ -1702,7 +1782,9 @@ function renderHistoryTable(records) {
     const mainRow = `<tr class="hover:bg-gray-700/30 transition-colors">
       <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">${dt}<br><span class="text-[11px] text-gray-500">${_fmtElapsed(r.elapsed)}</span></td>
       <td class="px-4 py-2.5"><span class="text-white">${roles}</span><br>
-        <span class="text-gray-500 text-xs">${r.location} · ${model}</span></td>
+        <span class="text-gray-500 text-xs">${r.location} · ${model}</span>
+        ${r.experiment_name ? `<br><span class="text-[11px] text-cyan-400">${_esc(t('hist.experiment', r.experiment_name))}</span>` : ''}
+        ${r.notes ? `<br><span class="text-[11px] text-gray-500">${_esc(t('hist.notes', r.notes))}</span>` : ''}</td>
       <td class="px-4 py-2.5 text-right text-blue-300">${_fmtNum(r.scraped_total)}</td>
       <td class="px-4 py-2.5 text-right text-purple-300">${_fmtNum(r.deduped_total)}</td>
       <td class="px-4 py-2.5 text-right text-yellow-300">${_fmtNum(r.filtered_total)}</td>
@@ -1710,7 +1792,7 @@ function renderHistoryTable(records) {
       <td class="px-4 py-2.5 text-right text-cyan-300">${_fmtNum(totalTokens)}<br><span class="text-[11px] text-gray-500">in ${_fmtNum(r.tokens_in)} / out ${_fmtNum(r.tokens_out)}</span></td>
       <td class="px-4 py-2.5 text-right">${funnelBtn}</td>
     </tr>`;
-    return mainRow + _renderFunnelRow(r.funnel, r.id);
+    return mainRow + _renderFunnelRow(r.funnel, r.id, r.module_metrics);
   }).join("");
 }
 
@@ -1758,7 +1840,6 @@ async function clearAllApiKeys() {
     // Refresh config data to reflect cleared keys
     cfgData = await api("GET", "/api/config");
     renderProviderList();
-    renderAdzunaStatus();
     showToast(t('cfg.clear_keys_done'));
   } catch(e) {
     showToast(`${t('cfg.clear_keys')}: ${e.message}`, true);
@@ -2742,32 +2823,6 @@ function addTitle() {
 
 function removeTitle(i) { titlesList.splice(i, 1); renderTitles(); }
 
-async function discoverTitles() {
-  if (!cvHash) return;
-  const btn      = document.getElementById("discover-btn");
-  const btnSpan  = btn.querySelector('[data-i18n]');
-  const progress = document.getElementById("discover-progress");
-  if (btnSpan) btnSpan.textContent = t('msg.discovering');
-  btn.disabled = true;
-  progress.classList.remove("hidden");
-  const provider = cfgData?.default_provider || "gemini";
-  const model    = cfgData?.default_model    || "";
-  try {
-    const r = await api("POST", "/api/titles/discover", { cv_hash: cvHash, provider, model, profile: cvProfile });
-    const discovered = (r.titles || []).map(t => t.canonical || t.name || t);
-    const added = discovered.filter(t => !titlesList.includes(t));
-    added.forEach(t => titlesList.push(t));
-    renderTitles();
-    showToast(t('msg.discover_done', added.length));
-  } catch(e) {
-    showToast(`${t('msg.discover_fail')}${e.message}`, true);
-  } finally {
-    progress.classList.add("hidden");
-    if (btnSpan) btnSpan.textContent = t('titles.discover');
-    btn.disabled = false;
-  }
-}
-
 async function startSearch() {
   if (!cvHash || titlesList.length === 0) {
     showToast(t('msg.search_require'), true);
@@ -2776,6 +2831,9 @@ async function startSearch() {
   const location      = document.getElementById("location-select").value;
   const provider      = cfgData?.default_provider || "gemini";
   const model         = cfgData?.default_model    || "";
+  const refresh       = document.getElementById("force-refresh").checked;
+  const experimentName = document.getElementById("experiment-name").value.trim();
+  const experimentNotes = document.getElementById("experiment-notes").value.trim();
   const indeedEnabled        = document.getElementById("source-indeed").checked;
   const linkedinEnabled      = document.getElementById("source-linkedin").checked;
   if (!indeedEnabled && !linkedinEnabled) {
@@ -2794,6 +2852,7 @@ async function startSearch() {
   document.getElementById("step-done").classList.add("hidden");
   document.getElementById("done-stats").classList.add("hidden");
   document.getElementById("done-funnel").classList.add("hidden");
+  document.getElementById("done-modules").classList.add("hidden");
   document.getElementById("done-dedup").classList.add("hidden");
   document.getElementById("progress-log").innerHTML = "";
   document.getElementById("progress-title").textContent = t('progress.title');
@@ -2807,7 +2866,7 @@ async function startSearch() {
   renderList();
 
   try {
-    await api("POST", "/api/search", { cv_hash: cvHash, roles: titlesList, location, provider, model, language: LANG, limit_per_role: limitPerRole, linkedin_limit_per_role: linkedinLimitPerRole, hours_old: hoursOld });
+    await api("POST", "/api/search", { cv_hash: cvHash, roles: titlesList, location, experiment_name: experimentName, notes: experimentNotes, provider, model, refresh, language: LANG, limit_per_role: limitPerRole, linkedin_limit_per_role: linkedinLimitPerRole, hours_old: hoursOld });
     listenProgress();
   } catch(e) {
     document.getElementById("step-progress").classList.remove("active");
@@ -2941,6 +3000,14 @@ function listenProgress() {
               <p class="text-gray-400">${t('funnel.filter_rate_label')} <span class="text-green-400 font-semibold">${f.filter_rate}%</span></p>
             </div>`;
           funnelEl.classList.remove("hidden");
+        }
+      }
+
+      if (data.module_metrics) {
+        const moduleEl = document.getElementById("done-modules");
+        if (moduleEl) {
+          moduleEl.innerHTML = _renderModuleMetrics(data.module_metrics, true);
+          moduleEl.classList.remove("hidden");
         }
       }
 

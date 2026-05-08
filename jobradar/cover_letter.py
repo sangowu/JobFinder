@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_structured
 from jobradar.logger import get_logger
-from jobradar.schemas import CoverLetter, CVProfile, JobResult, JobSummary, MatchScore
+from jobradar.schemas import CoverLetter, CVProfile, JDProfile, JobResult, MatchScore
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ def generate_cover_letter(
     profile: CVProfile,
     cv_hash: str,
     job: JobResult,
-    summary: JobSummary,
+    jd_profile: JDProfile,
     match: MatchScore | None,
     llm: LLMConfig,
 ) -> CoverLetter:
@@ -34,7 +34,7 @@ def generate_cover_letter(
     if cached is not None:
         return cached
 
-    prompt = f"""你是求职文书助手。请基于候选人 CV、结构化 JD summary 和匹配结果，生成一封简洁、具体、可直接发送的 cover letter。
+    prompt = f"""你是求职文书助手。请基于候选人 CV、结构化 JDProfile 和匹配结果，生成一封简洁、具体、可直接发送的 cover letter。
 
 规则：
 - 只返回 JSON。
@@ -50,8 +50,8 @@ def generate_cover_letter(
 候选人可投级别：{", ".join(profile.eligible_seniority_levels)}
 目标职位：{", ".join(profile.preferred_roles[:10])}
 
-JD Summary:
-{summary.model_dump_json(indent=2)}
+JD Profile:
+{jd_profile.model_dump_json(indent=2)}
 
 Match Score:
 {match.model_dump_json(indent=2) if match else "null"}

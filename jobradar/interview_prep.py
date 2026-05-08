@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_structured
 from jobradar.logger import get_logger
-from jobradar.schemas import CVProfile, InterviewPrep, JobResult, JobSummary, MatchScore
+from jobradar.schemas import CVProfile, InterviewPrep, JDProfile, JobResult, MatchScore
 
 logger = get_logger(__name__)
 
@@ -27,7 +27,7 @@ def generate_interview_prep(
     profile: CVProfile,
     cv_hash: str,
     job: JobResult,
-    summary: JobSummary,
+    jd_profile: JDProfile,
     match: MatchScore | None,
     llm: LLMConfig,
 ) -> InterviewPrep:
@@ -35,7 +35,7 @@ def generate_interview_prep(
     if cached is not None:
         return cached
 
-    prompt = f"""你是求职面试教练。请基于候选人 CV、结构化 JD summary 和匹配结果，生成一份简洁、可执行的 Interview Prep。
+    prompt = f"""你是求职面试教练。请基于候选人 CV、结构化 JDProfile 和匹配结果，生成一份简洁、可执行的 Interview Prep。
 
 规则：
 - 只返回 JSON。
@@ -53,8 +53,8 @@ def generate_interview_prep(
 候选人 stretch 级别：{", ".join(profile.stretch_seniority_levels)}
 候选人目标地点：{", ".join(profile.preferred_locations[:10])}
 
-JD Summary:
-{summary.model_dump_json(indent=2)}
+JD Profile:
+{jd_profile.model_dump_json(indent=2)}
 
 Match Score:
 {match.model_dump_json(indent=2) if match else "null"}

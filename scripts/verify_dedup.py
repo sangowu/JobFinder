@@ -1,23 +1,30 @@
 """
-Standalone dedup verification — wraps jobfinder.dedup_check for CLI use.
+Standalone dedup verification - wraps jobradar.dedup_check for CLI use.
 
 Usage:
     uv run python scripts/verify_dedup.py
-    uv run python scripts/verify_dedup.py --db jobfinder_test_cache.db
+    uv run python scripts/verify_dedup.py --db data/jobradar_test_cache.db
     uv run python scripts/verify_dedup.py --threshold 0.9
 """
 from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from jobradar.paths import DATA_DIR
 
 
 def _short(s: str, n: int = 60) -> str:
     return s if len(s) <= n else s[:n] + "..."
 
 
-def main(db_path: str = "jobfinder_cache.db") -> dict:
+def main(db_path: str = str(DATA_DIR / "jobradar_cache.db")) -> dict:
     path = Path(db_path)
     if not path.exists():
         print(f"[error] DB not found: {path.resolve()}")
@@ -38,7 +45,7 @@ def main(db_path: str = "jobfinder_cache.db") -> dict:
         print("No assessed jobs in DB.")
         return {}
 
-    from jobfinder.dedup_check import run_dedup_check
+    from jobradar.dedup_check import run_dedup_check
     result = run_dedup_check(all_keys)
 
     sep = "-" * 60
@@ -68,6 +75,6 @@ def main(db_path: str = "jobfinder_cache.db") -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Verify job cache for duplicates")
-    parser.add_argument("--db", default="jobfinder_cache.db")
+    parser.add_argument("--db", default=str(DATA_DIR / "jobradar_cache.db"))
     args = parser.parse_args()
     main(db_path=args.db)

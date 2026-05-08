@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_structured
 from jobradar.logger import get_logger
-from jobradar.schemas import CVOptimization, CVProfile, JobResult, JobSummary, MatchScore
+from jobradar.schemas import CVOptimization, CVProfile, JDProfile, JobResult, MatchScore
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ def generate_cv_optimization(
     profile: CVProfile,
     cv_hash: str,
     job: JobResult,
-    summary: JobSummary,
+    jd_profile: JDProfile,
     match: MatchScore | None,
     llm: LLMConfig,
 ) -> CVOptimization:
@@ -34,7 +34,7 @@ def generate_cv_optimization(
     if cached is not None:
         return cached
 
-    prompt = f"""你是求职简历优化助手。请基于候选人 CV、结构化 JD summary 和匹配结果，输出一份针对该职位的 CV Optimization 建议。
+    prompt = f"""你是求职简历优化助手。请基于候选人 CV、结构化 JDProfile 和匹配结果，输出一份针对该职位的 CV Optimization 建议。
 
 规则：
 - 只返回 JSON。
@@ -49,8 +49,8 @@ def generate_cv_optimization(
 候选人技能：{", ".join(profile.skills[:30])}
 候选人目标职位：{", ".join(profile.preferred_roles[:10])}
 
-JD Summary:
-{summary.model_dump_json(indent=2)}
+JD Profile:
+{jd_profile.model_dump_json(indent=2)}
 
 Match Score:
 {match.model_dump_json(indent=2) if match else "null"}

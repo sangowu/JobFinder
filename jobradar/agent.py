@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import re
+from uuid import uuid4
 from dataclasses import dataclass, field
 from typing import Callable
 
 from jobradar import cache
 from jobradar.assessment import JDAssessment, batch_assess_jds
 from jobradar.filters import infer_title_seniority, is_title_seniority_ok
-from jobradar.jd_summary import summarize_jd
+from jobradar.jd_profile import extract_jd_profile
 from jobradar.logger import get_logger
 from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
 from jobradar.matching import match_job_to_cv
@@ -23,7 +24,6 @@ from jobradar.scraping import scrape_sources
 from jobradar.tools import record_failed_url, write_cache
 
 logger = get_logger(__name__)
-
 
 def run_search(
     profile: CVProfile,
@@ -50,6 +50,8 @@ def run_search(
         model=model or DEFAULT_MODELS.get(provider, ""),
     )
     pipeline_stats = PipelineStats()
+    run_id = uuid4().hex
+    setattr(pipeline_stats, "run_id", run_id)
 
     def _cb(msg: str) -> None:
         if on_progress:
@@ -96,6 +98,7 @@ def run_search(
             linkedin_limit_per_role=linkedin_limit_per_role,
             hours_old=hours_old,
             stats=pipeline_stats,
+            run_id=run_id,
         )
         logger.info("Scraped %d jobs, starting prefilter & LLM assessment...", len(scraped))
         keys = _write_scraped(
@@ -106,6 +109,7 @@ def run_search(
             on_job=on_job,
             language=language,
             stats=pipeline_stats,
+            run_id=run_id,
         )
         collected_keys.extend(keys)
         logger.info("Scrape done: %d jobs", len(keys))
@@ -165,7 +169,7 @@ _ROLE_STOPWORDS = {
     "and", "or", "the", "of", "in", "at", "ii", "iii", "i",
 }
 
-_SS_KEYS = ("in", "dup", "skip_seniority", "cache_hit", "no_desc", "closed", "llm_rejected", "saved")
+_SS_KEYS = ("in", "dup", "skip_seniority", "skip_irrelevant", "skip_exp", "cache_hit", "no_desc", "closed", "llm_rejected", "saved")
 
 
 def _build_role_keywords(roles: list[str]) -> set[str]:
@@ -191,6 +195,16 @@ def _over_experience_limit(snippet: str, max_years: int) -> bool:
         re.IGNORECASE,
     )
     return any(int(m) > max_years for m in matches)
+
+
+def _extract_max_years_requirement(snippet: str) -> int | None:
+    matches = re.findall(
+        r"(\d+)\+?\s*years?\s*(?:of\s+)?(?:experience|exp\b)",
+        snippet,
+        re.IGNORECASE,
+    )
+    years = [int(item) for item in matches if item.isdigit()]
+    return max(years) if years else None
 
 
 def _collect_all_sources(jobs: list[dict]) -> dict[str, list[dict]]:
@@ -219,6 +233,8 @@ class _PrefilterResult:
     skip_dup: int = 0
     skip_seniority: int = 0
     skip_irrelevant: int = 0
+    title_relevance_in: int = 0
+    title_relevance_rejected: int = 0
     cache_hit: int = 0
     cache_patch: int = 0
     skip_no_desc: int = 0
@@ -233,10 +249,14 @@ def _prefilter(
     seen_urls: set[str],
     cb: Callable[[str], None],
     profile: CVProfile,
+    llm: LLMConfig | None,
+    language: str = "zh",
+    run_id: str = "",
 ) -> _PrefilterResult:
     """保守预过滤，先做高确定性的 title seniority gate。"""
     r = _PrefilterResult()
     seen_dedup_keys: set[str] = set()
+    title_candidates: list[tuple[dict, str, str, str, str, dict[str, int]]] = []
 
     for job in jobs:
         r.total += 1
@@ -252,17 +272,28 @@ def _prefilter(
         title = (job.get("title") or "").strip()
         if not title:
             ss["dup"] += 1; r.skip_dup += 1; continue
+        company = (job.get("company") or "").strip()
 
         if not is_title_seniority_ok(title, profile):
             inferred = infer_title_seniority(title)
             logger.debug("Skip (title seniority gate): %s | inferred=%s | profile=%s", title, inferred, profile.seniority_display)
-            cb(f"Skip (title seniority): {title[:60]}")
+            cb(f"Skip (title seniority): {title[:60]} — inferred={inferred or 'unknown'} blocked_for={profile.seniority_display}")
+            cache.record_filter_event(
+                run_id=run_id,
+                stage="title_seniority",
+                title=title,
+                company=company,
+                location=job.get("location", ""),
+                source=src,
+                url=url,
+                reason=f"inferred={inferred or 'unknown'} blocked_for={profile.seniority_display}",
+                details={"profile_seniority": profile.seniority_display, "inferred_seniority": inferred or "unknown"},
+            )
             ss["skip_seniority"] += 1
             r.skip_seniority += 1
             continue
 
         # 1a. 跨来源 dedup
-        company = (job.get("company") or "").strip()
         dedup_key = make_dedup_key(company, title)
         if dedup_key in seen_dedup_keys:
             logger.debug("Skip (cross-source dedup): %s @ %s", title, company)
@@ -283,11 +314,27 @@ def _prefilter(
             r.patch_pending.append((cached_job, cached_job.description_snippet))
             r.cache_patch += 1; continue
 
+        title_candidates.append((job, title, company, url, src, ss))
+
+    r.title_relevance_in = 0
+    r.title_relevance_rejected = 0
+    profile_years = profile.years_of_experience or 0
+    for job, title, company, url, src, ss in title_candidates:
         # 3. 获取 JD 内容
         content = (job.get("description_snippet") or "").strip()
         if not content:
             logger.debug("Skip (no description): %s", title)
             cb(f"Skip (no description): {title[:50]}")
+            cache.record_filter_event(
+                run_id=run_id,
+                stage="no_description",
+                title=title,
+                company=company,
+                location=job.get("location", ""),
+                source=src,
+                url=url,
+                reason="missing description_snippet",
+            )
             ss["no_desc"] += 1; r.skip_no_desc += 1; continue
 
         # 4. 关闭检测
@@ -295,7 +342,37 @@ def _prefilter(
             record_failed_url(url, "posting_closed")
             cb(f"Skip (posting closed): {url[:70]}")
             logger.info("Posting closed: %s", url)
+            cache.record_filter_event(
+                run_id=run_id,
+                stage="posting_closed",
+                title=title,
+                company=company,
+                location=job.get("location", ""),
+                source=src,
+                url=url,
+                reason="posting_closed",
+            )
             ss["closed"] += 1; r.skip_closed += 1; continue
+
+        years_required = _extract_max_years_requirement(content[:2000])
+        if years_required is not None and years_required - profile_years >= 4:
+            reason = f"requires {years_required}+ years; candidate has ~{profile_years:g} years"
+            logger.debug("Skip (experience gap): %s | %s", title, reason)
+            cb(f"Skip (experience gap): {title[:60]} — {reason}")
+            cache.record_filter_event(
+                run_id=run_id,
+                stage="experience_gap",
+                title=title,
+                company=company,
+                location=job.get("location", ""),
+                source=src,
+                url=url,
+                reason=reason,
+                details={"years_required": years_required, "profile_years": profile_years},
+            )
+            ss["skip_exp"] += 1
+            r.skip_exp += 1
+            continue
 
         expires_at = job.get("expires_at")
         if not expires_at:
@@ -317,16 +394,24 @@ def _flush_assessments(
     cb: Callable[[str], None],
     on_job: Callable[[str], None] | None,
     language: str,
+    run_id: str = "",
  ) -> tuple[list[str], int, int]:
     """
     运行 LLM 评估并写缓存，返回 (saved_keys, llm_rejected_count, new_saved_count)。
     """
+    def _is_visible_job(job_obj) -> bool:
+        return bool(job_obj is not None and job_obj.is_effectively_relevant)
+
     has_cv = bool(profile.summary and profile.skills)
     keys: list[str] = []
     llm_rejected = 0
     new_saved = 0
 
     for k in pf.immediate_keys:
+        job_obj = cache.get_job(k, language=language)
+        if not _is_visible_job(job_obj):
+            logger.debug("Skip cached result after final relevance check: %s", k)
+            continue
         keys.append(k)
         if on_job:
             on_job(k)
@@ -340,6 +425,16 @@ def _flush_assessments(
             if not assessment.relevant:
                 cb(f"Skip (not relevant): {cached_job.title[:50]} — {assessment.reason}")
                 logger.info("LLM re-assess rejected: %s | %s", cached_job.title, assessment.reason)
+                cache.record_filter_event(
+                    run_id=run_id,
+                    stage="jd_assessment",
+                    title=cached_job.title,
+                    company=cached_job.company,
+                    location=cached_job.location,
+                    url=cached_job.url,
+                    reason=assessment.reason,
+                    details={"score": assessment.score, "cached": True},
+                )
                 llm_rejected += 1
             write_cache({
                 "title": cached_job.title,
@@ -355,11 +450,26 @@ def _flush_assessments(
             if assessment.relevant:
                 try:
                     cached_job = cache.get_job(cached_job.dedup_key) or cached_job
-                    summary = summarize_jd(cached_job, llm, language=language)
-                    match_job_to_cv(profile, summary, cached_job.description_snippet, llm, cv_hash=cv_hash, language=language)
+                    jd_profile = extract_jd_profile(cached_job, llm, language=language)
+                    match_job_to_cv(profile, jd_profile, cached_job.description_snippet, llm, cv_hash=cv_hash, language=language)
                 except Exception as e:
-                    logger.warning("JD summary failed for cached job %s: %s", cached_job.dedup_key, e)
+                    logger.warning("JD profile extraction failed for cached job %s: %s", cached_job.dedup_key, e)
             if assessment.relevant:
+                final_job = cache.get_job(cached_job.dedup_key, language=language)
+                if not _is_visible_job(final_job):
+                    cb(f"Skip (final match): {cached_job.title[:50]}")
+                    logger.info("Final match filtered cached job: %s", cached_job.title)
+                    cache.record_filter_event(
+                        run_id=run_id,
+                        stage="final_match",
+                        title=cached_job.title,
+                        company=cached_job.company,
+                        location=cached_job.location,
+                        url=cached_job.url,
+                        reason="match recommendation=skip",
+                        details={"cached": True},
+                    )
+                    continue
                 keys.append(cached_job.dedup_key)
                 if on_job:
                     on_job(cached_job.dedup_key)
@@ -386,6 +496,17 @@ def _flush_assessments(
             if not assessment.relevant:
                 cb(f"Skip (not relevant): {title[:50]} — {assessment.reason}")
                 logger.info("LLM assess rejected: %s | %s", title, assessment.reason)
+                cache.record_filter_event(
+                    run_id=run_id,
+                    stage="jd_assessment",
+                    title=title,
+                    company=job.get("company", ""),
+                    location=job.get("location", ""),
+                    source=job_src,
+                    url=job.get("url", ""),
+                    reason=assessment.reason,
+                    details={"score": assessment.score, "cached": False},
+                )
                 job_ss["llm_rejected"] += 1
                 llm_rejected += 1
             else:
@@ -409,15 +530,31 @@ def _flush_assessments(
                 "raw_sources": raw_srcs,
             })
             if assessment.relevant:
-                job_ss["saved"] += 1
-                new_saved += 1
                 summary_job = cache.get_job(key)
                 if summary_job is not None and llm is not None:
                     try:
-                        summary = summarize_jd(summary_job, llm, language=language)
-                        match_job_to_cv(profile, summary, summary_job.description_snippet, llm, cv_hash=cv_hash, language=language)
+                        jd_profile = extract_jd_profile(summary_job, llm, language=language)
+                        match_job_to_cv(profile, jd_profile, summary_job.description_snippet, llm, cv_hash=cv_hash, language=language)
                     except Exception as e:
-                        logger.warning("JD summary/matching failed for %s: %s", key, e)
+                        logger.warning("JD profile extraction/matching failed for %s: %s", key, e)
+                final_job = cache.get_job(key, language=language)
+                if not _is_visible_job(final_job):
+                    cb(f"Skip (final match): {title[:50]}")
+                    logger.info("Final match filtered job: %s", title)
+                    cache.record_filter_event(
+                        run_id=run_id,
+                        stage="final_match",
+                        title=title,
+                        company=job.get("company", ""),
+                        location=job.get("location", ""),
+                        source=job_src,
+                        url=job.get("url", ""),
+                        reason="match recommendation=skip",
+                        details={"cached": False},
+                    )
+                    continue
+                job_ss["saved"] += 1
+                new_saved += 1
                 keys.append(key)
                 if on_job:
                     on_job(key)
@@ -445,6 +582,7 @@ def _write_scraped(
     on_job: Callable[[str], None] | None = None,
     language: str = "zh",
     stats: PipelineStats | None = None,
+    run_id: str = "",
     # 兼容旧参数
     seniority: str = "",
     max_years: int = 99,
@@ -464,14 +602,14 @@ def _write_scraped(
 
     job_all_sources = _collect_all_sources(jobs)
 
-    pf = _prefilter(jobs, seen_urls, cb, profile)
+    pf = _prefilter(jobs, seen_urls, cb, profile, llm, language=language, run_id=run_id)
 
     _profile = profile or CVProfile(
         summary=_cv_summary, skills=_cv_skills,
         seniority=_seniority, years_of_experience=_max_years,
         preferred_roles=[], search_language="en",
     )
-    keys, llm_rejected, new_saved = _flush_assessments(pf, job_all_sources, _profile, llm, cv_hash, cb, on_job, language)
+    keys, llm_rejected, new_saved = _flush_assessments(pf, job_all_sources, _profile, llm, cv_hash, cb, on_job, language, run_id=run_id)
 
     # 阶段三：多来源合并（跨平台重复职位补全 sources 字段）
     for dk, srcs in job_all_sources.items():
@@ -481,10 +619,15 @@ def _write_scraped(
 
     # 填充管道统计
     if stats is not None:
+        existing_title_skip = int(getattr(stats, "skip_irrelevant", 0))
+        existing_title_relevance_in = int(getattr(stats, "title_relevance_in", 0))
+        existing_title_relevance_rejected = int(getattr(stats, "title_relevance_rejected", 0))
         stats.prefilter_in    = pf.total
         stats.skip_dup        = pf.skip_dup
         stats.skip_seniority  = pf.skip_seniority
-        stats.skip_irrelevant = pf.skip_irrelevant
+        stats.skip_irrelevant = existing_title_skip + pf.skip_irrelevant
+        stats.title_relevance_in = existing_title_relevance_in + pf.title_relevance_in
+        stats.title_relevance_rejected = existing_title_relevance_rejected + pf.title_relevance_rejected
         stats.cache_hit       = pf.cache_hit
         stats.cache_patch     = pf.cache_patch
         stats.skip_no_desc    = pf.skip_no_desc
@@ -500,19 +643,19 @@ def _write_scraped(
     # 汇总日志
     saved = len(keys)
     logger.info(
-        "Filter funnel | input=%d dup_skip=%d cache_hit=%d cache_patch=%d "
-        "no_desc=%d closed=%d llm_in=%d llm_rejected=%d saved=%d",
-        pf.total, pf.skip_dup, pf.cache_hit, pf.cache_patch,
-        pf.skip_no_desc, pf.skip_closed, len(pf.pending) + len(pf.patch_pending),
+        "Filter funnel | input=%d dup_skip=%d seniority_skip=%d title_skip=%d cache_hit=%d cache_patch=%d "
+        "exp_skip=%d no_desc=%d closed=%d llm_in=%d llm_rejected=%d saved=%d",
+        pf.total, pf.skip_dup, pf.skip_seniority, pf.skip_irrelevant, pf.cache_hit, pf.cache_patch,
+        pf.skip_exp, pf.skip_no_desc, pf.skip_closed, len(pf.pending) + len(pf.patch_pending),
         llm_rejected, saved,
     )
     cb(
-        f"Summary: {pf.total} in → cache hit {pf.cache_hit} | no description {pf.skip_no_desc} | "
+        f"Summary: {pf.total} in → seniority skip {pf.skip_seniority} | title skip {pf.skip_irrelevant} | exp skip {pf.skip_exp} | cache hit {pf.cache_hit} | no description {pf.skip_no_desc} | "
         f"closed {pf.skip_closed} | LLM rejected {llm_rejected} → saved {saved}"
     )
     if pf.source_stats:
         for src, st in sorted(pf.source_stats.items()):
-            parts = [f"{step}={st[step]}" for step in ("dup", "cache_hit", "no_desc", "closed", "llm_rejected") if st.get(step)]
+            parts = [f"{step}={st[step]}" for step in ("dup", "skip_seniority", "skip_irrelevant", "skip_exp", "cache_hit", "no_desc", "closed", "llm_rejected") if st.get(step)]
             detail = f"({', '.join(parts)})" if parts else ""
             logger.info("Source [%s]: %d in → %d saved %s", src, st["in"], st["saved"], detail)
         src_summary = " | ".join(f"{src} {st['in']} in → {st['saved']} saved" for src, st in sorted(pf.source_stats.items()))

@@ -9,7 +9,7 @@ from jobradar.logger import get_logger
 from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
-PROMPT_VERSION = "cv_extract_v3"
+PROMPT_VERSION = "cv_extract_v4"
 
 _SYSTEM = """你是一名专业的简历解析助手。
 从用户提供的简历文本中提取关键信息，填入指定的 JSON 结构。
@@ -25,6 +25,7 @@ _SYSTEM = """你是一名专业的简历解析助手。
 - preferred_locations：提取候选人明确表达的工作地点偏好，统一为英文地名
 - years_of_experience：估算总工作年限，无法判断填 0
 - seniority 相关字段必须一起输出：
+    - seniority_raw：只填写 CV 文本中明确出现过的 seniority 原始短语；如果没有明确写出就返回 []
     - seniority：兼容旧字段，填最终综合判断后的主级别，仅允许
       "intern" / "new_grad" / "junior" / "mid" / "senior" / "lead" / "unknown"
     - declared_seniority：候选人在 CV 中呈现出的资历级别
@@ -46,13 +47,17 @@ _SYSTEM = """你是一名专业的简历解析助手。
     【不要照抄 CV 中写的职位名，而是主动推断】
     分析候选人的技能栈、项目经历、学历背景，结合当前招聘市场上真实存在的职位名称，
     生成该候选人最可能成功申请的 4-8 个职位 title，要求：
-    1. 覆盖"精准"到"宽泛"的梯度，每层选互不重叠的词，例如：
-       精准：AI Engineer、ML Engineer
-       宽泛：Software Engineer、Data Scientist
-       【不要加"变体"层】——"Applied AI Engineer"的搜索结果已被"AI Engineer"覆盖，列出反而产生重复查询
-    2. 只使用市场上招聘广告中真实出现的职位名称
-    3. 全部为英文，不加说明文字
-    4. intern/new_grad 不加 Senior/Staff/Lead 前缀；senior/lead 不加 Junior/Associate 前缀
+    1. title 之间要尽可能不同，优先选择彼此搜索结果明显不同的岗位名。
+       如果一个更宽泛、更常见的 title 已经自然覆盖另一个更窄的变体 title，就只保留更宽泛的那个。
+       例如：
+       - 保留：AI Engineer、ML Engineer、Data Scientist、Software Engineer
+       - 不要同时保留：AI Engineer / Applied AI Engineer
+       - 不要同时保留：Backend Engineer / Python Backend Engineer
+       - 不要同时保留：Data Analyst / Junior Data Analyst（除非级别差异本身就是搜索核心）
+    2. 覆盖"精准"到"宽泛"的梯度，但每一层都应避免可互相覆盖的近似变体。
+    3. 只使用市场上招聘广告中真实出现的职位名称
+    4. 全部为英文，不加说明文字
+    5. intern/new_grad 不加 Senior/Staff/Lead 前缀；senior/lead 不加 Junior/Associate 前缀
 - search_language：根据目标市场判断搜索语言：
     英语市场（欧美澳）→ "en"
     中文市场（中国大陆/港台）→ "zh"
@@ -67,6 +72,7 @@ _SYSTEM = """你是一名专业的简历解析助手。
     senior                      → ["senior", "staff"]
     lead                        → ["lead", "principal", "tech lead", "manager"]
 - 如果 declared_seniority 与 evidence_seniority 不一致，不要强行改成一致；保留差异并通过 eligible/stretch/blocked 表达可投范围。
+- seniority_raw 只能复制 CV 里真正出现的词，不要自己编造；如果 CV 没明确写级别，允许 seniority_raw 为空，但 seniority / evidence_seniority 仍需综合推断。
 """
 
 

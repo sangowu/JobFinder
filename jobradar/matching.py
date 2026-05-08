@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import hashlib
+import re
 
 from pydantic import BaseModel, Field
 
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_structured
 from jobradar.logger import get_logger
-from jobradar.schemas import CVProfile, JobResult, JobSummary, MatchScore, LanguageProficiency, normalize_language_code
+from jobradar.schemas import CVProfile, JDProfile, MatchScore, LanguageProficiency, normalize_language_code
+from jobradar.seniority import normalize_seniority_level
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "match_v6"
+PROMPT_VERSION = "match_v9"
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 
 
@@ -26,7 +28,7 @@ class _MatchEvidence(BaseModel):
     must_have_score: float = Field(ge=0, le=100)
     nice_to_have_score: float = Field(ge=0, le=100)
     domain_score: float = Field(ge=0, le=100)
-    location_score: float = Field(ge=0, le=100)
+    location_score: float = Field(default=0, ge=0, le=100)
     language_score: float = Field(ge=0, le=100)
     risk_penalty: float = Field(ge=0, le=100)
     title_summary: str = ""
@@ -76,8 +78,7 @@ def _stabilize_evidence(evidence: _MatchEvidence) -> _MatchEvidence:
             "must_have_score": _stabilize_score(evidence.must_have_score),
             "nice_to_have_score": _stabilize_score(evidence.nice_to_have_score),
             "domain_score": _stabilize_score(evidence.domain_score),
-            "location_score": _stabilize_score(evidence.location_score),
-            "language_score": _stabilize_score(evidence.language_score),
+        "language_score": _stabilize_score(evidence.language_score),
             "risk_penalty": _stabilize_score(evidence.risk_penalty),
             "title_summary": (evidence.title_summary or "").strip(),
             "seniority_summary": (evidence.seniority_summary or "").strip(),
@@ -129,11 +130,6 @@ Dimension rules:
   - 70-89: different domain but strong transferability
   - 40-69: partial transferability only
   - 0-39: domain/context mismatch is large
-- location_score
-  - 90-100: location, remote mode, and work setup match cleanly
-  - 70-89: mostly compatible, with mild friction
-  - 40-69: relocation or work-mode uncertainty exists
-  - 0-39: location or work setup is a clear blocker
 - language_score
   - 90-100: explicit language requirements are fully met
   - 70-89: main language needs are mostly met
@@ -147,10 +143,12 @@ Dimension rules:
   - 75-100: blocking risk
 
 Additional rules:
+- location_score and location_summary are computed programmatically outside the model. Do not return location-based scoring judgments.
+- Do not use onsite / hybrid / office-attendance requirements, visa assumptions, or work-authorization assumptions as risk_penalty inputs unless the candidate profile explicitly states a conflicting constraint.
 - Each score must be supported by strengths, weaknesses, missing_must_haves, or risks.
 - Do not count the same issue twice across dimensions.
 - matched_keywords must be concise skills/tools/domains already present in the candidate background, not copied JD sentences.
-- For each dimension, also return one concise sentence summary in the same language: title_summary, seniority_summary, must_have_summary, nice_to_have_summary, domain_summary, location_summary, language_summary, risk_summary.
+- Return concise summaries only for: title_summary, seniority_summary, must_have_summary, nice_to_have_summary, domain_summary, language_summary, risk_summary.
 """
     if language == "es":
         return """
@@ -184,11 +182,6 @@ Reglas por dimensión:
   - 70-89: dominio distinto pero con fuerte transferibilidad
   - 40-69: solo transferibilidad parcial
   - 0-39: gran desajuste de dominio o contexto
-- location_score
-  - 90-100: ubicación, modalidad remota y forma de trabajo encajan claramente
-  - 70-89: bastante compatible, con fricción leve
-  - 40-69: existe incertidumbre por reubicación o modalidad
-  - 0-39: ubicación o modalidad es un bloqueo claro
 - language_score
   - 90-100: se cumplen plenamente los requisitos explícitos de idioma
   - 70-89: se cubren en gran parte las necesidades principales de idioma
@@ -202,10 +195,12 @@ Reglas por dimensión:
   - 75-100: riesgo bloqueante
 
 Reglas adicionales:
+- location_score y location_summary se calculan programáticamente fuera del modelo. No devuelvas juicios de puntuación basados en ubicación.
+- No uses requisitos onsite / hybrid / asistencia a oficina, ni supuestos sobre visado o autorización de trabajo, como entradas de risk_penalty salvo que el perfil del candidato indique explícitamente una restricción en conflicto.
 - Cada puntuación debe estar respaldada por strengths, weaknesses, missing_must_haves o risks.
 - No cuentes el mismo problema dos veces entre dimensiones.
 - matched_keywords debe contener habilidades/herramientas/dominios concisos ya presentes en el perfil del candidato, no frases copiadas del JD.
-- Para cada dimensión, devuelve también una frase breve en el mismo idioma: title_summary, seniority_summary, must_have_summary, nice_to_have_summary, domain_summary, location_summary, language_summary, risk_summary.
+- Devuelve frases breves solo para: title_summary, seniority_summary, must_have_summary, nice_to_have_summary, domain_summary, language_summary, risk_summary.
 """
     return """
 评分规则：
@@ -238,11 +233,6 @@ Reglas adicionales:
   - 70-89：领域不同，但迁移性强
   - 40-69：只有部分迁移性
   - 0-39：领域/场景差异很大
-- location_score
-  - 90-100：地点、remote 模式、工作方式完全匹配
-  - 70-89：整体匹配，仅有轻微摩擦
-  - 40-69：需要 relocation 或工作方式存在不确定性
-  - 0-39：地点或工作方式构成明显阻碍
 - language_score
   - 90-100：JD 明确语言要求被完全满足
   - 70-89：主要语言要求基本满足
@@ -256,10 +246,12 @@ Reglas adicionales:
   - 75-100：阻断性风险
 
 附加规则：
+- location_score 和 location_summary 由程序在模型外计算；不要返回基于地理位置的评分判断。
+- 不要把 onsite / hybrid / 办公室到岗要求、签证推断或工作许可推断计入 risk_penalty，除非候选人资料中明确写出了相冲突的约束。
 - 每个分数都必须能被 strengths、weaknesses、missing_must_haves 或 risks 支撑。
 - 同一个问题不要在多个维度重复计分。
 - matched_keywords 只能输出候选人已具备、且与 JD 明显匹配的技能/工具/领域关键词，禁止复述整句 JD 要求。
-- 每个维度都额外返回一句简短结论，字段名分别为 title_summary、seniority_summary、must_have_summary、nice_to_have_summary、domain_summary、location_summary、language_summary、risk_summary，且必须使用当前语言输出。
+- 只为以下字段返回简短结论：title_summary、seniority_summary、must_have_summary、nice_to_have_summary、domain_summary、language_summary、risk_summary，且必须使用当前语言输出。
 """
 
 
@@ -296,12 +288,162 @@ def _dedupe_text_items(items: list[str]) -> list[str]:
     return result
 
 
+def _normalize_location_text(value: str) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def _location_country(value: str) -> str:
+    parts = [part.strip().lower() for part in re.split(r"[,;/|]+", value or "") if part.strip()]
+    return parts[-1] if parts else ""
+
+
+def _location_city(value: str) -> str:
+    parts = [part.strip().lower() for part in re.split(r"[,;/|]+", value or "") if part.strip()]
+    if len(parts) >= 2:
+        return parts[0]
+    return ""
+
+
+def _location_exactish_match(preferred_locations: list[str], job_location: str | None) -> bool:
+    job_norm = _normalize_location_text(job_location or "")
+    if not job_norm:
+        return False
+    job_city = _location_city(job_location or "")
+    job_country = _location_country(job_location or "")
+    for item in preferred_locations:
+        pref_norm = _normalize_location_text(item)
+        if not pref_norm:
+            continue
+        pref_city = _location_city(item)
+        pref_country = _location_country(item)
+        if pref_norm == job_norm:
+            return True
+        if pref_city and job_city and pref_country and job_country and pref_city == job_city and pref_country == job_country:
+            return True
+    return False
+
+
+def _location_same_country(preferred_locations: list[str], job_location: str | None) -> bool:
+    job_country = _location_country(job_location or "")
+    if not job_country:
+        return False
+    for item in preferred_locations:
+        if _location_country(item) == job_country:
+            return True
+    return False
+
+
+def _deterministic_location_score(preferred_locations: list[str], job_location: str | None) -> float:
+    if _location_exactish_match(preferred_locations, job_location):
+        return 100.0
+    if _location_same_country(preferred_locations, job_location):
+        return 80.0
+    return 30.0
+
+
+def _deterministic_location_summary(
+    preferred_locations: list[str],
+    job_location: str | None,
+    language: str = "zh",
+) -> str:
+    if _location_exactish_match(preferred_locations, job_location):
+        return {
+            "en": "The job location directly matches the candidate's target location.",
+            "es": "La ubicación del puesto coincide directamente con la ubicación objetivo del candidato.",
+        }.get(language, "职位地点与候选人的目标地点直接匹配。")
+    if _location_same_country(preferred_locations, job_location):
+        return {
+            "en": "The job is in the candidate's target country, but a different city.",
+            "es": "El puesto está en el país objetivo del candidato, pero en una ciudad distinta.",
+        }.get(language, "职位位于候选人的目标国家，但城市不同。")
+    return {
+        "en": "The job is outside the candidate's target country.",
+        "es": "El puesto está fuera del país objetivo del candidato.",
+    }.get(language, "职位位于候选人目标国家之外。")
+
+
+def _jd_text_blob(jd_profile: JDProfile) -> str:
+    parts = [
+        jd_profile.location or "",
+        jd_profile.work_mode or "",
+        jd_profile.summary or "",
+        " ".join(jd_profile.must_have_requirements),
+        " ".join(jd_profile.red_flags),
+        " ".join(jd_profile.responsibilities),
+    ]
+    return "\n".join(part for part in parts if part).lower()
+
+
+def _has_office_attendance_requirement(jd_profile: JDProfile) -> bool:
+    work_mode = (jd_profile.work_mode or "").strip().lower()
+    if work_mode in {"hybrid", "onsite", "on-site"}:
+        return True
+    text = _jd_text_blob(jd_profile)
+    patterns = (
+        r"\b\d+\s+days?\s+(?:per\s+week\s+)?(?:in|at)\s+office\b",
+        r"\bthree\s+days?\s+(?:per\s+week\s+)?(?:in|at)\s+office\b",
+        r"\bin-?office\b",
+        r"\bon-?site\b",
+        r"\bhybrid\b",
+    )
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def _has_cross_city_relocation_risk(profile: CVProfile, jd_profile: JDProfile) -> bool:
+    job_location = jd_profile.location or ""
+    if not job_location or not profile.preferred_locations:
+        return False
+    if _location_exactish_match(profile.preferred_locations, job_location):
+        return False
+    return _location_same_country(profile.preferred_locations, job_location)
+
+
 def _is_language_requirement_risk(text: str) -> bool:
     normalized = (text or "").strip().lower()
     markers = (
         "缺少 jd 明确要求的语言能力",
         "missing explicit jd language requirement",
         "faltan los idiomas exigidos explícitamente por el jd",
+    )
+    return any(marker in normalized for marker in markers)
+
+
+def _is_location_inference_risk(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    markers = (
+        "onsite",
+        "hybrid",
+        "office attendance",
+        "office-attendance",
+        "in-office",
+        "on-site",
+        "visa",
+        "sponsorship",
+        "work authorization",
+        "work permit",
+        "工作许可",
+        "签证",
+        "办公室到岗",
+        "到岗要求",
+    )
+    return any(marker in normalized for marker in markers)
+
+
+def _is_experience_gap_item(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    markers = (
+        "years of experience are below the jd requirement",
+        "the role's experience requirement is higher than the candidate's current work experience",
+        "hard screening threshold",
+        "工作年限低于 jd 要求",
+        "岗位资历要求高于候选人当前工作年限",
+        "硬性筛选门槛",
+        "工作经验年限稍显不足",
+        "工作年限略低于jd要求",
+        "经验要求",
+        "la experiencia laboral está por debajo del requisito del jd",
+        "el requisito de experiencia del puesto es superior a la experiencia laboral actual del candidato",
+        "umbral de filtro",
     )
     return any(marker in normalized for marker in markers)
 
@@ -325,50 +467,42 @@ def _generic_experience_gap_risk(language: str) -> str:
 
 def _normalize_experience_gap_language(
     profile: CVProfile,
-    job_summary: JobSummary,
+    jd_profile: JDProfile,
     match: MatchScore,
     language: str,
 ) -> MatchScore:
-    years_required = job_summary.years_required
+    years_required = jd_profile.years_required
     profile_years = profile.years_of_experience or 0
     if years_required is None or profile_years >= years_required:
         return match
 
-    mismatch_terms = (
-        "junior", "mid", "new grad", "graduate", "transition", "level mismatch",
-        "应届", "过渡阶段", "junior向mid", "初中级", "职级不匹配", "级别差距",
-    )
-
     filtered_weaknesses = [
         item for item in match.weaknesses
-        if not any(term in item.lower() for term in mismatch_terms)
+        if not _is_experience_gap_item(item)
     ]
     filtered_risks = [
         item for item in match.risks
-        if not any(term in item.lower() for term in mismatch_terms)
+        if not _is_experience_gap_item(item)
     ]
 
     generic_weakness = _generic_experience_gap_weakness(profile_years, years_required, language)
     generic_risk = _generic_experience_gap_risk(language)
 
     filtered_weaknesses.insert(0, generic_weakness)
-    if generic_risk not in filtered_risks:
-        filtered_risks.insert(0, generic_risk)
+    filtered_risks.insert(0, generic_risk)
 
     return match.model_copy(
         update={
-            "weaknesses": filtered_weaknesses,
-            "risks": filtered_risks,
+            "weaknesses": _dedupe_text_items(filtered_weaknesses),
+            "risks": _dedupe_text_items(filtered_risks),
         }
     )
 
 
 def _recommendation(score: float, risks: list[str]) -> str:
     blocking_signals = (
-        "visa",
         "security clearance",
         "clearance",
-        "onsite required",
         "requires phd",
         "manager-level mismatch",
     )
@@ -383,19 +517,24 @@ def _recommendation(score: float, risks: list[str]) -> str:
         return "apply"
     if score >= 60:
         return "stretch_apply"
-    if score >= 45:
+    if score >= 20:
         return "low_priority"
     return "skip"
 
 
+def _has_risk_signal(risks: list[str], *signals: str) -> bool:
+    lowered = [risk.lower() for risk in risks]
+    return any(signal in risk for risk in lowered for signal in signals)
+
+
 def _apply_profile_guards(
     profile: CVProfile,
-    job_summary: JobSummary,
+    jd_profile: JDProfile,
     evidence: _MatchEvidence,
     language: str = "zh",
 ) -> _MatchEvidence:
     updated = evidence.model_copy(deep=True)
-    years_required = job_summary.years_required
+    years_required = jd_profile.years_required
     level = profile.seniority
     guard_risks: list[str] = []
 
@@ -409,28 +548,44 @@ def _apply_profile_guards(
             updated.risk_penalty = min(100, updated.risk_penalty + 20)
             guard_risks.append(f"JD 明确要求 {years_required}+ 年经验，与 junior 背景存在明显差距")
 
-    description_level = (job_summary.description_seniority or "").lower().strip()
-    blocked = {item.lower() for item in profile.blocked_seniority_levels}
+    description_level = normalize_seniority_level(jd_profile.description_seniority or "")
+    blocked = {normalize_seniority_level(item) for item in profile.blocked_seniority_levels}
     if description_level and description_level in blocked:
         updated.seniority_score = min(updated.seniority_score, 10)
         updated.risk_penalty = min(100, updated.risk_penalty + 25)
         guard_risks.append(f"JD 要求偏向 {description_level}，超出候选人可投级别")
 
-    if job_summary.seniority_conflict and job_summary.seniority_conflict_reason:
-        updated.risks = [*updated.risks, f"Title / Description 冲突: {job_summary.seniority_conflict_reason}"]
+    if jd_profile.seniority_conflict and jd_profile.seniority_conflict_reason:
+        updated.risks = [*updated.risks, f"Title / Description 冲突: {jd_profile.seniority_conflict_reason}"]
 
-    updated.risks = [risk for risk in updated.risks if not _is_language_requirement_risk(risk)]
+    if _has_cross_city_relocation_risk(profile, jd_profile):
+        updated.location_score = max(updated.location_score, 80)
+        if not _has_risk_signal(updated.risks, "relocation", "reubic", "搬迁"):
+            updated.risk_penalty = min(100, updated.risk_penalty + 10)
+        guard_risks.append(
+            {
+                "en": f"The role may require relocation to {jd_profile.location}, which adds practical friction.",
+                "es": f"El puesto puede requerir reubicación a {jd_profile.location}, lo que añade fricción práctica.",
+            }.get(language, f"该职位可能需要搬迁至 {jd_profile.location}，会带来现实执行层面的摩擦。")
+        )
+
+    updated.risks = [
+        risk for risk in updated.risks
+        if not _is_language_requirement_risk(risk) and not _is_location_inference_risk(risk)
+    ]
+    if _is_location_inference_risk(updated.risk_summary):
+        updated.risk_summary = ""
 
     candidate_languages = _language_set(profile.languages)
-    required_languages = _language_set(job_summary.required_languages)
-    preferred_languages = _language_set(job_summary.preferred_languages)
+    required_languages = _language_set(jd_profile.required_languages)
+    preferred_languages = _language_set(jd_profile.preferred_languages)
 
     if required_languages:
         missing_required = sorted(required_languages - candidate_languages)
         if missing_required:
             updated.language_score = min(updated.language_score, 20)
             updated.risk_penalty = min(100, updated.risk_penalty + 20)
-            missing_display = _required_language_display(job_summary.required_languages, missing_required)
+            missing_display = _required_language_display(jd_profile.required_languages, missing_required)
             guard_risks.append(f"缺少 JD 明确要求的语言能力: {', '.join(missing_display)}")
             updated.language_summary = {
                 "en": "Required language coverage is incomplete for this role.",
@@ -465,7 +620,7 @@ def _apply_profile_guards(
 
 def adjust_match_for_profile(
     profile: CVProfile,
-    job_summary: JobSummary,
+    jd_profile: JDProfile,
     match: MatchScore,
     language: str = "zh",
 ) -> MatchScore:
@@ -493,12 +648,15 @@ def adjust_match_for_profile(
         risks=list(match.risks),
         explanation=match.explanation,
     )
-    adjusted = _apply_profile_guards(profile, job_summary, evidence, language=language)
+    adjusted = _apply_profile_guards(profile, jd_profile, evidence, language=language)
+    adjusted.location_score = _deterministic_location_score(profile.preferred_locations, jd_profile.location)
+    adjusted.location_summary = _deterministic_location_summary(profile.preferred_locations, jd_profile.location, language=language)
     overall = _overall_score(adjusted)
     recommendation = _recommendation(overall, adjusted.risks)
     updated = match.model_copy(
         update={
             "overall_score": overall,
+            "location_score": adjusted.location_score,
             "seniority_score": adjusted.seniority_score,
             "language_score": adjusted.language_score,
             "risk_penalty": adjusted.risk_penalty,
@@ -516,12 +674,12 @@ def adjust_match_for_profile(
             "risks": adjusted.risks,
         }
     )
-    return _normalize_experience_gap_language(profile, job_summary, updated, language)
+    return _normalize_experience_gap_language(profile, jd_profile, updated, language)
 
 
 def match_job_to_cv(
     profile: CVProfile,
-    job_summary: JobSummary,
+    jd_profile: JDProfile,
     full_jd: str,
     llm: LLMConfig,
     cv_hash: str = "",
@@ -529,17 +687,17 @@ def match_job_to_cv(
 ) -> MatchScore:
     effective_cv_hash = cv_hash or cv_profile_hash(profile)
     prompt_version = match_prompt_version(language)
-    cached = cache.get_job_match(job_summary.job_id, effective_cv_hash, full_jd, prompt_version=prompt_version)
+    cached = cache.get_job_match(jd_profile.job_id, effective_cv_hash, full_jd, prompt_version=prompt_version)
     if cached is None and cv_hash:
         legacy_hash = cv_profile_hash(profile)
         if legacy_hash != effective_cv_hash:
-            cached = cache.get_job_match(job_summary.job_id, legacy_hash, full_jd, prompt_version=prompt_version)
+            cached = cache.get_job_match(jd_profile.job_id, legacy_hash, full_jd, prompt_version=prompt_version)
     if cached is not None:
-        return adjust_match_for_profile(profile, job_summary, cached, language=language)
+        return adjust_match_for_profile(profile, jd_profile, cached, language=language)
 
     lang_name = _LANGUAGE_NAMES.get(language, "中文")
 
-    prompt = f"""你是招聘匹配分析助手。请根据候选人 CV 和结构化 JD summary，对该职位做可解释匹配评分。
+    prompt = f"""你是招聘匹配分析助手。请根据候选人 CV 和结构化 JDProfile，对该职位做可解释匹配评分。
 
 规则：
 - 所有文字字段必须使用 {lang_name} 输出。
@@ -547,9 +705,11 @@ def match_job_to_cv(
 - 各维度分数范围 0-100。
 - must_have_score 只针对明确 must-have。
 - language_score 专门评估候选人语言能力与 JD 语言要求的匹配程度。
+- location_score 与 location_summary 由程序按三档规则计算；不要返回 location_score，也不要基于地理位置生成额外风险判断。
 - matched_keywords 只输出 3-8 个“候选人已具备且与 JD 明显匹配”的技术栈/工具/领域关键词，禁止复述整句要求。
 - risk_penalty 只用于真实风险，不要把一般弱项重复计入 penalty。
-- 如果职位存在签证、security clearance、强制 onsite、PhD、管理级别明显超出等阻断风险，必须写入 risks。
+- 如果职位存在 security clearance、PhD、管理级别明显超出等阻断风险，必须写入 risks。
+- 不要根据 JD 的 onsite/hybrid 要求、签证描述或工作许可描述，去推断候选人一定不匹配；如果候选人资料没有明确冲突信息，这些因素不要计入 risk_penalty。
 
 {_rubric_prompt(language)}
 
@@ -561,8 +721,8 @@ def match_job_to_cv(
 目标职位：{", ".join(profile.preferred_roles[:10])}
 目标地点：{", ".join(profile.preferred_locations[:10])}
 
-JD Summary:
-{job_summary.model_dump_json(indent=2)}
+JD Profile:
+{jd_profile.model_dump_json(indent=2)}
 
 原始 JD:
 <jd_content>
@@ -579,11 +739,11 @@ JD Summary:
         _step="JD CV Matching",
     )
     evidence = _stabilize_evidence(evidence)
-    evidence = _apply_profile_guards(profile, job_summary, evidence, language=language)
+    evidence = _apply_profile_guards(profile, jd_profile, evidence, language=language)
     overall = _overall_score(evidence)
     recommendation = _recommendation(overall, evidence.risks)
     result = MatchScore(
-        job_id=job_summary.job_id,
+        job_id=jd_profile.job_id,
         cv_hash=effective_cv_hash,
         overall_score=overall,
         title_score=evidence.title_score,
@@ -610,12 +770,12 @@ JD Summary:
         risks=evidence.risks,
         explanation=evidence.explanation,
     )
-    result = adjust_match_for_profile(profile, job_summary, result, language=language)
+    result = adjust_match_for_profile(profile, jd_profile, result, language=language)
     cache.save_job_match(
         result,
         description=full_jd,
         model_name=f"{llm.provider}/{llm.model}",
         prompt_version=prompt_version,
     )
-    logger.info("JD match saved: %s / %s", job_summary.job_id, effective_cv_hash[:8])
+    logger.info("JD match saved: %s / %s", jd_profile.job_id, effective_cv_hash[:8])
     return result

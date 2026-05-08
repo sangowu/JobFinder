@@ -142,6 +142,32 @@ class Telemetry:
             )
             console.print(t2)
 
+    def summarize_llm_by_step(self) -> dict[str, dict[str, float | int | str]]:
+        with self._lock:
+            llm = list(self.llm_records)
+
+        summary: dict[str, dict[str, float | int | str]] = {}
+        for record in llm:
+            bucket = summary.setdefault(
+                record.step,
+                {
+                    "step": record.step,
+                    "provider": record.provider,
+                    "model": record.model,
+                    "calls": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "elapsed": 0.0,
+                },
+            )
+            bucket["calls"] = int(bucket["calls"]) + 1
+            bucket["input_tokens"] = int(bucket["input_tokens"]) + record.input_tokens
+            bucket["output_tokens"] = int(bucket["output_tokens"]) + record.output_tokens
+            bucket["elapsed"] = round(float(bucket["elapsed"]) + record.elapsed, 3)
+            bucket["provider"] = record.provider
+            bucket["model"] = record.model
+        return summary
+
 
 # 全局单例
 telemetry = Telemetry()

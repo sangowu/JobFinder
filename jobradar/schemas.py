@@ -8,9 +8,17 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
+from jobradar.seniority import (
+    LEGACY_SENIORITY_LEVEL,
+    default_blocked_levels,
+    default_eligible_levels,
+    default_stretch_levels,
+    infer_title_seniority,
+    normalize_seniority,
+    normalize_seniority_level,
+)
 
 DEFAULT_TTL_DAYS = 7
-LEGACY_SENIORITY_LEVEL = Literal["intern", "new_grad", "junior", "mid", "senior", "lead", "unknown"]
 
 # 检测职位已关闭的关键词模式
 _CLOSED_PATTERN = re.compile(
@@ -49,6 +57,70 @@ def normalize_title(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip().lower()
 
 
+_TITLE_TOKEN_RE = re.compile(r"[a-z0-9+#]+")
+_ROLE_VARIANT_MODIFIERS = {
+    "applied",
+    "python",
+    "junior",
+    "senior",
+    "staff",
+    "lead",
+    "principal",
+    "associate",
+    "entry",
+    "graduate",
+    "new",
+    "sr",
+    "jr",
+}
+
+
+def _role_tokens(title: str) -> list[str]:
+    return _TITLE_TOKEN_RE.findall((title or "").lower())
+
+
+def _is_role_variant_pair(kept: str, candidate: str) -> bool:
+    kept_tokens = _role_tokens(kept)
+    candidate_tokens = _role_tokens(candidate)
+    if not kept_tokens or not candidate_tokens:
+        return False
+    if kept_tokens == candidate_tokens:
+        return True
+    if kept_tokens[-1] != candidate_tokens[-1]:
+        return False
+
+    kept_set = set(kept_tokens)
+    candidate_set = set(candidate_tokens)
+    if not kept_set.issubset(candidate_set):
+        return False
+
+    extra = candidate_set - kept_set
+    return bool(extra) and extra.issubset(_ROLE_VARIANT_MODIFIERS)
+
+
+def dedupe_distinct_titles(titles: list[str]) -> list[str]:
+    deduped: list[str] = []
+    exact_seen: set[str] = set()
+
+    for raw_title in titles:
+        title = re.sub(r"\s+", " ", (raw_title or "").strip())
+        if not title:
+            continue
+
+        normalized = normalize_title(title)
+        if normalized in exact_seen:
+            continue
+
+        if any(_is_role_variant_pair(kept, title) for kept in deduped):
+            continue
+
+        deduped = [kept for kept in deduped if not _is_role_variant_pair(title, kept)]
+        deduped.append(title)
+        exact_seen = {normalize_title(item) for item in deduped}
+
+    return deduped
+
+
 def make_dedup_key(company: str, title: str) -> str:
     return f"{normalize_company(company)}|{normalize_title(title)}"
 
@@ -68,6 +140,7 @@ class CVProfile(BaseModel):
     years_of_experience: float | None = Field(default=0, ge=0)
     preferred_locations: list[str] = Field(default_factory=list)
     preferred_roles: list[str] = Field(default_factory=list)
+    seniority_raw: list[str] = Field(default_factory=list, description="CV 中直接出现的 seniority 原始表达")
     seniority: LEGACY_SENIORITY_LEVEL = "unknown"
     declared_seniority: str = Field(default="unknown", description="候选人在 CV 中呈现出的资历级别")
     evidence_seniority: str = Field(default="unknown", description="根据经历和职责推断出的资历级别")
@@ -87,6 +160,7 @@ class CVProfile(BaseModel):
 
     @model_validator(mode="after")
     def _populate_seniority_fields(self) -> "CVProfile":
+        self.preferred_roles = dedupe_distinct_titles(self.preferred_roles)
         base = self.seniority if self.seniority != "unknown" else "unknown"
 
         if self.declared_seniority == "unknown":
@@ -94,22 +168,20 @@ class CVProfile(BaseModel):
         if self.evidence_seniority == "unknown":
             self.evidence_seniority = self.declared_seniority
 
-        effective = self.evidence_seniority
-        if effective == "unknown":
-            effective = self.declared_seniority
-        if effective == "unknown":
-            effective = base
-        self.seniority = _to_legacy_seniority(effective)
+        raw_values = [*self.seniority_raw, self.declared_seniority, self.evidence_seniority, base]
+        self.declared_seniority = normalize_seniority(self.seniority_raw, self.declared_seniority)
+        self.evidence_seniority = normalize_seniority(raw_values, self.evidence_seniority)
+        self.seniority = normalize_seniority(raw_values, self.evidence_seniority or self.declared_seniority or base)
 
         if not self.eligible_seniority_levels:
-            self.eligible_seniority_levels = _default_eligible_levels(self.seniority)
+            self.eligible_seniority_levels = default_eligible_levels(self.seniority)
         if not self.stretch_seniority_levels:
-            self.stretch_seniority_levels = _default_stretch_levels(
+            self.stretch_seniority_levels = default_stretch_levels(
                 self.seniority,
                 self.seniority_mode,
             )
         if not self.blocked_seniority_levels:
-            self.blocked_seniority_levels = _default_blocked_levels(self.seniority)
+            self.blocked_seniority_levels = default_blocked_levels(self.seniority)
         return self
 
     @property
@@ -121,65 +193,6 @@ class CVProfile(BaseModel):
         if self.declared_seniority == self.evidence_seniority:
             return self.effective_seniority
         return f"{self.declared_seniority} -> {self.evidence_seniority}"
-
-
-def _to_legacy_seniority(level: str) -> LEGACY_SENIORITY_LEVEL:
-    level = level.lower().strip() if level else "unknown"
-    mapping = {
-        "graduate": "new_grad",
-        "entry": "junior",
-        "entry_level": "junior",
-        "associate": "junior",
-        "staff": "lead",
-        "principal": "lead",
-        "manager": "lead",
-        "director": "lead",
-    }
-    level = mapping.get(level, level)
-    if level in {"intern", "new_grad", "junior", "mid", "senior", "lead"}:
-        return level
-    return "unknown"
-
-
-def _default_eligible_levels(level: LEGACY_SENIORITY_LEVEL) -> list[str]:
-    defaults = {
-        "intern": ["intern"],
-        "new_grad": ["intern", "new_grad", "graduate", "entry", "junior"],
-        "junior": ["new_grad", "graduate", "entry", "junior", "mid"],
-        "mid": ["junior", "mid", "senior"],
-        "senior": ["mid", "senior", "lead"],
-        "lead": ["senior", "lead", "staff", "principal", "manager"],
-        "unknown": ["new_grad", "graduate", "entry", "junior", "mid"],
-    }
-    return defaults[level]
-
-
-def _default_stretch_levels(level: LEGACY_SENIORITY_LEVEL, mode: str) -> list[str]:
-    if mode == "strict":
-        return []
-    defaults = {
-        "intern": ["new_grad"] if mode == "stretch" else [],
-        "new_grad": ["mid"] if mode == "stretch" else ["junior"],
-        "junior": ["senior"] if mode == "stretch" else ["mid"],
-        "mid": ["lead"] if mode == "stretch" else ["senior"],
-        "senior": ["staff", "principal"] if mode == "stretch" else ["lead"],
-        "lead": ["director"] if mode == "stretch" else [],
-        "unknown": ["senior"] if mode == "stretch" else ["mid"],
-    }
-    return defaults[level]
-
-
-def _default_blocked_levels(level: LEGACY_SENIORITY_LEVEL) -> list[str]:
-    defaults = {
-        "intern": ["junior", "mid", "senior", "staff", "principal", "lead", "manager", "director"],
-        "new_grad": ["senior", "staff", "principal", "lead", "manager", "director"],
-        "junior": ["staff", "principal", "manager", "director"],
-        "mid": ["principal", "director"],
-        "senior": ["director"],
-        "lead": [],
-        "unknown": ["director"],
-    }
-    return defaults[level]
 
 
 # ─── JobResult ────────────────────────────────────────────────────────────────
@@ -286,11 +299,20 @@ class LanguageProficiency(BaseModel):
         return self
 
 
-class JobSummary(BaseModel):
+class JDProfile(BaseModel):
     job_id: str
     title: str
     company: str
     location: str | None = None
+    summary: str = ""
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
+    must_have_requirements: list[str] = Field(default_factory=list)
+    education_requirements: list[str] = Field(default_factory=list)
+    preferred_roles: list[str] = Field(default_factory=list)
+    seniority_raw: list[str] = Field(default_factory=list)
+    seniority: str = "unknown"
+    years_of_experience: str = ""
     job_type: str | None = None
     work_mode: str | None = None
     title_seniority: str | None = None
@@ -305,9 +327,32 @@ class JobSummary(BaseModel):
     responsibilities: list[str] = Field(default_factory=list)
     business_overview: str = ""
     company_overview: str | None = None
-    visa_sponsorship: str | None = None
     salary_range: str | None = None
     red_flags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_seniority_fields(self) -> "JDProfile":
+        self.preferred_roles = dedupe_distinct_titles(self.preferred_roles)
+        title_level = normalize_seniority_level(self.title_seniority or infer_title_seniority(self.title))
+        description_inputs = [*self.seniority_raw, self.description_seniority or "", self.seniority or ""]
+        description_level = normalize_seniority(description_inputs, self.description_seniority or self.seniority)
+        overall_inputs = [*self.seniority_raw, self.seniority or "", title_level, description_level]
+
+        self.title_seniority = title_level
+        self.description_seniority = description_level
+        self.seniority = normalize_seniority(overall_inputs, self.seniority or description_level or title_level)
+
+        if title_level != "unknown" and description_level != "unknown" and title_level != description_level:
+            self.seniority_conflict = True
+            if not self.seniority_conflict_reason:
+                self.seniority_conflict_reason = f"title={title_level}, description={description_level}"
+        elif self.seniority_conflict and not self.seniority_conflict_reason:
+            self.seniority_conflict_reason = None
+        return self
+
+
+class JobSummary(JDProfile):
+    """Backward-compatible alias for the previous summary-shaped deep-analysis object."""
 
 
 class MatchScore(BaseModel):
@@ -389,9 +434,18 @@ class JobResult(BaseModel):
     expires_at: datetime | None = None
     is_complete: bool = True  # False 表示有字段缺失
     coarse_filter: CoarseFilterResult | None = None
+    jd_profile: JDProfile | None = None
     job_summary: JobSummary | None = None
     match_score: MatchScore | None = None
     assessment: JobAssessment | None = None
+
+    @model_validator(mode="after")
+    def _populate_deep_analysis_fields(self) -> "JobResult":
+        if self.jd_profile is None and self.job_summary is not None:
+            self.jd_profile = JDProfile.model_validate(self.job_summary.model_dump(mode="json"))
+        elif self.job_summary is None and self.jd_profile is not None:
+            self.job_summary = JobSummary.model_validate(self.jd_profile.model_dump(mode="json"))
+        return self
 
     @computed_field
     @property
@@ -431,14 +485,14 @@ class JobResult(BaseModel):
     @property
     def effective_weaknesses(self) -> list[str]:
         if self.match_score is not None:
-            return self.match_score.weaknesses + self.match_score.risks
+            return self.match_score.weaknesses
         if self.assessment is not None:
             return self.assessment.weaknesses
         return []
 
     @property
     def effective_keywords(self) -> list[str]:
-        if self.match_score is not None and self.job_summary is not None:
+        if self.match_score is not None and (self.jd_profile is not None or self.job_summary is not None):
             return self.match_score.matched_keywords[:6]
         if self.assessment is not None:
             return self.assessment.matched_keywords[:6]
