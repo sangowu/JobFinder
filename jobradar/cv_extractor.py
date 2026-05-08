@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 
 from jobradar import cache
-from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider, complete_structured
+from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider, complete_via_tool
 from jobradar.logger import get_logger
 from jobradar.schemas import CVProfile
 
@@ -99,12 +99,14 @@ def extract_cv_profile(
 
     logger.info("Starting CV parse (LLM) provider=%s model=%s", effective_llm.provider, effective_llm.model)
     prompt = f"请从以下简历中提取信息：\n\n{cv_text}"
-    profile = complete_structured(
+    profile = complete_via_tool(
         prompt=prompt,
-        response_schema=CVProfile,
+        args_schema=CVProfile,
+        tool_name="extract_cv_profile",
+        tool_description="Extract a structured CV profile from resume text.",
         provider=effective_llm.provider,
         model=effective_llm.model,
-        system=_SYSTEM,
+        system=_SYSTEM + "\n你必须调用指定工具并填写结构化参数。",
         _step="CV 解析",
     )
     cache.save_cv_profile(cv_hash, profile, prompt_version=PROMPT_VERSION)
