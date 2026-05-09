@@ -9,7 +9,7 @@ import requests
 
 from jobradar import cache
 from jobradar.logger import get_logger
-from jobradar.schemas import JobAssessment, JobResult, make_dedup_key
+from jobradar.schemas import CoarseFilterResult, JobAssessment, JobResult, make_dedup_key
 
 log = get_logger(__name__)
 
@@ -143,6 +143,15 @@ def write_cache(job_data: dict, session_key: str | None = None) -> str:
     elif raw_assessment is not None and hasattr(raw_assessment, "model_dump"):
         assessment = JobAssessment.model_validate(raw_assessment.model_dump())
 
+    raw_coarse_filter = job_data.get("coarse_filter")
+    coarse_filter: CoarseFilterResult | None = None
+    if isinstance(raw_coarse_filter, CoarseFilterResult):
+        coarse_filter = raw_coarse_filter
+    elif isinstance(raw_coarse_filter, dict):
+        coarse_filter = CoarseFilterResult.model_validate(raw_coarse_filter)
+    elif raw_coarse_filter is not None and hasattr(raw_coarse_filter, "model_dump"):
+        coarse_filter = CoarseFilterResult.model_validate(raw_coarse_filter.model_dump())
+
     raw_sources = job_data.get("raw_sources") or []
     if not raw_sources and sources:
         raw_sources = [{"source": sources[0], "url": url, "date_posted": job_data.get("date_posted", "")}]
@@ -158,6 +167,7 @@ def write_cache(job_data: dict, session_key: str | None = None) -> str:
         date_posted=job_data.get("date_posted", ""),
         expires_at=_parse_date(job_data.get("expires_at")),
         is_complete=job_data.get("is_complete", True),
+        coarse_filter=coarse_filter,
         assessment=assessment,
     )
     cache.save_job(job)

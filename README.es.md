@@ -41,14 +41,27 @@ uv run jobradar find cv.docx  # Modo CLI
 Archivo CV
   │
   ▼ ① Análisis de CV (LLM → CVProfile)  ← caché permanente SHA-256
-  ▼ ② Descubrimiento de títulos (Adzuna API + LLM)  ← caché 7 días
-  ▼    El usuario revisa y confirma la lista de títulos
+         bandas estructuradas de seniority + extracción explícita de idiomas
+  ▼ ② El usuario revisa y confirma la lista de títulos
   ▼ ③ Extracción (Indeed + LinkedIn, JobSpy, sin navegador)
-         Pre-filtro LLM de títulos → serie limitada (Indeed 2s / LinkedIn 3s) → dedup
-  ▼ ④ Embudo de filtros: antigüedad → relevancia → caché URL → cerrada → exp → habilidades
-  ▼ ⑤ Evaluación LLM por lotes (score / strengths / weaknesses / matched_keywords)
-  ▼ ⑥ Estadísticas escritas en reports/pipeline_stats.jsonl
-  ▼    Web UI / terminal
+         serie limitada (Indeed 2s / LinkedIn 3s) → dedup
+  ▼    title relevance gate LLM previo al JD
+         filtro semántico conservador solo con el título; keep=true por defecto y rechazo solo si la ruta profesional es claramente distinta
+  ▼    coarse filter LLM por lotes
+         keep/reject a nivel de tarjeta usando title + location + snippet
+  ▼    title seniority gate dinámico
+          bloquea títulos con desajuste obvio de nivel (p. ej. new grad → lead / manager)
+  ▼    gate de diferencia de experiencia
+         si el JD exige más de 3 años por encima de la experiencia real del candidato, se descarta directamente
+  ▼ ④ Extracción de JD Profile
+         required/preferred skills estructurados, must-haves, años, conflicto de seniority, work mode y requisitos de idioma
+  ▼ ⑤ Matching explicable CV↔JD
+         puntuación por rúbrica → score ponderado programático → recommendation
+         reubicación entre ciudades / asistencia a oficina cuentan como riesgo, no como penalización de location_score
+  ▼ ⑥ Generación de artifacts
+          interview prep / cover letter / CV optimization
+  ▼ ⑦ Estadísticas de búsqueda y caché
+          métricas históricas, informes, filter events, Web UI / terminal
 ```
 
 Embudo real (datos reales):
@@ -74,11 +87,6 @@ DASHSCOPE_API_KEY=
 LLAMACPP_BASE_URL=http://localhost:8080/v1
 LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 
-# Adzuna — opcional, solo para descubrimiento de títulos y mejorar resultados de búsqueda
-# (registro gratuito: developer.adzuna.com)
-ADZUNA_APP_ID=
-ADZUNA_APP_KEY=
-
 # Modelo predeterminado (escrito automáticamente por `jobradar model`)
 DEFAULT_PROVIDER=gemini
 DEFAULT_MODEL=gemini-2.0-flash
@@ -91,8 +99,17 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Diseño de tres columnas**: lista de trabajos + detalle + panel de subida de CV/búsqueda
 - **Agregación multi-fuente**: las ofertas que aparecen en Indeed y LinkedIn se fusionan automáticamente; las insignias de fuente son enlaces clicables; el botón Apply se convierte en menú desplegable cuando hay varias URLs
 - **Historial de búsquedas**: cada registro tiene un botón 📊 para expandir el embudo completo, con desglose por fuente (Indeed / LinkedIn)
+- **Métricas normalizadas del historial**: cada búsqueda guarda total extraído, total tras deduplicación, total filtrado, nuevos puestos guardados y consumo de tokens
+- **Resumen benchmark del embudo**: el historial guarda versiones del pipeline/prompt y muestra métricas derivadas como tasa post-filtro, rendimiento de nuevos puestos y tokens por puesto nuevo
+- **Filtro semántico previo por título**: antes del JD assessment, los títulos pasan por un gate LLM conservador; `skip_irrelevant` aparece en el embudo
+- **Persistencia de eventos de filtrado**: cada búsqueda guarda `run_id / stage / title / reason / details` en `filter_events`
+- **Filtro dinámico de seniority en el título**: usa los niveles eligible/stretch/blocked del CV para quitar desajustes claros antes del JD matching
+- **Corte duro por diferencia de experiencia**: el pipeline registra `skip_exp`, y `jd_assessment` marca directamente `relevant=false` cuando la diferencia explícita de años es mayor a 3
+- **Matching explicable**: el detalle del JD muestra desglose de puntuación, riesgos, coincidencias de habilidades y recommendation
+- **Reubicación / asistencia a oficina solo como riesgo**: la reubicación entre ciudades dentro del mismo país objetivo y requisitos como `hybrid` / `onsite` / días presenciales semanales entran en `risks / risk_penalty`, no en `location_score`
+- **Artifact hub**: genera y reutiliza Interview Prep, Cover Letter y CV Optimization desde el panel de detalle
 - **Panel de logs**: filtrado por nivel, resaltado de palabras clave, actualización automática
-- **Página de configuración**: gestiona API Keys de LLM y API de búsqueda Adzuna, selecciona modelo por defecto, limpia caché — los nuevos usuarios pueden completar toda la configuración sin editar `.env`
+- **Página de configuración**: gestiona API Keys de LLM, selecciona modelo por defecto, limpia caché — los nuevos usuarios pueden completar toda la configuración sin editar `.env`
 - **Multilingüe**: la interfaz soporta 中文 / English / Español
 
 ## Informes de Estadísticas
@@ -104,11 +121,45 @@ Tras cada búsqueda se escriben automáticamente en el directorio `reports/`:
 | `pipeline_stats.jsonl` | Log de solo añadir — una línea JSON por búsqueda, historial completo |
 | `pipeline_stats_latest.json` | Siempre sobreescrito con el informe de la búsqueda más reciente |
 
+## Benchmark, run_id y eventos de filtrado
+
+- Cada fila del historial guarda metadatos de versión y también `run_id`.
+- `GET /api/stats` devuelve el historial con ese `run_id`.
+- `GET /api/filter-events?run_id=<run_id>` devuelve los eventos persistidos de filtrado por título para esa búsqueda.
+- En modo mock, al limpiar la caché también se eliminan `search_stats` y `filter_events` de la BD mock.
+
+## Script de inspección
+
+Usa `scripts/show_filter_events.py` para leer `data/jobradar_test_cache.db` sin rerun de la búsqueda.
+
+```bash
+python scripts/show_filter_events.py
+python scripts/show_filter_events.py --stage jd_assessment --out reports/filter_report.md
+python scripts/show_filter_events.py --run-id <run_id> --json --out reports/filter_report.json
+```
+
+Opciones útiles:
+
+- `--run-id`: inspeccionar una búsqueda concreta
+- `--stage`: filtrar por `title_relevance`, `coarse_filter`, `experience_gap`, `jd_assessment` o `final_match`
+- `--md`: imprimir Markdown en terminal
+- `--out`: guardar `.md` o `.json`
+
+## Script de comparación
+
+`scripts/compare_title_gate.py` ejecuta un A/B controlado entre `baseline_gate_off` y `title_gate_on`.
+
+- Títulos fijos: `AI Engineer`, `Machine Learning Engineer`, `LLM Engineer`, `Software Engineer`, `Backend Engineer`
+- `30` ofertas por título
+- `168` horas (`7` días)
+- Solo `Indeed`
+- Ubicación fija: `Ireland`
+
 ## Privacidad
 
 - **El contenido del CV** se envía a la API LLM que hayas configurado (Anthropic / Google / OpenAI, etc.) para su análisis y evaluación. Asegúrate de confiar en la política de datos de tu proveedor elegido.
-- **Todos los datos se almacenan localmente**: los perfiles de CV analizados y las ofertas de trabajo se guardan en una base de datos SQLite local (`jobradar_cache.db`) y nunca se suben a ningún servidor externo.
-- **El archivo de log** (`jobradar.log`) solo registra términos de búsqueda y marcas de tiempo — no contiene datos personales del CV ni API Keys, y está excluido de git mediante `.gitignore`.
+- **Todos los datos se almacenan localmente**: los perfiles de CV analizados y las ofertas de trabajo se guardan en una base de datos SQLite local (`data/jobradar_cache.db`) y nunca se suben a ningún servidor externo.
+- **El archivo de log** (`logs/jobradar.log`) solo registra términos de búsqueda y marcas de tiempo — no contiene datos personales del CV ni API Keys, y está excluido de git mediante `.gitignore`.
 
 ## Limitaciones Conocidas
 

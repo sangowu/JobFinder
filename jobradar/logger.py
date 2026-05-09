@@ -8,7 +8,7 @@
 
 环境变量：
     LOG_LEVEL   日志级别，默认 INFO（可设为 DEBUG 查看详细请求）
-    LOG_FILE    日志文件路径，默认 jobradar.log（设为空字符串禁用文件日志）
+    LOG_FILE    日志文件路径，默认 logs/jobradar.log（设为空字符串禁用文件日志）
 """
 from __future__ import annotations
 
@@ -16,9 +16,12 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+from jobradar.paths import LOG_DIR, ensure_parent
 
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-_LOG_FILE = os.getenv("LOG_FILE", "jobradar.log")
+_LOG_FILE = os.getenv("LOG_FILE", str(LOG_DIR / "jobradar.log"))
 
 _FMT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 _DATE_FMT = "%Y-%m-%d %H:%M:%S"
@@ -46,6 +49,7 @@ def _configure() -> None:
 
     # ── 文件 handler（写入全部日志）──────────────────────────────────────────
     if _LOG_FILE:
+        ensure_parent(Path(_LOG_FILE))
         file_handler = RotatingFileHandler(
             _LOG_FILE,
             maxBytes=5 * 1024 * 1024,   # 5 MB 自动轮转

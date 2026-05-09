@@ -182,7 +182,7 @@ def print_result(available: dict[str, list[str]]) -> None:
 
 
 def patch_llm_backend(available: dict[str, list[str]]) -> None:
-    target = Path(__file__).parent.parent / "jobfinder" / "llm_backend.py"
+    target = Path(__file__).parent.parent / "jobradar" / "llm_backend.py"
     if not target.exists():
         print(f"[ERROR] 找不到文件：{target}", file=sys.stderr)
         sys.exit(1)

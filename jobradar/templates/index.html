@@ -130,6 +130,8 @@
     <!-- 全量累计 -->
     <div id="hist-summary" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8"></div>
 
+    <div id="hist-benchmark" class="mb-8"></div>
+
     <!-- 历史记录表格 -->
     <div class="bg-gray-800 rounded-xl overflow-hidden">
       <table class="w-full text-sm text-left">
@@ -137,11 +139,11 @@
           <tr>
             <th class="px-4 py-3" data-i18n="hist.col_time">时间</th>
             <th class="px-4 py-3" data-i18n="hist.col_roles">职位 / 地区</th>
-            <th class="px-4 py-3" data-i18n="hist.col_model">模型</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_elapsed">耗时</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_in">输入 tokens</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens_out">输出 tokens</th>
-            <th class="px-4 py-3 text-right" data-i18n="hist.col_jobs">职位数</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_total">总数</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_deduped">去重后</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_filtered">过滤后</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_new_jobs">新增职位</th>
+            <th class="px-4 py-3 text-right" data-i18n="hist.col_tokens">Token</th>
             <th class="px-4 py-3 text-right" data-i18n="hist.col_funnel">漏斗</th>
           </tr>
         </thead>
@@ -233,44 +235,6 @@
           </svg>
           <span id="cfg-providers-toggle-label"></span>
         </button>
-      </div>
-    </div>
-
-    <!-- Job Search API (optional) -->
-    <div class="flex gap-4 mb-8 items-start">
-      <!-- Left: spacer matching model API button column -->
-      <div class="flex-shrink-0 w-32"></div>
-      <!-- Right: Adzuna card -->
-      <div class="flex-1 min-w-0">
-        <h2 class="text-sm font-semibold text-white mb-3 text-center" data-i18n="cfg.job_api_title"></h2>
-        <div class="bg-gray-800 rounded-xl p-4 relative space-y-3">
-        <p class="text-xs text-gray-400" data-i18n="cfg.job_api_desc"></p>
-          <div class="flex items-center justify-between">
-            <span class="font-medium text-sm text-white">Adzuna</span>
-            <span id="status-adzuna" class="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-500"></span>
-          </div>
-          <div class="flex gap-2 items-center">
-            <input type="text" id="key-adzuna-id" placeholder="ADZUNA_APP_ID"
-              class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white text-xs rounded-lg px-3 py-2
-                     focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
-              autocomplete="off"/>
-            <button onclick="saveAdzunaKey()"
-              class="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors whitespace-nowrap">
-              <span data-i18n="cfg.save"></span>
-            </button>
-          </div>
-          <div class="flex gap-2 items-center">
-            <input type="password" id="key-adzuna-key" placeholder="ADZUNA_APP_KEY"
-              class="flex-1 min-w-0 bg-gray-700 border border-gray-600 text-white text-xs rounded-lg px-3 py-2
-                     focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
-              autocomplete="off"/>
-            <button onclick="saveAdzunaKey()"
-              class="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors whitespace-nowrap opacity-0 pointer-events-none">
-              <span data-i18n="cfg.save"></span>
-            </button>
-          </div>
-          <p id="test-msg-adzuna" class="absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-transparent"></p>
-        </div>
       </div>
     </div>
 
@@ -535,18 +499,6 @@
           <div>
             <div class="flex items-center justify-between mb-2">
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300" data-i18n="titles.roles"></label>
-              <button id="discover-btn" onclick="discoverTitles()"
-                class="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                <span data-i18n="titles.discover"></span>
-              </button>
-            </div>
-            <!-- 市场发现进度条 -->
-            <div id="discover-progress" class="hidden h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden mb-2">
-              <div class="h-full w-1/3 rounded-full bg-blue-500 animate-discover-slide"></div>
             </div>
             <div id="titles-list" class="space-y-1.5"></div>
             <div class="flex gap-2 mt-2">
@@ -609,6 +561,22 @@
             </select>
           </div>
 
+          <label class="flex items-center gap-3 cursor-pointer select-none">
+            <input id="force-refresh" type="checkbox"
+              class="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer flex-shrink-0"/>
+            <span class="text-xs text-gray-500 dark:text-gray-400" data-i18n="titles.force_refresh"></span>
+          </label>
+
+          <input id="experiment-name" type="text" data-i18n-ph="titles.experiment_name_ph"
+            class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                   text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            placeholder="实验名称（可选）"/>
+
+          <textarea id="experiment-notes" rows="2" data-i18n-ph="titles.experiment_notes_ph"
+            class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                   text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+            placeholder="实验备注（可选）"></textarea>
+
           <!-- Search button -->
           <button id="search-btn" onclick="startSearch()"
             class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
@@ -641,6 +609,7 @@
             <p id="done-tokens"></p>
           </div>
           <div id="done-funnel" class="hidden text-gray-400 dark:text-gray-500"></div>
+          <div id="done-modules" class="hidden text-gray-400 dark:text-gray-500"></div>
           <div id="done-dedup" class="hidden text-xs font-mono mt-1"></div>
           <button onclick="resetSearchPanel()"
             class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
@@ -731,6 +700,30 @@
   </div>
 </div>
 
+<div id="artifact-hub-overlay" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+  <div class="max-w-4xl mx-auto px-4 py-12">
+    <div class="flex items-start justify-between gap-4 mb-6">
+      <div class="min-w-0">
+        <p class="text-sm font-bold uppercase tracking-wide text-blue-300 mb-[18px]" data-i18n="detail.artifact_hub">Artifacts</p>
+        <h1 id="artifact-hub-title" class="text-2xl font-bold text-white">Interview Prep</h1>
+        <p id="artifact-hub-job-meta" class="text-sm text-gray-400 mt-1"></p>
+      </div>
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <button id="artifact-hub-refresh-btn" onclick="generateActiveArtifact()"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">Regenerate</button>
+        <button onclick="closeArtifactHub()"
+          class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="artifact-hub-tabs" class="flex flex-wrap gap-2 mb-6"></div>
+    <div id="artifact-hub-content" class="space-y-4"></div>
+  </div>
+</div>
+
 <script>
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 const I18N = {
@@ -738,10 +731,35 @@ const I18N = {
     'nav.config': 'API 配置', 'nav.history': '历史', 'nav.logs': '日志', 'nav.light': '浅色', 'nav.dark': '深色',
     'hist.title': '搜索历史', 'hist.col_time': '时间', 'hist.col_roles': '职位 / 地区', 'hist.col_model': '模型',
     'hist.col_elapsed': '耗时', 'hist.col_tokens_in': '输入 tokens', 'hist.col_tokens_out': '输出 tokens', 'hist.col_jobs': '职位数',
+    'hist.col_total': '总数', 'hist.col_deduped': '去重后', 'hist.col_filtered': '过滤后', 'hist.col_new_jobs': '新增职位', 'hist.col_tokens': 'Token',
     'hist.empty': '暂无搜索记录', 'hist.total_searches': '总搜索次数', 'hist.total_jobs': '累计职位数',
     'hist.total_tokens': '累计 tokens', 'hist.total_elapsed': '累计耗时',
+    'hist.experiment': '实验：{0}', 'hist.notes': '备注：{0}',
     'hist.clear': '清空历史', 'hist.clear_confirm': '确定要清空全部搜索历史吗？此操作不可撤销。',
     'hist.clear_done': '历史记录已清空', 'hist.col_funnel': '漏斗',
+    'hist.benchmark_title': '漏斗 Benchmark',
+    'hist.benchmark_empty': '暂无可对比的 benchmark 数据',
+    'hist.benchmark_current': '当前版本',
+    'hist.benchmark_previous': '上一版本',
+    'hist.benchmark_runs': '样本次数',
+    'hist.benchmark_signature': '版本签名',
+    'hist.metric_prefilter_pass': '过滤后占比',
+    'hist.metric_new_yield': '新增产出率',
+    'hist.metric_tokens_filtered': '每个过滤后职位 Token',
+    'hist.metric_tokens_new': '每个新增职位 Token',
+    'hist.metric_assessment_eff': '评估/新增比',
+    'hist.metric_seniority_reject': '年资拦截率',
+    'hist.module_title': '模块级监控',
+    'hist.module_empty': '暂无模块监控数据',
+    'hist.module_calls': '调用',
+    'hist.module_tokens': 'Token',
+    'hist.module_elapsed': '耗时',
+    'hist.module_processed': '处理',
+    'hist.module_rejected': '拒绝',
+    'hist.module_kept': '保留',
+    'hist.delta_up': '较上一版 +{0}',
+    'hist.delta_down': '较上一版 -{0}',
+    'hist.delta_flat': '与上一版持平',
     'funnel.toggle': '查看管道漏斗统计', 'funnel.scraped': '①抓取',
     'funnel.title': '②LLM标题', 'funnel.prefilter': '③预筛漏斗',
     'funnel.llm': '④LLM评估', 'funnel.saved': '最终保存',
@@ -789,11 +807,45 @@ const I18N = {
     'titles.limit_label': '每个职位抓取上限', 'titles.limit_unit': '条/role',
     'titles.linkedin_tip': 'LinkedIn 建议不超过 100 条/role，否则可能触发限流。设为 0 可跳过 LinkedIn 抓取。',
     'titles.date_range': '发布时间范围',
+    'titles.force_refresh': '强制重新检索（忽略本次搜索会话缓存）',
+    'titles.experiment_name_ph': '实验名称（可选）',
+    'titles.experiment_notes_ph': '实验备注（可选）',
     'hours.24h': '24 小时', 'hours.3d': '3 天', 'hours.7d': '7 天', 'hours.14d': '14 天', 'hours.30d': '30 天', 'hours.unlimited': '不限',
     'progress.title': '搜索中…', 'done.restart': '重新搜索',
     'detail.back': '返回搜索', 'detail.source': '来源：{0}', 'detail.apply': '投递 →',
     'detail.strengths': '优势', 'detail.weaknesses': '待加强', 'detail.no_jd': '暂无 JD 内容',
     'detail.keywords_label': '技能匹配', 'detail.jd_label': '职位描述',
+    'detail.overview': '职位概览', 'detail.breakdown': '评分拆解', 'detail.risks': '风险提示',
+    'detail.tab_overview': '概览', 'detail.tab_breakdown': '评分', 'detail.tab_gap': '差距', 'detail.tab_jd': '原始 JD', 'detail.tab_actions': '动作',
+    'detail.must_have': '必备要求', 'detail.good_to_have': '加分项', 'detail.responsibilities': '职责',
+    'detail.work_mode': '工作方式', 'detail.job_type': '职位类型', 'detail.years_required': '年限要求',
+    'detail.languages_required': '语言要求', 'detail.languages_preferred': '加分语言',
+    'detail.seniority_conflict': 'Title / Description 冲突', 'detail.none': '暂无',
+    'detail.legacy_cache_note': '当前职位仅有旧版评分缓存，结构化 JD 概览暂缺。',
+    'detail.score_total': '总分',
+    'detail.action_interview': '面试准备', 'detail.action_cover_letter': '求职信', 'detail.action_cv_opt': 'CV 优化',
+    'detail.artifact_hub': '求职助手', 'detail.artifact_not_ready': '此内容尚未生成。可先从上方按钮生成，或返回 Actions 标签查看缓存状态。',
+    'detail.interview_title': 'Interview Prep', 'detail.interview_loading': '正在生成面试准备…',
+    'detail.interview_fit_summary': '面试策略', 'detail.interview_likely_questions': '高概率问题',
+    'detail.interview_talking_points': '重点表达', 'detail.interview_stories': '建议准备的经历',
+    'detail.interview_risks': '需要主动化解的风险', 'detail.interview_questions': '建议反问',
+    'detail.interview_checklist': '面试前检查清单', 'detail.interview_regenerate': '重新生成',
+    'detail.cover_title': 'Cover Letter', 'detail.cover_loading': '正在生成求职信…',
+    'detail.cover_subject': '主题行', 'detail.cover_highlights': '核心卖点', 'detail.cover_full_text': '完整正文',
+    'detail.cover_regenerate': '重新生成',
+    'detail.cvopt_title': 'CV Optimization', 'detail.cvopt_loading': '正在生成 CV 优化建议…',
+    'detail.cvopt_strategy': '优化策略', 'detail.cvopt_keep': '建议保留',
+    'detail.cvopt_improve': '建议加强', 'detail.cvopt_rewrites': '可直接改写的要点',
+    'detail.cvopt_keywords': '建议补充关键词', 'detail.cvopt_checklist': '投递前检查清单',
+    'detail.cvopt_regenerate': '重新生成',
+    'detail.artifact_cached': '已生成', 'detail.artifact_missing': '未生成', 'detail.artifact_stale': '需刷新',
+    'detail.artifact_open': '打开', 'detail.artifact_generate': '生成', 'detail.artifact_refresh': '刷新',
+    'detail.artifact_last_updated': '最近更新：{0}',
+    'detail.rec_strong_apply': '强烈投递', 'detail.rec_apply': '建议投递', 'detail.rec_stretch_apply': 'Stretch',
+    'detail.rec_low_priority': '低优先级', 'detail.rec_skip': '跳过',
+    'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
+    'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Domain', 'detail.score_location': 'Location', 'detail.score_language': 'Language', 'detail.score_risk': 'Risk',
+    'detail.score_summary': '评分结论',
     'done.elapsed': '⏱ 总耗时 {0}', 'done.tokens': '🪙 输入 {0} tokens · 输出 {1} tokens',
     'log.title': '日志', 'log.filter_placeholder': '过滤关键词…',
     'log.lines_100': '最近100行', 'log.lines_200': '最近200行', 'log.lines_500': '最近500行',
@@ -807,20 +859,57 @@ const I18N = {
     'msg.source_required': '请至少选择一个搜索来源', 'msg.search_fail_start': '搜索启动失败：', 'msg.search_done': '找到 {0} 个匹配职位',
     'msg.search_done_diff': '新增 {0} 个职位，复用缓存 {1} 个',
     'msg.search_fail': '搜索失败：',
+    'msg.feature_coming': '{0} 即将上线',
+    'msg.interview_prep_fail': '面试准备生成失败：',
+    'msg.cover_letter_fail': '求职信生成失败：',
+    'msg.cvopt_fail': 'CV 优化生成失败：',
     'msg.sse_disconnect': 'SSE 连接中断，搜索可能仍在后台运行，稍后刷新页面可查看结果',
     'msg.selected': '已选 {0} 个', 'msg.delete_confirm': '确定要删除选中的 {0} 个职位吗？此操作不可撤销。',
     'msg.deleted': '已删除 {0} 个职位', 'msg.delete_fail': '删除失败：',
     'msg.model_saved': '默认模型已保存：', 'msg.testing': '测试中…',
     'summary.showing': '显示 {0} / {1} 个职位', 'summary.total': '{0} 个职位',
+    'module.cv_parse': 'CV 解析',
+    'module.title_relevance': '标题语义粗筛',
+    'module.jd_assessment': 'JD 批量评估',
+    'module.jd_profile': 'JD Profile',
+    'module.matching': 'CV↔JD 匹配',
+    'module.interview_prep': '面试准备',
+    'module.cover_letter': '求职信',
+    'module.cv_optimization': 'CV 优化',
   },
   en: {
     'nav.config': 'API Config', 'nav.history': 'History', 'nav.logs': 'Logs', 'nav.light': 'Light', 'nav.dark': 'Dark',
     'hist.title': 'Search History', 'hist.col_time': 'Time', 'hist.col_roles': 'Roles / Location', 'hist.col_model': 'Model',
     'hist.col_elapsed': 'Elapsed', 'hist.col_tokens_in': 'Input tokens', 'hist.col_tokens_out': 'Output tokens', 'hist.col_jobs': 'Jobs',
+    'hist.col_total': 'Total', 'hist.col_deduped': 'Deduped', 'hist.col_filtered': 'Filtered', 'hist.col_new_jobs': 'New Jobs', 'hist.col_tokens': 'Tokens',
     'hist.empty': 'No search history yet', 'hist.total_searches': 'Total Searches', 'hist.total_jobs': 'Total Jobs Found',
     'hist.total_tokens': 'Total Tokens', 'hist.total_elapsed': 'Total Time',
+    'hist.experiment': 'Experiment: {0}', 'hist.notes': 'Notes: {0}',
     'hist.clear': 'Clear History', 'hist.clear_confirm': 'Clear all search history? This cannot be undone.',
     'hist.clear_done': 'History cleared', 'hist.col_funnel': 'Funnel',
+    'hist.benchmark_title': 'Funnel Benchmark',
+    'hist.benchmark_empty': 'No benchmark comparison available yet',
+    'hist.benchmark_current': 'Current Version',
+    'hist.benchmark_previous': 'Previous Version',
+    'hist.benchmark_runs': 'Runs',
+    'hist.benchmark_signature': 'Version Signature',
+    'hist.metric_prefilter_pass': 'Post-filter rate',
+    'hist.metric_new_yield': 'New-job yield',
+    'hist.metric_tokens_filtered': 'Tokens per filtered job',
+    'hist.metric_tokens_new': 'Tokens per new job',
+    'hist.metric_assessment_eff': 'Assess/new ratio',
+    'hist.metric_seniority_reject': 'Seniority reject rate',
+    'hist.module_title': 'Module Telemetry',
+    'hist.module_empty': 'No module telemetry available',
+    'hist.module_calls': 'calls',
+    'hist.module_tokens': 'tokens',
+    'hist.module_elapsed': 'elapsed',
+    'hist.module_processed': 'processed',
+    'hist.module_rejected': 'rejected',
+    'hist.module_kept': 'kept',
+    'hist.delta_up': 'vs previous +{0}',
+    'hist.delta_down': 'vs previous -{0}',
+    'hist.delta_flat': 'same as previous',
     'funnel.toggle': 'View pipeline funnel stats', 'funnel.scraped': '①Scrape',
     'funnel.title': '②LLM Title', 'funnel.prefilter': '③Pre-filter',
     'funnel.llm': '④LLM Assess', 'funnel.saved': 'Saved',
@@ -868,11 +957,45 @@ const I18N = {
     'titles.limit_label': 'Results per role', 'titles.limit_unit': 'jobs/role',
     'titles.linkedin_tip': 'LinkedIn: recommended ≤ 100/role to avoid rate limiting. Set to 0 to skip LinkedIn.',
     'titles.date_range': 'Date posted',
+    'titles.force_refresh': 'Force re-search (ignore this search session cache)',
+    'titles.experiment_name_ph': 'Experiment name (optional)',
+    'titles.experiment_notes_ph': 'Experiment notes (optional)',
     'hours.24h': '24h', 'hours.3d': '3 days', 'hours.7d': '7 days', 'hours.14d': '14 days', 'hours.30d': '30 days', 'hours.unlimited': 'No limit',
     'progress.title': 'Searching…', 'done.restart': 'Search Again',
     'detail.back': '← Back', 'detail.source': 'Source: {0}', 'detail.apply': 'Apply →',
     'detail.strengths': 'Strengths', 'detail.weaknesses': 'Areas to Improve', 'detail.no_jd': 'No JD content available',
     'detail.keywords_label': 'Matched Skills', 'detail.jd_label': 'Job Description',
+    'detail.overview': 'Overview', 'detail.breakdown': 'Score Breakdown', 'detail.risks': 'Risks',
+    'detail.tab_overview': 'Overview', 'detail.tab_breakdown': 'Scoring', 'detail.tab_gap': 'Gap', 'detail.tab_jd': 'Original JD', 'detail.tab_actions': 'Actions',
+    'detail.must_have': 'Must-have', 'detail.good_to_have': 'Nice-to-have', 'detail.responsibilities': 'Responsibilities',
+    'detail.work_mode': 'Work Mode', 'detail.job_type': 'Job Type', 'detail.years_required': 'Years Required',
+    'detail.languages_required': 'Required Languages', 'detail.languages_preferred': 'Preferred Languages',
+    'detail.seniority_conflict': 'Title / Description Conflict', 'detail.none': 'None',
+    'detail.legacy_cache_note': 'This job only has legacy scoring cache. Structured JD overview is not available yet.',
+    'detail.score_total': 'Total',
+    'detail.action_interview': 'Interview Prep', 'detail.action_cover_letter': 'Cover Letter', 'detail.action_cv_opt': 'CV Optimization',
+    'detail.artifact_hub': 'Artifacts', 'detail.artifact_not_ready': 'This artifact has not been generated yet. Use the button above or return to the Actions tab to check cache status.',
+    'detail.interview_title': 'Interview Prep', 'detail.interview_loading': 'Generating interview prep…',
+    'detail.interview_fit_summary': 'Prep Strategy', 'detail.interview_likely_questions': 'Likely Questions',
+    'detail.interview_talking_points': 'Talking Points', 'detail.interview_stories': 'Stories To Prepare',
+    'detail.interview_risks': 'Risks To Address', 'detail.interview_questions': 'Questions To Ask',
+    'detail.interview_checklist': 'Pre-Interview Checklist', 'detail.interview_regenerate': 'Regenerate',
+    'detail.cover_title': 'Cover Letter', 'detail.cover_loading': 'Generating cover letter…',
+    'detail.cover_subject': 'Subject Line', 'detail.cover_highlights': 'Highlights', 'detail.cover_full_text': 'Full Letter',
+    'detail.cover_regenerate': 'Regenerate',
+    'detail.cvopt_title': 'CV Optimization', 'detail.cvopt_loading': 'Generating CV optimization…',
+    'detail.cvopt_strategy': 'Optimization Strategy', 'detail.cvopt_keep': 'Keep',
+    'detail.cvopt_improve': 'Improve', 'detail.cvopt_rewrites': 'Suggested Bullet Rewrites',
+    'detail.cvopt_keywords': 'Keywords To Add', 'detail.cvopt_checklist': 'Pre-Apply Checklist',
+    'detail.cvopt_regenerate': 'Regenerate',
+    'detail.artifact_cached': 'Ready', 'detail.artifact_missing': 'Not Generated', 'detail.artifact_stale': 'Needs Refresh',
+    'detail.artifact_open': 'Open', 'detail.artifact_generate': 'Generate', 'detail.artifact_refresh': 'Refresh',
+    'detail.artifact_last_updated': 'Last updated: {0}',
+    'detail.rec_strong_apply': 'Strong Apply', 'detail.rec_apply': 'Apply', 'detail.rec_stretch_apply': 'Stretch',
+    'detail.rec_low_priority': 'Low Priority', 'detail.rec_skip': 'Skip',
+    'detail.score_title': 'Title', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
+    'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Domain', 'detail.score_location': 'Location', 'detail.score_language': 'Language', 'detail.score_risk': 'Risk',
+    'detail.score_summary': 'Score Summary',
     'done.elapsed': '⏱ Elapsed {0}', 'done.tokens': '🪙 Input {0} tokens · Output {1} tokens',
     'log.title': 'Logs', 'log.filter_placeholder': 'Filter keywords…',
     'log.lines_100': 'Last 100 lines', 'log.lines_200': 'Last 200 lines', 'log.lines_500': 'Last 500 lines',
@@ -886,20 +1009,57 @@ const I18N = {
     'msg.source_required': 'Please select at least one source', 'msg.search_fail_start': 'Search failed to start: ', 'msg.search_done': 'Found {0} matching jobs',
     'msg.search_done_diff': '{0} new jobs, {1} from cache',
     'msg.search_fail': 'Search failed: ',
+    'msg.feature_coming': '{0} coming soon',
+    'msg.interview_prep_fail': 'Interview prep failed: ',
+    'msg.cover_letter_fail': 'Cover letter failed: ',
+    'msg.cvopt_fail': 'CV optimization failed: ',
     'msg.sse_disconnect': 'SSE connection lost. Search may still be running. Refresh later to see results.',
     'msg.selected': '{0} selected', 'msg.delete_confirm': 'Delete {0} selected jobs? This cannot be undone.',
     'msg.deleted': 'Deleted {0} jobs', 'msg.delete_fail': 'Delete failed: ',
     'msg.model_saved': 'Default model saved: ', 'msg.testing': 'Testing…',
     'summary.showing': 'Showing {0} / {1} jobs', 'summary.total': '{0} jobs',
+    'module.cv_parse': 'CV Parse',
+    'module.title_relevance': 'Title Relevance Gate',
+    'module.jd_assessment': 'JD Batch Assessment',
+    'module.jd_profile': 'JD Profile',
+    'module.matching': 'CV↔JD Matching',
+    'module.interview_prep': 'Interview Prep',
+    'module.cover_letter': 'Cover Letter',
+    'module.cv_optimization': 'CV Optimization',
   },
   es: {
     'nav.config': 'Config. API', 'nav.history': 'Historial', 'nav.logs': 'Registros', 'nav.light': 'Claro', 'nav.dark': 'Oscuro',
     'hist.title': 'Historial de búsquedas', 'hist.col_time': 'Hora', 'hist.col_roles': 'Puestos / Ubicación', 'hist.col_model': 'Modelo',
     'hist.col_elapsed': 'Duración', 'hist.col_tokens_in': 'Tokens entrada', 'hist.col_tokens_out': 'Tokens salida', 'hist.col_jobs': 'Empleos',
+    'hist.col_total': 'Total', 'hist.col_deduped': 'Tras dedup', 'hist.col_filtered': 'Tras filtro', 'hist.col_new_jobs': 'Nuevos', 'hist.col_tokens': 'Tokens',
     'hist.empty': 'Sin historial de búsquedas', 'hist.total_searches': 'Total búsquedas', 'hist.total_jobs': 'Empleos encontrados',
     'hist.total_tokens': 'Tokens totales', 'hist.total_elapsed': 'Tiempo total',
+    'hist.experiment': 'Experimento: {0}', 'hist.notes': 'Notas: {0}',
     'hist.clear': 'Limpiar historial', 'hist.clear_confirm': '¿Limpiar todo el historial? No se puede deshacer.',
     'hist.clear_done': 'Historial eliminado', 'hist.col_funnel': 'Embudo',
+    'hist.benchmark_title': 'Benchmark del embudo',
+    'hist.benchmark_empty': 'Todavía no hay datos comparables de benchmark',
+    'hist.benchmark_current': 'Versión actual',
+    'hist.benchmark_previous': 'Versión anterior',
+    'hist.benchmark_runs': 'Ejecuciones',
+    'hist.benchmark_signature': 'Firma de versión',
+    'hist.metric_prefilter_pass': 'Tasa post-filtro',
+    'hist.metric_new_yield': 'Rendimiento de nuevos puestos',
+    'hist.metric_tokens_filtered': 'Tokens por puesto filtrado',
+    'hist.metric_tokens_new': 'Tokens por puesto nuevo',
+    'hist.metric_assessment_eff': 'Ratio evaluación/nuevo',
+    'hist.metric_seniority_reject': 'Tasa de rechazo por seniority',
+    'hist.module_title': 'Telemetría por módulo',
+    'hist.module_empty': 'Todavía no hay telemetría por módulo',
+    'hist.module_calls': 'llamadas',
+    'hist.module_tokens': 'tokens',
+    'hist.module_elapsed': 'duración',
+    'hist.module_processed': 'procesados',
+    'hist.module_rejected': 'rechazados',
+    'hist.module_kept': 'conservados',
+    'hist.delta_up': 'vs versión previa +{0}',
+    'hist.delta_down': 'vs versión previa -{0}',
+    'hist.delta_flat': 'igual que la versión previa',
     'funnel.toggle': 'Ver estadísticas del embudo', 'funnel.scraped': '①Extracción',
     'funnel.title': '②Título LLM', 'funnel.prefilter': '③Pre-filtro',
     'funnel.llm': '④Evaluación LLM', 'funnel.saved': 'Guardados',
@@ -947,11 +1107,45 @@ const I18N = {
     'titles.limit_label': 'Resultados por puesto', 'titles.limit_unit': 'empleos/rol',
     'titles.linkedin_tip': 'LinkedIn: se recomienda ≤ 100/puesto para evitar limitación. Pon 0 para omitir LinkedIn.',
     'titles.date_range': 'Fecha de publicación',
+    'titles.force_refresh': 'Forzar nueva búsqueda (ignorar la caché de esta sesión de búsqueda)',
+    'titles.experiment_name_ph': 'Nombre del experimento (opcional)',
+    'titles.experiment_notes_ph': 'Notas del experimento (opcional)',
     'hours.24h': '24h', 'hours.3d': '3 días', 'hours.7d': '7 días', 'hours.14d': '14 días', 'hours.30d': '30 días', 'hours.unlimited': 'Sin límite',
     'progress.title': 'Buscando…', 'done.restart': 'Nueva búsqueda',
     'detail.back': '← Volver', 'detail.source': 'Fuente: {0}', 'detail.apply': 'Postular →',
     'detail.strengths': 'Fortalezas', 'detail.weaknesses': 'Áreas de mejora', 'detail.no_jd': 'Sin contenido de oferta',
     'detail.keywords_label': 'Habilidades coincidentes', 'detail.jd_label': 'Descripción del puesto',
+    'detail.overview': 'Resumen', 'detail.breakdown': 'Desglose de puntuación', 'detail.risks': 'Riesgos',
+    'detail.tab_overview': 'Resumen', 'detail.tab_breakdown': 'Puntuación', 'detail.tab_gap': 'Brecha', 'detail.tab_jd': 'JD original', 'detail.tab_actions': 'Acciones',
+    'detail.must_have': 'Requisitos clave', 'detail.good_to_have': 'Deseables', 'detail.responsibilities': 'Responsabilidades',
+    'detail.work_mode': 'Modalidad', 'detail.job_type': 'Tipo de puesto', 'detail.years_required': 'Años requeridos',
+    'detail.languages_required': 'Idiomas requeridos', 'detail.languages_preferred': 'Idiomas preferidos',
+    'detail.seniority_conflict': 'Conflicto entre título y descripción', 'detail.none': 'Ninguno',
+    'detail.legacy_cache_note': 'Este puesto solo tiene caché de puntuación antigua. El resumen estructurado del JD aún no está disponible.',
+    'detail.score_total': 'Puntuación total',
+    'detail.action_interview': 'Preparación entrevista', 'detail.action_cover_letter': 'Carta de presentación', 'detail.action_cv_opt': 'Optimización CV',
+    'detail.artifact_hub': 'Artifacts', 'detail.artifact_not_ready': 'Este artefacto aún no se ha generado. Usa el botón superior o vuelve a Actions para revisar el estado del caché.',
+    'detail.interview_title': 'Preparación entrevista', 'detail.interview_loading': 'Generando preparación de entrevista…',
+    'detail.interview_fit_summary': 'Estrategia', 'detail.interview_likely_questions': 'Preguntas probables',
+    'detail.interview_talking_points': 'Puntos clave', 'detail.interview_stories': 'Historias a preparar',
+    'detail.interview_risks': 'Riesgos a abordar', 'detail.interview_questions': 'Preguntas para hacer',
+    'detail.interview_checklist': 'Checklist previa', 'detail.interview_regenerate': 'Regenerar',
+    'detail.cover_title': 'Carta de presentación', 'detail.cover_loading': 'Generando carta…',
+    'detail.cover_subject': 'Asunto', 'detail.cover_highlights': 'Puntos fuertes', 'detail.cover_full_text': 'Texto completo',
+    'detail.cover_regenerate': 'Regenerar',
+    'detail.cvopt_title': 'Optimización CV', 'detail.cvopt_loading': 'Generando optimización de CV…',
+    'detail.cvopt_strategy': 'Estrategia', 'detail.cvopt_keep': 'Mantener',
+    'detail.cvopt_improve': 'Mejorar', 'detail.cvopt_rewrites': 'Reescrituras sugeridas',
+    'detail.cvopt_keywords': 'Palabras clave para añadir', 'detail.cvopt_checklist': 'Checklist antes de postular',
+    'detail.cvopt_regenerate': 'Regenerar',
+    'detail.artifact_cached': 'Listo', 'detail.artifact_missing': 'No generado', 'detail.artifact_stale': 'Necesita actualización',
+    'detail.artifact_open': 'Abrir', 'detail.artifact_generate': 'Generar', 'detail.artifact_refresh': 'Actualizar',
+    'detail.artifact_last_updated': 'Última actualización: {0}',
+    'detail.rec_strong_apply': 'Postular fuerte', 'detail.rec_apply': 'Postular', 'detail.rec_stretch_apply': 'Stretch',
+    'detail.rec_low_priority': 'Baja prioridad', 'detail.rec_skip': 'Omitir',
+    'detail.score_title': 'Título', 'detail.score_seniority': 'Seniority', 'detail.score_must_have': 'Must-have',
+    'detail.score_nice_to_have': 'Nice-to-have', 'detail.score_domain': 'Dominio', 'detail.score_location': 'Ubicación', 'detail.score_language': 'Idioma', 'detail.score_risk': 'Riesgo',
+    'detail.score_summary': 'Resumen de puntuación',
     'done.elapsed': '⏱ Duración {0}', 'done.tokens': '🪙 Entrada {0} tokens · Salida {1} tokens',
     'log.title': 'Registros', 'log.filter_placeholder': 'Filtrar palabras clave…',
     'log.lines_100': 'Últimas 100 líneas', 'log.lines_200': 'Últimas 200 líneas', 'log.lines_500': 'Últimas 500 líneas',
@@ -965,11 +1159,23 @@ const I18N = {
     'msg.source_required': 'Selecciona al menos una fuente', 'msg.search_fail_start': 'Error al iniciar búsqueda: ', 'msg.search_done': 'Se encontraron {0} empleos',
     'msg.search_done_diff': '{0} nuevos empleos, {1} del caché',
     'msg.search_fail': 'Búsqueda fallida: ',
+    'msg.feature_coming': '{0} próximamente',
+    'msg.interview_prep_fail': 'Error al generar preparación de entrevista: ',
+    'msg.cover_letter_fail': 'Error al generar carta: ',
+    'msg.cvopt_fail': 'Error al generar optimización CV: ',
     'msg.sse_disconnect': 'Conexión SSE interrumpida. La búsqueda puede seguir en segundo plano.',
     'msg.selected': '{0} seleccionados', 'msg.delete_confirm': '¿Eliminar {0} empleos? No se puede deshacer.',
     'msg.deleted': 'Se eliminaron {0} empleos', 'msg.delete_fail': 'Error al eliminar: ',
     'msg.model_saved': 'Modelo guardado: ', 'msg.testing': 'Probando…',
     'summary.showing': 'Mostrando {0} / {1} empleos', 'summary.total': '{0} empleos',
+    'module.cv_parse': 'Análisis CV',
+    'module.title_relevance': 'Filtro semántico de título',
+    'module.jd_assessment': 'Evaluación masiva JD',
+    'module.jd_profile': 'JD Profile',
+    'module.matching': 'Matching CV↔JD',
+    'module.interview_prep': 'Preparación entrevista',
+    'module.cover_letter': 'Carta de presentación',
+    'module.cv_optimization': 'Optimización CV',
   },
 };
 
@@ -1005,10 +1211,19 @@ function setLang(l) {
   LANG = l;
   localStorage.setItem('lang', l);
   applyLang();
-  if (typeof renderList === 'function') renderList();
-  if (activeJob) showJobDetail(activeJob);
+  if (typeof loadJobs === 'function') {
+    const activeDedupKey = activeJob?.dedup_key || activeKey;
+    void loadJobs().then(() => {
+      if (!activeDedupKey) return;
+      const nextJob = JOBS.find(j => j.dedup_key === activeDedupKey);
+      if (nextJob) showJobDetail(nextJob);
+    });
+  }
+  if (!document.getElementById("artifact-hub-overlay").classList.contains("hidden")) {
+    renderArtifactHubFrame();
+    renderActiveArtifact();
+  }
   renderProviderList();
-  renderAdzunaStatus();
 }
 
 // ─── Dark mode ────────────────────────────────────────────────────────────────
@@ -1036,6 +1251,13 @@ let deleteMode  = false;
 let selectedKeys = new Set();
 let activeKey   = null;
 let activeJob   = null;
+let detailTab   = "overview";
+let currentInterviewPrep = null;
+let currentCoverLetter = null;
+let currentCVOptimization = null;
+let currentArtifactType = "interview_prep";
+let artifactHubJobId = "";
+let artifactStatusByJob = {};
 let cvHash      = null;
 let cvProfile   = null;
 let titlesList  = [];   // confirmed title list
@@ -1125,7 +1347,6 @@ function renderConfigPage() {
   renderProviderList();
 
   // Adzuna status
-  renderAdzunaStatus();
 }
 
 function renderProviderList() {
@@ -1184,39 +1405,6 @@ function renderProviderList() {
 function toggleProviderList() {
   _providersExpanded = !_providersExpanded;
   renderProviderList();
-}
-
-function renderAdzunaStatus() {
-  if (!cfgData) return;
-  const idConfigured  = !!cfgData.providers_extra?.adzuna_id;
-  const keyConfigured = !!cfgData.providers_extra?.adzuna_key;
-  const both = idConfigured && keyConfigured;
-  const el = document.getElementById("status-adzuna");
-  if (!el) return;
-  el.textContent  = both ? t('cfg.configured') : t('cfg.unconfigured');
-  el.className = `text-xs px-2 py-0.5 rounded-full ${both
-    ? "bg-green-900/50 text-green-400"
-    : "bg-gray-700 text-gray-500"}`;
-}
-
-async function saveAdzunaKey() {
-  const idVal  = document.getElementById("key-adzuna-id")?.value.trim();
-  const keyVal = document.getElementById("key-adzuna-key")?.value.trim();
-  const msgEl  = document.getElementById("test-msg-adzuna");
-  if (!idVal && !keyVal) return;
-  try {
-    if (idVal)  await api("POST", "/api/config", { key: "ADZUNA_APP_ID",  value: idVal });
-    if (keyVal) await api("POST", "/api/config", { key: "ADZUNA_APP_KEY", value: keyVal });
-    if (idVal)  document.getElementById("key-adzuna-id").value  = "";
-    if (keyVal) document.getElementById("key-adzuna-key").value = "";
-    if (!cfgData.providers_extra) cfgData.providers_extra = {};
-    if (idVal)  cfgData.providers_extra.adzuna_id  = true;
-    if (keyVal) cfgData.providers_extra.adzuna_key = true;
-    renderAdzunaStatus();
-    if (msgEl) { msgEl.textContent = t('cfg.saved_ok') || "Saved"; msgEl.className = "absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-green-400"; }
-  } catch(e) {
-    if (msgEl) { msgEl.textContent = e.message; msgEl.className = "absolute left-4 right-4 -bottom-4 z-10 text-xs truncate leading-none text-red-400"; }
-  }
 }
 
 function populateModelSelect(provider) {
@@ -1335,6 +1523,7 @@ async function loadHistoryData() {
   try {
     const data = await api("GET", "/api/stats");
     renderHistorySummary(data.summary);
+    renderHistoryBenchmark(data.benchmark);
     renderHistoryTable(data.records);
   } catch(e) {
     console.error("Failed to load stats:", e);
@@ -1356,48 +1545,207 @@ function renderHistorySummary(s) {
     </div>`).join("");
 }
 
-function _renderFunnelRow(f, rid) {
-  if (!f) return "";
-  const steps = [
-    { label: t('funnel.scraped'),   value: `Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total}`, color: "text-blue-300" },
-    { label: t('funnel.title'),     value: f.title_filter_in ? `${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out}  (${f.llm_title_pass_rate}%)` : "—", color: "text-purple-300" },
-    { label: t('funnel.prefilter'), value: (() => {
-        const parts = [];
-        if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
-        if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
-        if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
-        if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
-        if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
-        if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
-        if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
-        if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
-        return (parts.length ? parts.join(" | ") : t('funnel.no_filter')) + `  (${t('funnel.entered')} ${f.prefilter_in})`;
-      })(), color: "text-yellow-300" },
-    { label: t('funnel.llm'),       value: f.llm_assessed ? `${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%` : "—", color: "text-orange-300" },
-    { label: t('funnel.saved'),     value: `${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`, color: "text-green-400 font-semibold" },
-  ];
-  const tableRows = steps.map(s =>
-    `<tr class="border-t border-gray-700/40">
-      <td class="py-1 pr-6 text-gray-500 whitespace-nowrap">${s.label}</td>
-      <td class="py-1 ${s.color} font-mono">${s.value}</td>
-    </tr>`
-  ).join("");
+function _fmtPct3(value) {
+  return `${((value || 0) * 100).toFixed(1)}%`;
+}
 
+function _fmtDelta(value, asPercent = false) {
+  if (value === null || value === undefined) return "";
+  const raw = asPercent ? `${(Math.abs(value) * 100).toFixed(1)}%` : Math.abs(value).toFixed(2);
+  if (Math.abs(value) < 0.0005) return t('hist.delta_flat');
+  const tpl = value > 0 ? 'hist.delta_up' : 'hist.delta_down';
+  return t(tpl).replace('{0}', raw);
+}
+
+function renderHistoryBenchmark(benchmark) {
+  const el = document.getElementById("hist-benchmark");
+  if (!benchmark || !benchmark.current) {
+    el.innerHTML = `<div class="bg-gray-800 rounded-xl p-4">
+      <h3 class="text-sm font-bold uppercase tracking-wide text-gray-400 mb-[18px]">${t('hist.benchmark_title')}</h3>
+      <p class="text-xs text-gray-500">${t('hist.benchmark_empty')}</p>
+    </div>`;
+    return;
+  }
+
+  const current = benchmark.current;
+  const previous = benchmark.previous;
+  const delta = benchmark.delta || {};
+  const metricDefs = [
+    { key: 'prefilter_pass_rate', label: t('hist.metric_prefilter_pass'), percent: true, betterHigh: true },
+    { key: 'new_job_yield', label: t('hist.metric_new_yield'), percent: true, betterHigh: true },
+    { key: 'tokens_per_filtered_job', label: t('hist.metric_tokens_filtered'), percent: false, betterHigh: false },
+    { key: 'tokens_per_new_job', label: t('hist.metric_tokens_new'), percent: false, betterHigh: false },
+    { key: 'assessment_efficiency', label: t('hist.metric_assessment_eff'), percent: false, betterHigh: false },
+    { key: 'seniority_rejection_rate', label: t('hist.metric_seniority_reject'), percent: true, betterHigh: true },
+  ];
+
+  const currentMeta = `
+    <div class="flex flex-wrap gap-3 text-[11px] text-gray-500">
+      <span>${t('hist.benchmark_current')}: ${current.versions.match_prompt_version || current.versions.app_version || "—"}</span>
+      <span>${t('hist.benchmark_runs')}: ${_fmtNum(current.count)}</span>
+      <span>${t('hist.benchmark_signature')}: <span class="font-mono">${_esc(current.signature)}</span></span>
+    </div>`;
+  const previousMeta = previous ? `
+    <div class="text-[11px] text-gray-500 mt-2">
+      ${t('hist.benchmark_previous')}: <span class="font-mono">${_esc(previous.signature)}</span> · ${t('hist.benchmark_runs')}: ${_fmtNum(previous.count)}
+    </div>` : "";
+
+  const cards = metricDefs.map(metric => {
+    const value = current.metrics[metric.key] || 0;
+    const deltaValue = delta[metric.key];
+    const improving = deltaValue === undefined ? null : (metric.betterHigh ? deltaValue >= 0 : deltaValue <= 0);
+    const deltaCls = deltaValue === undefined
+      ? "text-gray-500"
+      : improving ? "text-green-400" : "text-orange-300";
+    const display = metric.percent ? _fmtPct3(value) : value.toFixed(2);
+    return `<div class="bg-gray-800 rounded-xl p-4">
+      <p class="text-xs text-gray-500 mb-1">${metric.label}</p>
+      <p class="text-xl font-bold font-mono text-cyan-300">${display}</p>
+      <p class="text-[11px] mt-2 ${deltaCls}">${previous ? _fmtDelta(deltaValue, metric.percent) : t('hist.benchmark_previous') + ': —'}</p>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+      <h3 class="text-sm font-bold uppercase tracking-wide text-gray-400 mb-[18px]">${t('hist.benchmark_title')}</h3>
+      ${currentMeta}
+      ${previousMeta}
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
+        ${cards}
+      </div>
+    </div>`;
+}
+
+function _moduleOrder() {
+  return ['cv_parse', 'title_relevance', 'jd_assessment', 'jd_profile', 'matching', 'interview_prep', 'cover_letter', 'cv_optimization'];
+}
+
+function _moduleLabel(key, item) {
+  const mapKey = `module.${key}`;
+  const translated = t(mapKey);
+  if (translated !== mapKey) return translated;
+  return item?.step || key;
+}
+
+function _moduleRows(metrics) {
+  if (!metrics) return [];
+  const rows = [];
+  const order = _moduleOrder();
+  order.forEach(key => {
+    if (metrics[key]) rows.push([key, metrics[key]]);
+  });
+  Object.entries(metrics).forEach(([key, value]) => {
+    if (key !== '_summary' && !order.includes(key)) rows.push([key, value]);
+  });
+  return rows;
+}
+
+function _renderModuleMetrics(metrics, compact = false) {
+  const rows = _moduleRows(metrics);
+  if (!rows.length) {
+    return `<p class="text-xs text-gray-500 dark:text-gray-400">${t('hist.module_empty')}</p>`;
+  }
+
+  const total = metrics?._summary || {};
+  const summaryLine = `
+    <div class="flex flex-wrap gap-3 text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+      <span>${t('hist.module_calls')}: <span class="font-mono text-gray-300 dark:text-gray-200">${_fmtNum(total.calls || 0)}</span></span>
+      <span>${t('hist.module_tokens')}: <span class="font-mono text-cyan-300">${_fmtNum((total.input_tokens || 0) + (total.output_tokens || 0))}</span></span>
+    </div>`;
+
+  if (compact) {
+    const cards = rows.map(([key, item]) => {
+      const processed = item.processed != null ? `${t('hist.module_processed')} ${_fmtNum(item.processed)}` : '';
+      const rejected = item.rejected != null ? `${t('hist.module_rejected')} ${_fmtNum(item.rejected)}` : '';
+      const kept = item.kept != null ? `${t('hist.module_kept')} ${_fmtNum(item.kept)}` : '';
+      const effect = [processed, rejected, kept].filter(Boolean).join(' · ');
+      return `<div class="bg-gray-800/80 dark:bg-gray-900/40 rounded-xl p-4">
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">${_esc(_moduleLabel(key, item))}</p>
+        <p class="text-sm font-mono text-cyan-300">${_fmtNum((item.input_tokens || 0) + (item.output_tokens || 0))} ${t('hist.module_tokens')}</p>
+        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">${t('hist.module_calls')} ${_fmtNum(item.calls || 0)} · ${t('hist.module_elapsed')} ${_fmtElapsed(item.elapsed || 0)}</p>
+        ${effect ? `<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">${effect}</p>` : ''}
+      </div>`;
+    }).join("");
+
+    return `
+      <div class="mt-2 pt-2 border-t border-gray-600/50 text-left">
+        <h4 class="text-sm font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-[18px]">${t('hist.module_title')}</h4>
+        ${summaryLine}
+        <div class="grid grid-cols-1 gap-3">
+          ${cards}
+        </div>
+      </div>`;
+  }
+
+  const tableRows = rows.map(([key, item]) => {
+    const effectParts = [];
+    if (item.processed != null) effectParts.push(`${t('hist.module_processed')} ${_fmtNum(item.processed)}`);
+    if (item.rejected != null) effectParts.push(`${t('hist.module_rejected')} ${_fmtNum(item.rejected)}`);
+    if (item.kept != null) effectParts.push(`${t('hist.module_kept')} ${_fmtNum(item.kept)}`);
+    return `<tr class="border-t border-gray-700/30">
+      <td class="py-1 pr-6 text-gray-400 dark:text-gray-300">${_esc(_moduleLabel(key, item))}</td>
+      <td class="py-1 pr-4 text-gray-500 dark:text-gray-400 font-mono whitespace-nowrap">${t('hist.module_calls')} ${_fmtNum(item.calls || 0)}</td>
+      <td class="py-1 pr-4 text-cyan-300 font-mono whitespace-nowrap">${t('hist.module_tokens')} ${_fmtNum((item.input_tokens || 0) + (item.output_tokens || 0))}</td>
+      <td class="py-1 pr-4 text-yellow-300 font-mono whitespace-nowrap">${t('hist.module_elapsed')} ${_fmtElapsed(item.elapsed || 0)}</td>
+      <td class="py-1 text-gray-500 dark:text-gray-400 font-mono">${effectParts.join(' · ') || '—'}</td>
+    </tr>`;
+  }).join("");
+
+  return `
+    <div class="mt-4">
+      <h4 class="text-sm font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-[18px]">${t('hist.module_title')}</h4>
+      ${summaryLine}
+      <table class="text-xs w-full">${tableRows}</table>
+    </div>`;
+}
+
+function _renderFunnelRow(f, rid, moduleMetrics) {
+  if (!f && !moduleMetrics) return "";
+  let tableRows = "";
   let srcHtml = "";
-  if (f.by_source && Object.keys(f.by_source).length > 1) {
-    const srcRows = Object.entries(f.by_source).map(([src, st]) =>
-      `<tr class="border-t border-gray-700/30">
-        <td class="py-0.5 pr-6 text-gray-600">${_esc(src)}</td>
-        <td class="py-0.5 text-gray-400 font-mono">${t('funnel.src_in')} ${st.in || 0}  ${t('funnel.src_saved')} ${st.saved || 0}</td>
+  if (f) {
+    const steps = [
+      { label: t('funnel.scraped'),   value: `Indeed ${f.scraped_indeed} + LinkedIn ${f.scraped_linkedin} = ${f.scraped_total}`, color: "text-blue-300" },
+      { label: t('funnel.title'),     value: f.title_filter_in ? `${f.title_filter_in} → ${t('funnel.passed')} ${f.title_filter_passed}  ${t('funnel.out')} ${f.title_filter_out}  (${f.llm_title_pass_rate}%)` : "—", color: "text-purple-300" },
+      { label: t('funnel.prefilter'), value: (() => {
+          const parts = [];
+          if (f.skip_dup)        parts.push(`${t('funnel.skip_dup')} ${f.skip_dup}`);
+          if (f.skip_seniority)  parts.push(`${t('funnel.skip_seniority')} ${f.skip_seniority}`);
+          if (f.skip_irrelevant) parts.push(`${t('funnel.skip_irrelevant')} ${f.skip_irrelevant}`);
+          if (f.cache_hit)       parts.push(`${t('funnel.skip_cache')} ${f.cache_hit}`);
+          if (f.skip_no_desc)    parts.push(`${t('funnel.skip_no_desc')} ${f.skip_no_desc}`);
+          if (f.skip_closed)     parts.push(`${t('funnel.skip_closed')} ${f.skip_closed}`);
+          if (f.skip_exp)        parts.push(`${t('funnel.skip_exp')} ${f.skip_exp}`);
+          if (f.skip_skill)      parts.push(`${t('funnel.skip_skill')} ${f.skip_skill}`);
+          return (parts.length ? parts.join(" | ") : t('funnel.no_filter')) + `  (${t('funnel.entered')} ${f.prefilter_in})`;
+        })(), color: "text-yellow-300" },
+      { label: t('funnel.llm'),       value: f.llm_assessed ? `${t('funnel.sent')} ${f.llm_assessed}  ${t('funnel.rejected')} ${f.llm_rejected}  ${t('funnel.pass_rate')} ${f.llm_pass_rate}%` : "—", color: "text-orange-300" },
+      { label: t('funnel.saved'),     value: `${f.saved} / ${f.scraped_total}  ${t('funnel.filter_rate_label')} ${f.filter_rate}%`, color: "text-green-400 font-semibold" },
+    ];
+    tableRows = steps.map(s =>
+      `<tr class="border-t border-gray-700/40">
+        <td class="py-1 pr-6 text-gray-500 whitespace-nowrap">${s.label}</td>
+        <td class="py-1 ${s.color} font-mono">${s.value}</td>
       </tr>`
     ).join("");
-    srcHtml = `<p class="text-gray-500 text-xs mt-2 mb-1">${t('funnel.by_source')}</p><table class="text-xs w-full">${srcRows}</table>`;
+
+    if (f.by_source && Object.keys(f.by_source).length > 1) {
+      const srcRows = Object.entries(f.by_source).map(([src, st]) =>
+        `<tr class="border-t border-gray-700/30">
+          <td class="py-0.5 pr-6 text-gray-600">${_esc(src)}</td>
+          <td class="py-0.5 text-gray-400 font-mono">${t('funnel.src_in')} ${st.in || 0}  ${t('funnel.src_saved')} ${st.saved || 0}</td>
+        </tr>`
+      ).join("");
+      srcHtml = `<p class="text-gray-500 text-xs mt-2 mb-1">${t('funnel.by_source')}</p><table class="text-xs w-full">${srcRows}</table>`;
+    }
   }
+  const moduleHtml = _renderModuleMetrics(moduleMetrics, false);
 
   return `<tr id="funnel-row-${rid}" class="hidden bg-gray-900/60">
     <td colspan="8" class="px-8 py-3">
       <table class="text-xs w-full">${tableRows}</table>
       ${srcHtml}
+      ${moduleHtml}
     </td>
   </tr>`;
 }
@@ -1424,6 +1772,7 @@ function renderHistoryTable(records) {
     const dt = new Date(r.created_at + "Z").toLocaleString();
     const roles = (r.roles || []).join(", ") || "—";
     const model = r.model ? `${r.provider}/${r.model.split("-").slice(-2).join("-")}` : r.provider;
+    const totalTokens = (r.tokens_in || 0) + (r.tokens_out || 0);
     const funnelBtn = r.funnel
       ? `<button onclick="_toggleFunnel(${r.id})" title="${t('funnel.toggle')}"
            class="text-xs px-2 py-0.5 rounded bg-indigo-900/50 hover:bg-indigo-700/60 text-indigo-300 hover:text-white transition-colors border border-indigo-700/40">
@@ -1431,17 +1780,19 @@ function renderHistoryTable(records) {
          </button>`
       : `<span class="text-gray-600 text-xs">—</span>`;
     const mainRow = `<tr class="hover:bg-gray-700/30 transition-colors">
-      <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">${dt}</td>
+      <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">${dt}<br><span class="text-[11px] text-gray-500">${_fmtElapsed(r.elapsed)}</span></td>
       <td class="px-4 py-2.5"><span class="text-white">${roles}</span><br>
-        <span class="text-gray-500 text-xs">${r.location}</span></td>
-      <td class="px-4 py-2.5 text-gray-400">${model}</td>
-      <td class="px-4 py-2.5 text-right text-yellow-300">${_fmtElapsed(r.elapsed)}</td>
-      <td class="px-4 py-2.5 text-right text-green-300">${_fmtNum(r.tokens_in)}</td>
-      <td class="px-4 py-2.5 text-right text-blue-300">${_fmtNum(r.tokens_out)}</td>
-      <td class="px-4 py-2.5 text-right text-white font-semibold">${r.jobs_found}</td>
+        <span class="text-gray-500 text-xs">${r.location} · ${model}</span>
+        ${r.experiment_name ? `<br><span class="text-[11px] text-cyan-400">${_esc(t('hist.experiment', r.experiment_name))}</span>` : ''}
+        ${r.notes ? `<br><span class="text-[11px] text-gray-500">${_esc(t('hist.notes', r.notes))}</span>` : ''}</td>
+      <td class="px-4 py-2.5 text-right text-blue-300">${_fmtNum(r.scraped_total)}</td>
+      <td class="px-4 py-2.5 text-right text-purple-300">${_fmtNum(r.deduped_total)}</td>
+      <td class="px-4 py-2.5 text-right text-yellow-300">${_fmtNum(r.filtered_total)}</td>
+      <td class="px-4 py-2.5 text-right text-green-300 font-semibold">${_fmtNum(r.new_jobs)}</td>
+      <td class="px-4 py-2.5 text-right text-cyan-300">${_fmtNum(totalTokens)}<br><span class="text-[11px] text-gray-500">in ${_fmtNum(r.tokens_in)} / out ${_fmtNum(r.tokens_out)}</span></td>
       <td class="px-4 py-2.5 text-right">${funnelBtn}</td>
     </tr>`;
-    return mainRow + _renderFunnelRow(r.funnel, r.id);
+    return mainRow + _renderFunnelRow(r.funnel, r.id, r.module_metrics);
   }).join("");
 }
 
@@ -1489,7 +1840,6 @@ async function clearAllApiKeys() {
     // Refresh config data to reflect cleared keys
     cfgData = await api("GET", "/api/config");
     renderProviderList();
-    renderAdzunaStatus();
     showToast(t('cfg.clear_keys_done'));
   } catch(e) {
     showToast(`${t('cfg.clear_keys')}: ${e.message}`, true);
@@ -1528,14 +1878,406 @@ function showToast(msg, isError = false) {
 // ─── Job list rendering ───────────────────────────────────────────────────────
 function scoreColor(s) {
   if (s === null || s === undefined) return "bg-gray-400";
-  if (s >= 8) return "bg-green-500";
-  if (s >= 6) return "bg-yellow-400";
-  if (s >= 4) return "bg-orange-400";
+  const normalized = Number(s) / 10;
+  if (normalized >= 8) return "bg-green-500";
+  if (normalized >= 6) return "bg-yellow-400";
+  if (normalized >= 4) return "bg-orange-400";
   return "bg-red-400";
 }
 function scoreBadge(s) {
-  const display = s !== null && s !== undefined ? s : "?";
-  return `<span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-sm font-bold flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
+  const numeric = Number(s);
+  const display = Number.isFinite(numeric) ? Math.round(numeric) : "?";
+  return `<span class="inline-flex items-center justify-center w-11 h-11 rounded-full text-white text-sm font-bold font-mono leading-none tabular-nums flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
+}
+function normalizedScore(s) {
+  if (s === null || s === undefined) return null;
+  return Number(s) / 10;
+}
+function recommendationLabel(rec) {
+  if (!rec) return "";
+  return t(`detail.rec_${rec}`) || rec;
+}
+function recommendationBadge(rec) {
+  if (!rec) return "";
+  const cls = rec === "strong_apply"
+    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
+    : rec === "apply"
+    ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+    : rec === "stretch_apply"
+    ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
+    : rec === "low_priority"
+    ? "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300"
+    : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300";
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${recommendationLabel(rec)}</span>`;
+}
+function bulletList(items, emptyText = t('detail.none')) {
+  if (!items || !items.length) return `<p class="text-xs text-gray-400 dark:text-gray-500">${emptyText}</p>`;
+  return `<ul class="text-xs text-gray-700 dark:text-gray-300 space-y-1.5 list-disc list-inside">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
+}
+function languageList(items, emptyText = t('detail.none')) {
+  if (!items || !items.length) return `<span class="text-xs text-gray-700 dark:text-gray-300">${emptyText}</span>`;
+  return `<span class="inline-flex flex-wrap gap-1.5 align-middle">${items.map(item => {
+    const label = item.level ? `${item.name} (${item.level})` : item.name;
+    return `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${label}</span>`;
+  }).join("")}</span>`;
+}
+function detailTabButton(tab, key) {
+  const active = detailTab === tab;
+  return `<button onclick="setDetailTab('${tab}')"
+    class="px-3 py-1.5 rounded-lg text-xs transition-colors ${active
+      ? "bg-blue-600 text-white"
+      : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-blue-500"}">${t(key)}</button>`;
+}
+function setDetailTab(tab) {
+  detailTab = tab;
+  if (activeJob) showJobDetail(activeJob);
+}
+function showDetailAction(action) {
+  showToast(t('msg.feature_coming', t(`detail.action_${action}`)));
+}
+function toggleArtifactOverlay(overlayId, open) {
+  document.getElementById(overlayId).classList.toggle("hidden", !open);
+}
+function artifactConfig(type) {
+  return {
+    interview_prep: {
+      titleKey: "detail.interview_title",
+      loadingKey: "detail.interview_loading",
+      errorKey: "msg.interview_prep_fail",
+      path: "interview-prep",
+      responseKey: "prep",
+      stateKey: "currentInterviewPrep",
+      actionFn: "generateInterviewPrep",
+      renderFn: renderInterviewPrep,
+    },
+    cover_letter: {
+      titleKey: "detail.cover_title",
+      loadingKey: "detail.cover_loading",
+      errorKey: "msg.cover_letter_fail",
+      path: "cover-letter",
+      responseKey: "letter",
+      stateKey: "currentCoverLetter",
+      actionFn: "generateCoverLetter",
+      renderFn: renderCoverLetter,
+    },
+    cv_optimization: {
+      titleKey: "detail.cvopt_title",
+      loadingKey: "detail.cvopt_loading",
+      errorKey: "msg.cvopt_fail",
+      path: "cv-optimization",
+      responseKey: "optimization",
+      stateKey: "currentCVOptimization",
+      actionFn: "generateCVOptimization",
+      renderFn: renderCVOptimization,
+    },
+  }[type];
+}
+function artifactCurrentData(type) {
+  const cfg = artifactConfig(type);
+  return cfg ? window[cfg.stateKey] : null;
+}
+function artifactHubTab(type, key) {
+  const active = currentArtifactType === type;
+  return `<button onclick="switchArtifactTab('${type}')"
+    class="px-3 py-1.5 rounded-lg text-xs transition-colors ${active
+      ? "bg-blue-600 text-white"
+      : "bg-gray-800 text-gray-400 hover:text-white"}">${t(key)}</button>`;
+}
+function renderArtifactHubFrame() {
+  const cfg = artifactConfig(currentArtifactType);
+  const targetJob = JOBS.find(j => j.dedup_key === artifactHubJobId) || activeJob;
+  document.getElementById("artifact-hub-title").textContent = t(cfg?.titleKey || "detail.artifact_hub");
+  document.getElementById("artifact-hub-job-meta").textContent = targetJob ? `${targetJob.title} · ${targetJob.company}` : "";
+  document.getElementById("artifact-hub-tabs").innerHTML = `
+    ${artifactHubTab("interview_prep", "detail.action_interview")}
+    ${artifactHubTab("cover_letter", "detail.action_cover_letter")}
+    ${artifactHubTab("cv_optimization", "detail.action_cv_opt")}`;
+  const entry = artifactStatusByJob[artifactHubJobId]?.artifacts?.[currentArtifactType];
+  document.getElementById("artifact-hub-refresh-btn").textContent = entry?.exists || entry?.stale
+    ? t("detail.artifact_refresh")
+    : t("detail.artifact_generate");
+}
+function renderArtifactEmpty() {
+  document.getElementById("artifact-hub-content").innerHTML = `
+    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
+      <p class="text-sm text-gray-300">${t("detail.artifact_not_ready")}</p>
+    </div>`;
+}
+function openArtifactHub(jobId, type) {
+  artifactHubJobId = jobId || artifactHubJobId || activeJob?.dedup_key || "";
+  currentArtifactType = type || currentArtifactType;
+  const cached = artifactStatusByJob[artifactHubJobId]?.artifacts?.[currentArtifactType];
+  const cfg = artifactConfig(currentArtifactType);
+  if (cfg) window[cfg.stateKey] = cached?.data || null;
+  renderArtifactHubFrame();
+  toggleArtifactOverlay("artifact-hub-overlay", true);
+}
+function closeArtifactHub() {
+  toggleArtifactOverlay("artifact-hub-overlay", false);
+}
+function switchArtifactTab(type) {
+  currentArtifactType = type;
+  renderArtifactHubFrame();
+  renderActiveArtifact();
+}
+function renderActiveArtifact() {
+  const cfg = artifactConfig(currentArtifactType);
+  if (!cfg) return;
+  const cached = artifactStatusByJob[artifactHubJobId]?.artifacts?.[currentArtifactType];
+  const data = cached ? (cached.data || null) : artifactCurrentData(currentArtifactType);
+  window[cfg.stateKey] = data;
+  if (!data) {
+    renderArtifactEmpty();
+    return;
+  }
+  cfg.renderFn(data);
+}
+function setArtifactLoading(contentId, textKey) {
+  document.getElementById(contentId).innerHTML = `
+    <div class="bg-gray-800/80 rounded-xl p-6 text-center">
+      <p class="text-sm text-gray-300">${t(textKey)}</p>
+    </div>`;
+}
+function runArtifactRequest({ jobId, stateJobIdRef, metaId, overlayId, contentId, loadingKey, path, responseKey, artifactType, errorKey, render }) {
+  const targetJobId = jobId || window[stateJobIdRef] || activeJob?.dedup_key;
+  if (!targetJobId) return;
+  const targetJob = JOBS.find(j => j.dedup_key === targetJobId) || activeJob;
+  if (!targetJob) return;
+  window[stateJobIdRef] = targetJobId;
+  document.getElementById(metaId).textContent = `${targetJob.title} · ${targetJob.company}`;
+  toggleArtifactOverlay(overlayId, true);
+  setArtifactLoading(contentId, loadingKey);
+  const provider = cfgData?.default_provider || "gemini";
+  const model = cfgData?.default_model || "";
+  api("POST", `/api/jobs/${encodeURIComponent(targetJobId)}/${path}`, {
+    cv_hash: cvHash || "",
+    provider,
+    model,
+  }).then(data => {
+    if (artifactStatusByJob[targetJobId]?.artifacts) {
+      artifactStatusByJob[targetJobId].artifacts[artifactType] = {
+        exists: true,
+        stale: false,
+        updated_at: new Date().toISOString(),
+        data: data[responseKey],
+      };
+    }
+    render(data[responseKey]);
+  }).catch(e => {
+    document.getElementById(contentId).innerHTML = `
+      <div class="bg-red-900/30 border border-red-800/50 rounded-xl p-4">
+        <p class="text-sm text-red-200">${t(errorKey)}${e.message}</p>
+      </div>`;
+    showToast(`${t(errorKey)}${e.message}`, true);
+  });
+}
+function artifactTimestampLabel(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return t('detail.artifact_last_updated', date.toLocaleString());
+}
+function openCachedArtifact(jobId, type) {
+  const entry = artifactStatusByJob[jobId]?.artifacts?.[type];
+  if (!entry?.data) return;
+  artifactHubJobId = jobId;
+  currentArtifactType = type;
+  const cfg = artifactConfig(type);
+  if (cfg) window[cfg.stateKey] = entry.data;
+  openArtifactHub(jobId, type);
+  renderActiveArtifact();
+}
+async function loadArtifactStatus(jobId) {
+  if (!jobId) return;
+  try {
+    const data = await api("GET", `/api/jobs/${encodeURIComponent(jobId)}/artifacts?cv_hash=${encodeURIComponent(cvHash || "")}`);
+    artifactStatusByJob[jobId] = data;
+    if (activeJob?.dedup_key === jobId && detailTab === "actions") showJobDetail(activeJob);
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+function artifactActionRow(jobId, type, label) {
+  const entry = artifactStatusByJob[jobId]?.artifacts?.[type];
+  const statusText = !entry
+    ? "…"
+    : entry.stale
+    ? t('detail.artifact_stale')
+    : entry.exists
+    ? t('detail.artifact_cached')
+    : t('detail.artifact_missing');
+  const statusClass = !entry
+    ? "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+    : entry.stale
+    ? "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300"
+    : entry.exists
+    ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
+    : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400";
+  const openBtn = entry?.exists
+    ? `<button onclick="openCachedArtifact('${jobId}', '${type}')"
+        class="px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-700 text-white transition-colors">${t('detail.artifact_open')}</button>`
+    : "";
+  const actionFn = type === "interview_prep" ? "generateInterviewPrep" : type === "cover_letter" ? "generateCoverLetter" : "generateCVOptimization";
+  const actionLabel = entry?.exists || entry?.stale ? t('detail.artifact_refresh') : t('detail.artifact_generate');
+  return `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h5 class="text-sm font-medium text-gray-800 dark:text-gray-100">${label}</h5>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs ${statusClass}">${statusText}</span>
+            ${entry?.updated_at ? `<span class="text-xs text-gray-400 dark:text-gray-500">${artifactTimestampLabel(entry.updated_at)}</span>` : ""}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          ${openBtn}
+          <button onclick="${actionFn}('${jobId}')"
+            class="px-3 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors">${actionLabel}</button>
+        </div>
+      </div>
+    </div>`;
+}
+function renderInterviewPrep(prep) {
+  currentInterviewPrep = prep;
+  document.getElementById("artifact-hub-content").innerHTML = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_fit_summary')}</h4>
+      <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${prep.fit_summary || t('detail.none')}</p>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_likely_questions')}</h4>
+        ${bulletList(prep.likely_questions)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_talking_points')}</h4>
+        ${bulletList(prep.talking_points)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_stories')}</h4>
+        ${bulletList(prep.stories_to_prepare)}
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_risks')}</h4>
+        ${bulletList(prep.risks_to_address)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_questions')}</h4>
+        ${bulletList(prep.questions_to_ask)}
+      </div>
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.interview_checklist')}</h4>
+        ${bulletList(prep.checklist)}
+      </div>
+    </div>`;
+}
+async function generateInterviewPrep(jobId = "") {
+  openArtifactHub(jobId || artifactHubJobId || activeJob?.dedup_key, "interview_prep");
+  runArtifactRequest({
+    jobId,
+    stateJobIdRef: "artifactHubJobId",
+    metaId: "artifact-hub-job-meta",
+    overlayId: "artifact-hub-overlay",
+    contentId: "artifact-hub-content",
+    loadingKey: "detail.interview_loading",
+    path: "interview-prep",
+    responseKey: "prep",
+    artifactType: "interview_prep",
+    errorKey: "msg.interview_prep_fail",
+    render: renderInterviewPrep,
+  });
+}
+function renderCoverLetter(letter) {
+  currentCoverLetter = letter;
+  const paragraphs = letter.body && letter.body.length
+    ? letter.body.map(p => `<p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${p}</p>`).join("")
+    : `<p class="text-sm text-gray-400 dark:text-gray-500">${t('detail.none')}</p>`;
+  document.getElementById("artifact-hub-content").innerHTML = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cover_subject')}</h4>
+      <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${letter.subject_line || t('detail.none')}</p>
+    </div>
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cover_highlights')}</h4>
+      ${bulletList(letter.highlights)}
+    </div>
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cover_full_text')}</h4>
+      <div class="space-y-4">
+        <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${letter.opener || ""}</p>
+        ${paragraphs}
+        <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${letter.closing || ""}</p>
+      </div>
+    </div>`;
+}
+async function generateCoverLetter(jobId = "") {
+  openArtifactHub(jobId || artifactHubJobId || activeJob?.dedup_key, "cover_letter");
+  runArtifactRequest({
+    jobId,
+    stateJobIdRef: "artifactHubJobId",
+    metaId: "artifact-hub-job-meta",
+    overlayId: "artifact-hub-overlay",
+    contentId: "artifact-hub-content",
+    loadingKey: "detail.cover_loading",
+    path: "cover-letter",
+    responseKey: "letter",
+    artifactType: "cover_letter",
+    errorKey: "msg.cover_letter_fail",
+    render: renderCoverLetter,
+  });
+}
+function renderCVOptimization(opt) {
+  currentCVOptimization = opt;
+  document.getElementById("artifact-hub-content").innerHTML = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_strategy')}</h4>
+      <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">${opt.summary_strategy || t('detail.none')}</p>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_keep')}</h4>
+        ${bulletList(opt.keep_points)}
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_improve')}</h4>
+        ${bulletList(opt.improve_points)}
+      </div>
+      <div class="xl:col-span-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_rewrites')}</h4>
+        ${bulletList(opt.bullet_rewrites)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_keywords')}</h4>
+        ${bulletList(opt.keywords_to_add)}
+      </div>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.cvopt_checklist')}</h4>
+        ${bulletList(opt.tailoring_checklist)}
+      </div>
+    </div>`;
+}
+async function generateCVOptimization(jobId = "") {
+  openArtifactHub(jobId || artifactHubJobId || activeJob?.dedup_key, "cv_optimization");
+  runArtifactRequest({
+    jobId,
+    stateJobIdRef: "artifactHubJobId",
+    metaId: "artifact-hub-job-meta",
+    overlayId: "artifact-hub-overlay",
+    contentId: "artifact-hub-content",
+    loadingKey: "detail.cvopt_loading",
+    path: "cv-optimization",
+    responseKey: "optimization",
+    artifactType: "cv_optimization",
+    errorKey: "msg.cvopt_fail",
+    render: renderCVOptimization,
+  });
+}
+function generateActiveArtifact() {
+  const targetJobId = artifactHubJobId || activeJob?.dedup_key || "";
+  if (!targetJobId) return;
+  if (currentArtifactType === "interview_prep") return generateInterviewPrep(targetJobId);
+  if (currentArtifactType === "cover_letter") return generateCoverLetter(targetJobId);
+  return generateCVOptimization(targetJobId);
 }
 
 function dotClass(on, color) {
@@ -1568,13 +2310,15 @@ function jobMatchesFilters(job) {
     if (!job.title.toLowerCase().includes(q) && !job.company.toLowerCase().includes(q)) return false;
   }
   if (dateRange !== "all") {
-    const posted = new Date(job.fetched_at);
-    const diffMs = Date.now() - posted;
+    const rawDate = job.date_posted || job.fetched_at;
+    const posted = new Date(rawDate);
+    if (isNaN(posted)) return false;
+    const diffMs = Date.now() - posted.getTime();
     if (dateRange === "today" && diffMs > 86400000)   return false;
     if (dateRange === "week"  && diffMs > 7*86400000) return false;
   }
   if (scoreMin !== null) {
-    const s = job.score ?? -1;
+    const s = normalizedScore(job.score) ?? -1;
     if (s < scoreMin) return false;
   }
   return true;
@@ -1691,7 +2435,7 @@ function renderList() {
 
 async function loadJobs() {
   try {
-    JOBS = await api("GET", "/api/jobs");
+    JOBS = await api("GET", `/api/jobs?language=${encodeURIComponent(LANG)}`);
   } catch(e) {
     listEl.innerHTML = `<div class="text-xs text-center py-4 text-red-400">${e.message}</div>`;
     return;
@@ -1766,6 +2510,8 @@ document.getElementById("date-filter").addEventListener("click", e => {
 function showJobDetail(job) {
   activeKey = job.dedup_key;
   activeJob = job;
+  if (!["overview", "breakdown", "gap", "jd", "actions"].includes(detailTab)) detailTab = "overview";
+  if (!artifactStatusByJob[job.dedup_key]) void loadArtifactStatus(job.dedup_key);
   // Activate three-panel layout: detail takes flex-1, search panel shrinks to sidebar
   document.getElementById("main-area").classList.add("detail-active");
 
@@ -1773,6 +2519,14 @@ function showJobDetail(job) {
   const scoreClr = scoreColor(job.score);
   const sources  = (job.sources || []).join(", ");
   const rawSources = job.raw_sources || [];
+  const recBadge = recommendationBadge(job.recommendation);
+  const summary = job.job_summary || {};
+  const match = job.match_score || null;
+  const assessment = job.assessment || null;
+  const hasStructuredSummary = !!(job.job_summary && Object.keys(job.job_summary).length);
+  const legacyOverviewNote = !hasStructuredSummary && assessment
+    ? `<p class="text-xs text-gray-400 dark:text-gray-500">${t('detail.legacy_cache_note')}</p>`
+    : "";
 
   const applyBtn = rawSources.length > 1
     ? `<div class="relative flex-shrink-0" id="apply-dropdown-wrap">
@@ -1803,30 +2557,135 @@ function showJobDetail(job) {
         ${t('detail.apply')}
       </a>`;
 
-  let assessHtml = "";
-  if (job.score !== null && job.score !== undefined) {
-    const strengths = (job.strengths || []).map(s => `<li>${s}</li>`).join("");
-    const weaknesses = (job.weaknesses || []).map(w => `<li>${w}</li>`).join("");
-    const keywords = (job.matched_keywords || []).map(k =>
-      `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${k}</span>`
-    ).join("");
-    assessHtml = `
-      <div class="grid grid-cols-2 gap-4 mb-4">
-        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
-          <h4 class="text-sm font-bold text-green-700 dark:text-green-400 mb-2 uppercase tracking-wide">${t('detail.strengths')}</h4>
-          <ul class="text-xs text-green-800 dark:text-green-300 space-y-1.5 list-disc list-inside">${strengths}</ul>
-        </div>
-        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
-          <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 mb-2 uppercase tracking-wide">${t('detail.weaknesses')}</h4>
-          <ul class="text-xs text-orange-800 dark:text-orange-300 space-y-1.5 list-disc list-inside">${weaknesses}</ul>
+  const keywords = (job.matched_keywords || []).map(k =>
+    `<span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs">${k}</span>`
+  ).join("");
+  const overviewHtml = `
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.overview')}</h4>
+        <div class="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.work_mode')}:</span> ${summary.work_mode || t('detail.none')}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.job_type')}:</span> ${summary.job_type || t('detail.none')}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.years_required')}:</span> ${summary.years_required ?? t('detail.none')}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.languages_required')}:</span> ${languageList(summary.required_languages)}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.languages_preferred')}:</span> ${languageList(summary.preferred_languages)}</div>
+          <div><span class="text-gray-400 dark:text-gray-500">${t('detail.keywords_label')}:</span></div>
+          <div class="flex flex-wrap gap-1.5">${keywords || `<span class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</span>`}</div>
+          ${legacyOverviewNote}
         </div>
       </div>
-      ${keywords ? `
-        <div class="mb-[18px]">
-          <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.keywords_label')}</h4>
-          <div class="flex flex-wrap gap-1.5">${keywords}</div>
-        </div>` : ""}`;
-  }
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.must_have')}</h4>
+        ${bulletList(summary.must_have)}
+        <div class="mt-4">
+          <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.good_to_have')}</h4>
+          ${bulletList(summary.good_to_have)}
+        </div>
+      </div>
+      <div class="xl:col-span-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.responsibilities')}</h4>
+        ${bulletList(summary.responsibilities)}
+      </div>
+    </div>`;
+  const breakdownHtml = match ? `
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
+        <div class="space-y-2 text-xs text-green-800 dark:text-green-300 font-mono">
+          <div>${t('detail.score_title')}: ${Math.round(match.title_score)}</div>
+          <div>${t('detail.score_seniority')}: ${Math.round(match.seniority_score)}</div>
+          <div>${t('detail.score_must_have')}: ${Math.round(match.must_have_score)}</div>
+          <div>${t('detail.score_nice_to_have')}: ${Math.round(match.nice_to_have_score)}</div>
+          <div>${t('detail.score_domain')}: ${Math.round(match.domain_score)}</div>
+          <div>${t('detail.score_location')}: ${Math.round(match.location_score)}</div>
+          <div>${t('detail.score_language')}: ${Math.round(match.language_score)}</div>
+          <div>${t('detail.score_risk')}: -${Math.round(match.risk_penalty)}</div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-green-200/80 dark:border-green-800/50">
+          <h5 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.score_summary')}</h5>
+          <div class="space-y-2 text-xs text-green-800 dark:text-green-300 leading-relaxed">
+            ${[
+              match.title_summary,
+              match.seniority_summary,
+              match.must_have_summary,
+              match.nice_to_have_summary,
+              match.domain_summary,
+              match.location_summary,
+              match.language_summary,
+              match.risk_summary,
+            ].filter(Boolean).map(line => `<div>${line}</div>`).join("") || `<p class="text-xs text-green-700/70 dark:text-green-300/70">${t('detail.none')}</p>`}
+          </div>
+        </div>
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.risks')}</h4>
+        ${bulletList([
+          ...((match.risks || []).length ? match.risks : []),
+          ...((match.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
+        ])}
+      </div>
+    </div>` : assessment ? `
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
+        <div class="space-y-2 text-xs text-green-800 dark:text-green-300 font-mono">
+          <div>${t('detail.score_total')}: ${Math.round((assessment.score || 0) * 10)}</div>
+        </div>
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.risks')}</h4>
+        ${bulletList(job.weaknesses || [], t('detail.none'))}
+      </div>
+    </div>` : `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.breakdown')}</h4>
+      <p class="text-xs text-gray-400 dark:text-gray-500">${t('detail.none')}</p>
+    </div>`;
+  const gapHtml = `
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-[18px]">${t('detail.strengths')}</h4>
+        ${bulletList(job.strengths || [])}
+      </div>
+      <div class="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.weaknesses')}</h4>
+        ${bulletList(job.weaknesses || [])}
+      </div>
+      <div class="xl:col-span-2 bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-orange-700 dark:text-orange-400 uppercase tracking-wide mb-[18px]">${t('detail.risks')}</h4>
+        ${bulletList([
+          ...((match?.missing_must_haves || []).map(item => `${t('detail.must_have')}: ${item}`)),
+          ...((match?.risks || []).length ? match.risks : []),
+        ])}
+      </div>
+    </div>`;
+  const jdHtml = `
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.jd_label')}</h4>
+      <pre class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">${job.description_snippet || t('detail.no_jd')}</pre>
+    </div>`;
+  const actionsHtml = `
+    <div class="space-y-4">
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+        <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.tab_actions')}</h4>
+        <div class="space-y-3">
+          ${artifactActionRow(job.dedup_key, "interview_prep", t('detail.action_interview'))}
+          ${artifactActionRow(job.dedup_key, "cover_letter", t('detail.action_cover_letter'))}
+          ${artifactActionRow(job.dedup_key, "cv_optimization", t('detail.action_cv_opt'))}
+        </div>
+      </div>
+      ${breakdownHtml}
+    </div>`;
+  const detailContent = detailTab === "overview"
+    ? overviewHtml
+    : detailTab === "breakdown"
+    ? breakdownHtml
+    : detailTab === "gap"
+    ? gapHtml
+    : detailTab === "jd"
+    ? jdHtml
+    : actionsHtml;
 
   document.getElementById("job-content").innerHTML = `
     <button onclick="showSearchPanel()"
@@ -1837,19 +2696,28 @@ function showJobDetail(job) {
       ${t('detail.back')}
     </button>
     <div class="flex items-start gap-4 mb-6">
-      <span class="inline-flex items-center justify-center w-12 h-12 rounded-full text-white text-xl font-bold flex-shrink-0 ${scoreClr}">${scoreVal}</span>
+      <span class="inline-flex items-center justify-center min-w-[64px] h-12 px-3 rounded-full text-white text-lg font-bold font-mono flex-shrink-0 ${scoreClr}">${scoreVal}</span>
       <div class="flex-1 min-w-0">
         <h1 class="text-xl font-bold text-gray-900 dark:text-gray-50">${job.title}</h1>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">${job.company} · ${job.location || ""}</p>
+        <div class="flex flex-wrap gap-1.5 mt-1">
+          ${recBadge}
+          ${summary.work_mode ? `<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">${summary.work_mode}</span>` : ""}
+          ${summary.job_type ? `<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">${summary.job_type}</span>` : ""}
+          ${summary.seniority_conflict ? `<span class="text-xs px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300">${t('detail.seniority_conflict')}</span>` : ""}
+        </div>
         <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('detail.source', sources)}</p>
       </div>
-      ${applyBtn}
+      <div class="flex items-center gap-3">${applyBtn}</div>
     </div>
-    ${assessHtml}
-    <div>
-      <h4 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-[18px]">${t('detail.jd_label')}</h4>
-      <pre class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">${job.description_snippet || t('detail.no_jd')}</pre>
+    <div class="flex flex-wrap gap-2 mb-6">
+      ${detailTabButton("overview", "detail.tab_overview")}
+      ${detailTabButton("breakdown", "detail.tab_breakdown")}
+      ${detailTabButton("gap", "detail.tab_gap")}
+      ${detailTabButton("jd", "detail.tab_jd")}
+      ${detailTabButton("actions", "detail.tab_actions")}
     </div>`;
+    document.getElementById("job-content").innerHTML += detailContent;
 
   renderList();
 }
@@ -1955,32 +2823,6 @@ function addTitle() {
 
 function removeTitle(i) { titlesList.splice(i, 1); renderTitles(); }
 
-async function discoverTitles() {
-  if (!cvHash) return;
-  const btn      = document.getElementById("discover-btn");
-  const btnSpan  = btn.querySelector('[data-i18n]');
-  const progress = document.getElementById("discover-progress");
-  if (btnSpan) btnSpan.textContent = t('msg.discovering');
-  btn.disabled = true;
-  progress.classList.remove("hidden");
-  const provider = cfgData?.default_provider || "gemini";
-  const model    = cfgData?.default_model    || "";
-  try {
-    const r = await api("POST", "/api/titles/discover", { cv_hash: cvHash, provider, model, profile: cvProfile });
-    const discovered = (r.titles || []).map(t => t.canonical || t.name || t);
-    const added = discovered.filter(t => !titlesList.includes(t));
-    added.forEach(t => titlesList.push(t));
-    renderTitles();
-    showToast(t('msg.discover_done', added.length));
-  } catch(e) {
-    showToast(`${t('msg.discover_fail')}${e.message}`, true);
-  } finally {
-    progress.classList.add("hidden");
-    if (btnSpan) btnSpan.textContent = t('titles.discover');
-    btn.disabled = false;
-  }
-}
-
 async function startSearch() {
   if (!cvHash || titlesList.length === 0) {
     showToast(t('msg.search_require'), true);
@@ -1989,6 +2831,9 @@ async function startSearch() {
   const location      = document.getElementById("location-select").value;
   const provider      = cfgData?.default_provider || "gemini";
   const model         = cfgData?.default_model    || "";
+  const refresh       = document.getElementById("force-refresh").checked;
+  const experimentName = document.getElementById("experiment-name").value.trim();
+  const experimentNotes = document.getElementById("experiment-notes").value.trim();
   const indeedEnabled        = document.getElementById("source-indeed").checked;
   const linkedinEnabled      = document.getElementById("source-linkedin").checked;
   if (!indeedEnabled && !linkedinEnabled) {
@@ -2007,6 +2852,7 @@ async function startSearch() {
   document.getElementById("step-done").classList.add("hidden");
   document.getElementById("done-stats").classList.add("hidden");
   document.getElementById("done-funnel").classList.add("hidden");
+  document.getElementById("done-modules").classList.add("hidden");
   document.getElementById("done-dedup").classList.add("hidden");
   document.getElementById("progress-log").innerHTML = "";
   document.getElementById("progress-title").textContent = t('progress.title');
@@ -2020,7 +2866,7 @@ async function startSearch() {
   renderList();
 
   try {
-    await api("POST", "/api/search", { cv_hash: cvHash, roles: titlesList, location, provider, model, language: LANG, limit_per_role: limitPerRole, linkedin_limit_per_role: linkedinLimitPerRole, hours_old: hoursOld });
+    await api("POST", "/api/search", { cv_hash: cvHash, roles: titlesList, location, experiment_name: experimentName, notes: experimentNotes, provider, model, refresh, language: LANG, limit_per_role: limitPerRole, linkedin_limit_per_role: linkedinLimitPerRole, hours_old: hoursOld });
     listenProgress();
   } catch(e) {
     document.getElementById("step-progress").classList.remove("active");
@@ -2157,6 +3003,14 @@ function listenProgress() {
         }
       }
 
+      if (data.module_metrics) {
+        const moduleEl = document.getElementById("done-modules");
+        if (moduleEl) {
+          moduleEl.innerHTML = _renderModuleMetrics(data.module_metrics, true);
+          moduleEl.classList.remove("hidden");
+        }
+      }
+
       // 去重验证报告
       if (data.dedup != null) {
         const d = data.dedup;
@@ -2285,6 +3139,8 @@ function toggleApplyDropdown(e) {
 
 function showSearchPanel() {
   activeKey = null;
+  activeJob = null;
+  detailTab = "overview";
   document.getElementById("main-area").classList.remove("detail-active");
   renderList();
 }

@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .paths import REPORTS_DIR
+
 
 @dataclass
 class PipelineStats:
@@ -35,6 +37,8 @@ class PipelineStats:
     skip_dup: int = 0              # URL / 跨来源重复
     skip_seniority: int = 0        # 年资不符
     skip_irrelevant: int = 0       # 标题不相关（关键词）
+    title_relevance_in: int = 0    # 进入前置 LLM 标题相关性粗筛
+    title_relevance_rejected: int = 0  # 前置 LLM 标题相关性粗筛拒绝
     cache_hit: int = 0             # URL 缓存命中（已有 assessment，直接复用）
     cache_patch: int = 0           # URL 缓存命中但需补 LLM 评估
     skip_no_desc: int = 0          # 无职位描述
@@ -48,6 +52,7 @@ class PipelineStats:
 
     # ── 最终结果 ─────────────────────────────────────────────────────────────
     saved: int = 0
+    new_saved: int = 0
     by_source: dict = field(default_factory=dict)  # {source: {step: count}}
 
     # ── 元数据 ────────────────────────────────────────────────────────────────
@@ -116,6 +121,8 @@ class PipelineStats:
             v = getattr(self, attr)
             if v:
                 skip_parts.append(f"{label}:{v}")
+        if self.title_relevance_in:
+            skip_parts.append(f"标题语义:{self.title_relevance_in}->{self.title_relevance_in - self.title_relevance_rejected}")
         detail = f"  ({' | '.join(skip_parts)})" if skip_parts else ""
         lines.append(f"  阶段三  预筛漏斗:  {self.prefilter_in} 进入{detail}")
         lines.append(
@@ -130,7 +137,7 @@ class PipelineStats:
 
     # ── 文件写入 ──────────────────────────────────────────────────────────────
 
-    def write_report(self, directory: str = "reports") -> str:
+    def write_report(self, directory: str | Path = REPORTS_DIR) -> str:
         """
         将统计数据写入两个文件并返回 latest JSON 路径：
           - pipeline_stats.jsonl      逐行追加，保留全量历史

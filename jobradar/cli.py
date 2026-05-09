@@ -3,22 +3,14 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import webbrowser
 from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
 from dotenv import load_dotenv
-from rich import box
-from rich.console import Console
 from rich.markup import escape
-from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-
-from jobradar import cache
-import hashlib
-import json
 
 from jobradar import cache
 from jobradar.agent import run_search
@@ -26,9 +18,10 @@ from jobradar.assessment import batch_assess_jds
 from jobradar.cv_extractor import extract_cv_profile
 from jobradar.cv_reader import read_cv
 from jobradar.llm_backend import LLMConfig
+from jobradar.runtime_config import PROVIDER_KEY_MAP, get_effective_model, get_saved_defaults, save_env_key
 from jobradar.telemetry import telemetry
-from jobradar.title_discovery import DiscoverResult, _TitleGroup, discover_titles
 from jobradar.tools import verify_job_active
+from jobradar.paths import DATA_DIR
 from jobradar.display import (
     console,
     open_job_in_editor,
@@ -73,14 +66,6 @@ def _main(
     pass
 cache_app = typer.Typer(help="缓存管理命令")
 app.add_typer(cache_app, name="cache")
-
-# API Key 环境变量映射
-_PROVIDER_KEY_MAP: dict[Provider, str] = {
-    "claude": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-}
-
 
 # ─── Preflight 检查 ───────────────────────────────────────────────────────────
 
@@ -180,39 +165,14 @@ def _preflight(provider: Provider) -> None:
             console.print("[red]无法连接 llama.cpp，请确认服务已启动（默认 http://localhost:8080）。[/red]")
             raise typer.Exit(1)
     else:
-        env_key = _PROVIDER_KEY_MAP[provider]
-        if not os.getenv(env_key):
+        env_key = PROVIDER_KEY_MAP.get(provider, "")
+        if env_key and not os.getenv(env_key):
             key = console.input(f"[yellow]请输入 {env_key}: [/yellow]").strip()
             if not key:
                 console.print("[red]API Key 不能为空。[/red]")
                 raise typer.Exit(1)
-            _save_env(env_key, key)
+            save_env_key(env_key, key)
             os.environ[env_key] = key
-
-
-
-
-def _save_env(key: str, value: str) -> None:
-    env_path = Path(".env")
-    line = f"{key}={value}\n"
-    if env_path.exists():
-        content = env_path.read_text(encoding="utf-8")
-        if key in content:
-            content = re.sub(rf"^{key}=.*$", line.strip(), content, flags=re.MULTILINE)
-            env_path.write_text(content, encoding="utf-8")
-            return
-    with env_path.open("a", encoding="utf-8") as f:
-        f.write(line)
-
-
-# ─── model 命令（交互式选择并保存默认值）────────────────────────────────────
-
-
-def _get_saved_defaults() -> tuple[str, str]:
-    """读取 .env 中保存的默认 provider 和 model。"""
-    provider = os.getenv("DEFAULT_PROVIDER", "claude")
-    model = os.getenv("DEFAULT_MODEL", DEFAULT_MODELS.get(provider, ""))
-    return provider, model
 
 
 @app.command()
@@ -250,7 +210,11 @@ def model() -> None:
                 console.print(f"[yellow]无法从 API 获取模型列表，请检查 {chosen_provider.upper()}_API_KEY 是否已配置。[/yellow]")
             raise typer.Exit(1)
     else:
-        model_list = AVAILABLE_MODELS[chosen_provider]  # claude：使用静态列表
+        model_list = AVAILABLE_MODELS.get(chosen_provider) or [DEFAULT_MODELS.get(chosen_provider, "")]
+        model_list = [m for m in model_list if m]
+        if not model_list:
+            console.print(f"[yellow]{chosen_provider} 暂无可用默认模型，请用 --model 手动指定。[/yellow]")
+            raise typer.Exit(1)
 
     # Step 3：选择模型
     default_for_provider = DEFAULT_MODELS.get(chosen_provider, model_list[0])
@@ -269,8 +233,8 @@ def model() -> None:
     chosen_model = model_list[m_idx]
 
     # Step 4：保存
-    _save_env("DEFAULT_PROVIDER", chosen_provider)
-    _save_env("DEFAULT_MODEL", chosen_model)
+    save_env_key("DEFAULT_PROVIDER", chosen_provider)
+    save_env_key("DEFAULT_MODEL", chosen_model)
     os.environ["DEFAULT_PROVIDER"] = chosen_provider
     os.environ["DEFAULT_MODEL"] = chosen_model
 
@@ -298,7 +262,7 @@ def find(
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
     _preflight(effective_provider)
 
-    effective_model = model or saved_model or DEFAULT_MODELS[effective_provider]
+    effective_model = get_effective_model(effective_provider, model, saved_model)
     llm = LLMConfig(provider=effective_provider, model=effective_model)
     console.print(f"[dim]使用模型：{llm.provider} / {llm.model}[/dim]")
 
@@ -324,59 +288,8 @@ def find(
             console.print(f"[red]CV 解析失败：{e}[/red]")
             raise typer.Exit(1)
 
-    # Step 2: 从 Adzuna US+UK 发现市场真实 title，用户审阅确认
-    _countries = ["us", "gb"]
-    _cv_hash = hashlib.sha256(cv_text.encode()).hexdigest()
-    _title_cache_key = f"{_cv_hash}::{'_'.join(sorted(_countries))}"
-
-    with Progress(SpinnerColumn(), TextColumn("{task.description}"), transient=True) as p:
-        p.add_task("从市场数据发现 title（Adzuna US+UK）...", total=None)
-        try:
-            _cached_titles = cache.get_title_cache(_title_cache_key) if not refresh else None
-            if _cached_titles is not None:
-                result = DiscoverResult(
-                    titles=[_TitleGroup(**t) for t in _cached_titles["titles"]],
-                    keywords_used=_cached_titles["keywords_used"],
-                )
-                console.print("[dim]Title 发现命中缓存，跳过 Adzuna 查询。[/dim]")
-            else:
-                with telemetry.timer("Title 发现（Adzuna + LLM）"):
-                    result = discover_titles(
-                        skills=profile.skills,
-                        cv_summary=profile.summary,
-                        seniority=profile.seniority,
-                        llm=llm,
-                        top_keywords=8,
-                        countries=_countries,
-                    )
-                if result and result.titles:
-                    cache.save_title_cache(
-                        _title_cache_key,
-                        json.dumps({
-                            "titles": [t.model_dump() for t in result.titles],
-                            "keywords_used": result.keywords_used,
-                        }),
-                    )
-        except Exception as e:
-            console.print(f"[yellow]title 发现失败，使用模型生成结果：{e}[/yellow]")
-            result = None
-
-    groups = result.titles if result else []
-    keywords_used = result.keywords_used if result else []
-
-    if keywords_used:
-        console.print(f"\n[dim]搜索关键词：{', '.join(keywords_used)}[/dim]")
-
-    discovered = [g.canonical for g in groups]
-    initial_roles = discovered if discovered else profile.preferred_roles
-
-    if groups:
-        console.print("\n[bold cyan]市场发现的 title（频次 / CV 匹配度综合排序）：[/bold cyan]")
-        for g in sorted(groups, key=lambda x: x.count, reverse=True):
-            bar = "█" * min(g.count // 5, 20)
-            console.print(f"  {escape(g.canonical):<35} {bar} {g.count}")
-
-    profile.preferred_roles = _review_roles(initial_roles)
+    # Step 2: 审阅并确认从 CV 提取出的目标 title
+    profile.preferred_roles = _review_roles(profile.preferred_roles)
 
     # Step 3: 展示完整 CVProfile 等待确认
     show_profile(profile)
@@ -391,7 +304,7 @@ def find(
     if not target_location:
         target_location = console.input("[yellow]请输入目标搜索地点（如 London / Remote）: [/yellow]").strip()
 
-    search_queries = profile.preferred_roles
+    search_queries = _condense_search_queries(profile.preferred_roles)
     console.print(
         f"\n[dim]搜索词：{', '.join(search_queries)}[/dim]"
     )
@@ -437,7 +350,10 @@ def find(
             jobs = [j for j in jobs if j.url not in inactive_urls]
             console.print(f"[yellow]已过滤 {before - len(jobs)} 个失效职位。[/yellow]")
 
-    jobs.sort(key=lambda j: (j.assessment.score if j.assessment else -1), reverse=True)
+    jobs.sort(
+        key=lambda j: (j.effective_score if j.effective_score is not None else -1),
+        reverse=True,
+    )
 
     console.print()
     show_jobs(jobs)
@@ -522,7 +438,7 @@ def assess(
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
     _preflight(effective_provider)
 
-    effective_model = model or saved_model or DEFAULT_MODELS[effective_provider]
+    effective_model = get_effective_model(effective_provider, model, saved_model)
     llm = LLMConfig(provider=effective_provider, model=effective_model)
     console.print(f"[dim]使用模型：{llm.provider} / {llm.model}[/dim]")
 
@@ -542,7 +458,7 @@ def assess(
         if profile is None:
             console.print("[red]缓存中没有 CVProfile，请提供 CV 文件路径。[/red]")
             raise typer.Exit(1)
-        console.print(f"[dim]使用缓存的 CVProfile：{profile.summary[:40]}（{profile.seniority}）[/dim]")
+        console.print(f"[dim]使用缓存的 CVProfile：{profile.summary[:40]}（{profile.seniority_display}）[/dim]")
 
     # Step 2：加载未评估的 JD 并批量评估
     unassessed = cache.get_unassessed_jobs(limit=limit)
@@ -565,8 +481,8 @@ def assess(
 
     # Step 3：加载全部已评估 JD 排序展示
     all_jobs = cache.get_recent_jobs(limit)
-    all_jobs = [j for j in all_jobs if j.assessment is not None]
-    all_jobs.sort(key=lambda j: j.assessment.score, reverse=True)
+    all_jobs = [j for j in all_jobs if j.match_score is not None or j.assessment is not None]
+    all_jobs.sort(key=lambda j: (j.effective_score if j.effective_score is not None else -1), reverse=True)
 
     if not all_jobs:
         console.print("[yellow]没有可展示的已评估职位。[/yellow]")
@@ -592,7 +508,7 @@ def parse(
     """只解析 CV，展示提取结果，不执行搜索。"""
     saved_provider, saved_model = _get_saved_defaults()
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
-    effective_model = model or saved_model or DEFAULT_MODELS[effective_provider]
+    effective_model = get_effective_model(effective_provider, model, saved_model)
 
     _preflight(effective_provider)
     console.print(f"[dim]使用模型：{effective_provider} / {effective_model}[/dim]")
@@ -633,19 +549,19 @@ def serve(
     host: Annotated[str,  typer.Option("--host", help="监听地址")] = "127.0.0.1",
     port: Annotated[int,  typer.Option("--port", "-p", help="监听端口")] = 8765,
     no_browser: Annotated[bool, typer.Option("--no-browser", help="不自动打开浏览器")] = False,
-    mock: Annotated[bool, typer.Option("--mock", help="测试模式：使用独立数据库（jobradar_test_cache.db），不污染正式缓存")] = False,
+    mock: Annotated[bool, typer.Option("--mock", help="测试模式：使用独立数据库（data/jobradar_test_cache.db），不污染正式缓存")] = False,
 ) -> None:
-    """启动 Web UI（FastAPI + uvicorn），在浏览器中使用 JobFinder。"""
+    """启动 Web UI（FastAPI + uvicorn），在浏览器中使用 JobRadar。"""
     import threading, time
     import uvicorn
 
     if mock:
         os.environ["JOBFINDER_MOCK"] = "1"
-        os.environ["CACHE_DB_PATH"] = "jobradar_test_cache.db"
-        console.print("[yellow]⚠ 测试模式已启用：使用独立数据库 jobradar_test_cache.db，正式缓存不受影响。[/yellow]")
+        os.environ["CACHE_DB_PATH"] = str(DATA_DIR / "jobradar_test_cache.db")
+        console.print("[yellow]⚠ 测试模式已启用：使用独立数据库 data/jobradar_test_cache.db，正式缓存不受影响。[/yellow]")
 
     url = f"http://{host}:{port}"
-    console.print(f"\n[bold green]JobFinder Web UI[/bold green]  →  {url}\n")
+    console.print(f"\n[bold green]JobRadar Web UI[/bold green]  →  {url}\n")
     console.print("[dim]按 Ctrl+C 停止服务[/dim]\n")
 
     if not no_browser:

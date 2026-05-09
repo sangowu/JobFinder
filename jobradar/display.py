@@ -27,7 +27,9 @@ def show_profile(profile: CVProfile) -> None:
 
     table.add_row("摘要", profile.summary)
     table.add_row("经验年限", str(profile.years_of_experience) + " 年")
-    table.add_row("级别", profile.seniority)
+    table.add_row("级别", profile.seniority_display)
+    table.add_row("可投级别", ", ".join(profile.eligible_seniority_levels) or "-")
+    table.add_row("Stretch 级别", ", ".join(profile.stretch_seniority_levels) or "-")
     table.add_row("目标职位", ", ".join(profile.preferred_roles) or "-")
     table.add_row("目标地点", ", ".join(profile.preferred_locations) or "-")
     table.add_row("技能", ", ".join(profile.skills) or "-")
@@ -66,8 +68,9 @@ def show_jobs(jobs: list[JobResult]) -> None:
         else:
             status = "[yellow]?[/yellow]"
 
-        score_str = str(job.assessment.score) if job.assessment else "-"
-        keywords_str = ", ".join(job.assessment.matched_keywords[:4]) if job.assessment else "-"
+        score_value = job.effective_score
+        score_str = str(round(score_value)) if score_value is not None and job.match_score else (str(int(score_value)) if score_value is not None else "-")
+        keywords_str = ", ".join(job.effective_keywords) or "-"
 
         sources = ", ".join(job.sources[:2])
         table.add_row(
@@ -101,7 +104,18 @@ def show_job_detail(job: JobResult) -> None:
     if not job.is_complete:
         lines.append("[yellow]⚠ 该职位信息不完整[/yellow]")
 
-    if job.assessment:
+    if job.match_score:
+        m = job.match_score
+        lines.append(f"[bold cyan]Explainable Score：[/bold cyan]{m.overall_score}/100  ({m.recommendation})")
+        lines.append(
+            f"[bold cyan]维度：[/bold cyan]"
+            f"title {m.title_score:.0f} | seniority {m.seniority_score:.0f} | must-have {m.must_have_score:.0f} | "
+            f"nice-to-have {m.nice_to_have_score:.0f} | domain {m.domain_score:.0f} | location {m.location_score:.0f} | "
+            f"risk -{m.risk_penalty:.0f}"
+        )
+        if job.effective_keywords:
+            lines.append(f"[bold cyan]匹配关键词：[/bold cyan]{', '.join(job.effective_keywords)}")
+    elif job.assessment:
         a = job.assessment
         bar = "█" * a.score + "░" * (10 - a.score)
         lines.append(f"\n[bold cyan]匹配分：[/bold cyan]{a.score}/10  {bar}")
@@ -129,8 +143,21 @@ def _job_to_markdown(job: JobResult) -> str:
 
     # 模型评分段落
     lines += ["", "---", "", "## 模型评分"]
-    a = job.assessment
-    if a:
+    if job.match_score:
+        m = job.match_score
+        lines.append(f"**Explainable Score**：{m.overall_score}/100  `{m.recommendation}`")
+        if job.effective_keywords:
+            lines.append(f"\n**关键要求**：{', '.join(job.effective_keywords)}")
+        lines.append("")
+        lines.append("**优势**")
+        for s in m.strengths:
+            lines.append(f"- {s}")
+        lines.append("")
+        lines.append("**劣势 / 差距**")
+        for w in m.weaknesses + m.risks:
+            lines.append(f"- {w}")
+    elif job.assessment:
+        a = job.assessment
         bar = "█" * a.score + "░" * (10 - a.score)
         lines.append(f"**整体匹配分**：{a.score}/10  `{bar}`")
         if a.matched_keywords:

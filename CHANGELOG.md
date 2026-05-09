@@ -2,13 +2,80 @@
 
 ## [Unreleased]
 
+### New Features
+
+- **Persisted filter-event audit trail** (`cache.py` / `server.py` / `agent.py` / `scraping.py`)
+  Added `run_id` to each search and a new `filter_events` table that stores per-title rejections with `stage / title / reason / details`.
+  New API endpoint `/api/filter-events` lets you inspect where a title was filtered out, and mock-cache clearing now wipes both `search_stats` and `filter_events` in the mock database.
+
+- **Offline filter-event inspection script** (`scripts/show_filter_events.py`)
+  Added a database reader that inspects the latest or a specific `run_id` from `data/jobradar_test_cache.db` and exports the filtered jobs as terminal text, JSON, or Markdown.
+  This makes it possible to audit `title_relevance`, `coarse_filter`, `experience_gap`, `jd_assessment`, and `final_match` without rerunning a search.
+
+- **Rubric-based explainable matching** (`matching.py`)
+  JD-CV matching now uses an explicit scoring rubric for `title / seniority / must-have / nice-to-have / domain / location / language / risk`.
+  The prompt instructs the LLM to score by anchor bands (`95 / 80 / 60 / 30`) instead of free-form scoring; backend post-processing snaps each dimension to 5-point increments before programmatic weighted scoring.
+
+- **Dynamic title seniority gate** (`filters.py` / `agent.py`)
+  Added a pre-match title-level gate driven by `eligible_seniority_levels`, `stretch_seniority_levels`, and `blocked_seniority_levels`.
+  Obvious level mismatches such as `new grad → lead/manager/director` are filtered before JD summary and matching, while `senior` / `lead` CVs keep higher-level titles according to their configured apply bands.
+
+- **History funnel benchmark metadata** (`cache.py` / `server.py` / `index.html`)
+  Search history now persists version metadata for CV extraction, JD summary, matching, title gate, and coarse filter.
+  The History UI adds a funnel benchmark summary with derived efficiency metrics such as post-filter rate, new-job yield, tokens per filtered job, tokens per new job, assessment efficiency, and seniority rejection rate.
+
 ### Improvements
+
+- **Artifact cache persistence extracted from `cache.py`** (`cache.py` / `artifact_store.py`)
+  Moved interview prep, cover letter, CV optimization, and artifact aggregation persistence into a dedicated internal module while keeping the public cache API unchanged.
+  This reduces `cache.py`'s responsibility surface without changing artifact behavior or call sites.
+
+- **Search pipeline stages extracted from `agent.py`** (`agent.py` / `search_prefilter.py` / `search_assessment_stage.py`)
+  Moved prefiltering and assessment/writeback stage logic into dedicated internal modules while keeping `run_search()` and `_write_scraped()` behavior stable.
+  This narrows `agent.py` to top-level orchestration and makes later pipeline refactors less risky.
+
+- **Shared runtime config helpers extracted for CLI and Web** (`runtime_config.py` / `cli.py` / `server.py`)
+  Moved provider key mapping, `.env` writes, saved default lookup, and effective model fallback into a shared internal module.
+  This removes duplicated config plumbing between the Typer CLI and FastAPI server while preserving current behavior.
+
+- **LLM provider registry extracted from `llm_backend.py`** (`llm_backend.py` / `llm_registry.py`)
+  Moved provider typing, compatible-provider metadata, default model mapping, available-model state, and `LLMConfig` into a dedicated internal registry module.
+  This narrows `llm_backend.py` toward transport and completion behavior while keeping its public imports stable.
+
+- **Pipeline stats reports moved out of the source package** (`pipeline_stats.py`)
+  Changed `PipelineStats.write_report()` to default to the project-root `reports/` directory instead of `jobradar/reports/`.
+  This keeps runtime report artifacts out of the importable source package while preserving the same report filenames.
+
+- **Title gate moved before coarse filter** (`scraping.py` / `agent.py`)
+  Reordered the early funnel so the conservative title-only relevance gate runs before the broader card-level coarse filter.
+  This keeps the responsibilities cleaner: title-only semantic rejection happens first, then coarse card-level keep/reject uses title + location + snippet.
+
+- **Experience-gap direct rejection in prefilter and JD assessment** (`agent.py` / `assessment.py`)
+  Added `skip_exp` / `experience_gap` handling to the prefilter and a direct `jd_assessment` short-circuit for roles whose explicit years-required exceeds the candidate's experience by more than 3 years.
+  These items are now rejected with a structured reason before or inside assessment instead of receiving a normal free-form LLM analysis.
+
+- **Relocation and office-attendance semantics moved to risk handling** (`matching.py`)
+  Same-country city relocation and office-attendance requirements such as `hybrid`, `onsite`, or fixed in-office days are now treated as `risks / risk_penalty`.
+  `location_score` is reserved for broader geographic compatibility and should no longer be lowered by those two practical-friction factors.
 
 - **JD 评分加入经验年限上限规则**（`assessment.py`）
   当 JD 要求年限超过候选人实际年限时，score 按差距限制上限：差距 ≤ 2 年不限制，3~5 年上限 5 分，> 5 年上限 3 分。
   避免技能方向匹配但经验严重不足的职位获得虚高评分。
 
+- **README pipeline/docs refreshed**
+  Updated `README.md` / `README.zh.md` / `README.es.md` to reflect the current LLM pipeline: title gate before coarse filter, persisted filter events, compare / inspection scripts, experience-gap rejection, and risk-only relocation / office-attendance handling.
+
 ### Bug Fixes
+
+- **`matching.py` missing `import re` aborted searches** (`matching.py`)
+  After adding relocation / office-attendance helper functions using regex, the module forgot to import `re`.
+  The first matching pass raised `name 're' is not defined`, which bubbled up as a generic `Scrape error, skipping` and ended the run with `0 jobs collected`.
+  Added the missing import so the matching stage no longer crashes on those risk checks.
+
+- **Title seniority gate caused full search abort** (`agent.py`)
+  After adding the dynamic title seniority gate, `source_stats` did not initialize the `skip_seniority` key.
+  The first filtered job raised `KeyError: 'skip_seniority'`, which aborted the whole scrape loop and produced `0 jobs collected`.
+  Added `skip_seniority` to the per-source stats key set so seniority filtering is counted correctly without breaking the search.
 
 - **CV 解析错误提示未跟随 UI 语言**（`llm_backend.py` / `index.html`）
   `llm_backend.py` 中 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 未设置时抛出的 `EnvironmentError` 消息从硬编码中文改为英文（`not set`）。
