@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import webbrowser
 from pathlib import Path
 from typing import Annotated, Optional
@@ -19,6 +18,7 @@ from jobradar.assessment import batch_assess_jds
 from jobradar.cv_extractor import extract_cv_profile
 from jobradar.cv_reader import read_cv
 from jobradar.llm_backend import LLMConfig
+from jobradar.runtime_config import PROVIDER_KEY_MAP, get_effective_model, get_saved_defaults, save_env_key
 from jobradar.telemetry import telemetry
 from jobradar.tools import verify_job_active
 from jobradar.paths import DATA_DIR
@@ -35,7 +35,6 @@ from jobradar.llm_backend import (
     AVAILABLE_MODELS,
     DEFAULT_MODELS,
     Provider,
-    _COMPAT_PROVIDERS,
     check_llamacpp_connection,
     get_gemini_models,
     get_llamacpp_models,
@@ -67,14 +66,6 @@ def _main(
     pass
 cache_app = typer.Typer(help="缓存管理命令")
 app.add_typer(cache_app, name="cache")
-
-# API Key 环境变量映射
-_PROVIDER_KEY_MAP: dict[Provider, str] = {
-    "claude": "ANTHROPIC_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    **{p: cfg["key_env"] or "" for p, cfg in _COMPAT_PROVIDERS.items()},
-}
-
 
 # ─── Preflight 检查 ───────────────────────────────────────────────────────────
 
@@ -174,39 +165,14 @@ def _preflight(provider: Provider) -> None:
             console.print("[red]无法连接 llama.cpp，请确认服务已启动（默认 http://localhost:8080）。[/red]")
             raise typer.Exit(1)
     else:
-        env_key = _PROVIDER_KEY_MAP.get(provider, "")
+        env_key = PROVIDER_KEY_MAP.get(provider, "")
         if env_key and not os.getenv(env_key):
             key = console.input(f"[yellow]请输入 {env_key}: [/yellow]").strip()
             if not key:
                 console.print("[red]API Key 不能为空。[/red]")
                 raise typer.Exit(1)
-            _save_env(env_key, key)
+            save_env_key(env_key, key)
             os.environ[env_key] = key
-
-
-
-
-def _save_env(key: str, value: str) -> None:
-    env_path = Path(".env")
-    line = f"{key}={value}\n"
-    if env_path.exists():
-        content = env_path.read_text(encoding="utf-8")
-        if key in content:
-            content = re.sub(rf"^{key}=.*$", line.strip(), content, flags=re.MULTILINE)
-            env_path.write_text(content, encoding="utf-8")
-            return
-    with env_path.open("a", encoding="utf-8") as f:
-        f.write(line)
-
-
-# ─── model 命令（交互式选择并保存默认值）────────────────────────────────────
-
-
-def _get_saved_defaults() -> tuple[str, str]:
-    """读取 .env 中保存的默认 provider 和 model。"""
-    provider = os.getenv("DEFAULT_PROVIDER", "claude")
-    model = os.getenv("DEFAULT_MODEL", DEFAULT_MODELS.get(provider, ""))
-    return provider, model
 
 
 @app.command()
@@ -267,8 +233,8 @@ def model() -> None:
     chosen_model = model_list[m_idx]
 
     # Step 4：保存
-    _save_env("DEFAULT_PROVIDER", chosen_provider)
-    _save_env("DEFAULT_MODEL", chosen_model)
+    save_env_key("DEFAULT_PROVIDER", chosen_provider)
+    save_env_key("DEFAULT_MODEL", chosen_model)
     os.environ["DEFAULT_PROVIDER"] = chosen_provider
     os.environ["DEFAULT_MODEL"] = chosen_model
 
@@ -296,7 +262,7 @@ def find(
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
     _preflight(effective_provider)
 
-    effective_model = model or saved_model or DEFAULT_MODELS[effective_provider]
+    effective_model = get_effective_model(effective_provider, model, saved_model)
     llm = LLMConfig(provider=effective_provider, model=effective_model)
     console.print(f"[dim]使用模型：{llm.provider} / {llm.model}[/dim]")
 
@@ -472,7 +438,7 @@ def assess(
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
     _preflight(effective_provider)
 
-    effective_model = model or saved_model or DEFAULT_MODELS[effective_provider]
+    effective_model = get_effective_model(effective_provider, model, saved_model)
     llm = LLMConfig(provider=effective_provider, model=effective_model)
     console.print(f"[dim]使用模型：{llm.provider} / {llm.model}[/dim]")
 
@@ -542,7 +508,7 @@ def parse(
     """只解析 CV，展示提取结果，不执行搜索。"""
     saved_provider, saved_model = _get_saved_defaults()
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
-    effective_model = model or saved_model or DEFAULT_MODELS[effective_provider]
+    effective_model = get_effective_model(effective_provider, model, saved_model)
 
     _preflight(effective_provider)
     console.print(f"[dim]使用模型：{effective_provider} / {effective_model}[/dim]")

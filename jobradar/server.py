@@ -10,7 +10,6 @@ import asyncio
 import hashlib
 import json
 import os
-import re
 import tempfile
 import threading
 
@@ -39,7 +38,6 @@ from jobradar.logger import get_logger
 from jobradar.llm_backend import (
     AVAILABLE_MODELS,
     DEFAULT_MODELS,
-    _COMPAT_PROVIDERS,
     LLMConfig,
     check_provider_connection,
 )
@@ -48,6 +46,7 @@ from jobradar.matching import PROMPT_VERSION as MATCH_PROMPT_VERSION
 from jobradar.scraping import COARSE_FILTER_VERSION
 from jobradar.matching import match_job_to_cv
 from jobradar.paths import DATA_DIR
+from jobradar.runtime_config import PROVIDER_KEY_MAP, get_effective_model, save_env_key
 
 # Snapshot of the original model list taken at server start (for mock-mode reset)
 _ORIGINAL_AVAILABLE_MODELS: dict[str, list[str]] = {
@@ -156,39 +155,14 @@ def _collect_module_metrics(pipeline_stats=None) -> dict:
     return metrics
 
 
-# ─── 环境变量工具 ─────────────────────────────────────────────────────────────
-
-def _save_env_key(key: str, value: str) -> None:
-    env_path = Path(os.getcwd()) / ".env"
-    line = f"{key}={value}"
-    if env_path.exists():
-        content = env_path.read_text(encoding="utf-8")
-        if re.search(rf"^{re.escape(key)}=", content, re.MULTILINE):
-            content = re.sub(rf"^{re.escape(key)}=.*$", line, content, flags=re.MULTILINE)
-            env_path.write_text(content, encoding="utf-8")
-            return
-    with env_path.open("a", encoding="utf-8") as f:
-        f.write(f"\n{line}\n")
-
-
 # ─── Provider / Config API ─────────────────────────────────────────────────────
-
-_PROVIDER_KEY_MAP: dict[str, str] = {
-    "claude":  "ANTHROPIC_API_KEY",
-    "gemini":  "GEMINI_API_KEY",
-    **{p: cfg["key_env"] for p, cfg in _COMPAT_PROVIDERS.items()
-       if p not in ("local", "ollama")},
-    # 本地部署排在末尾；llama.cpp 无需 API Key，地址通过 LLAMACPP_BASE_URL 配置
-    "ollama":  "",
-    "local":   "LOCAL_LLM_API_KEY",
-}
 
 
 @app.get("/api/config")
 def get_config() -> dict:
     _reload_dotenv()
     providers_status: dict[str, dict] = {}
-    for provider, key_env in _PROVIDER_KEY_MAP.items():
+    for provider, key_env in PROVIDER_KEY_MAP.items():
         providers_status[provider] = {
             "configured": (not key_env) or bool(os.getenv(key_env)),
             "key_env": key_env,
@@ -228,7 +202,7 @@ def save_config(req: ConfigSaveRequest) -> dict:
     if req.key not in _ALLOWED_ENV_KEYS:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"不允许设置的配置项：{req.key}")
-    _save_env_key(req.key, req.value)
+    save_env_key(req.key, req.value)
     os.environ[req.key] = req.value
     _reload_dotenv()
     return {"ok": True}
@@ -244,7 +218,7 @@ def test_provider(req: TestProviderRequest) -> dict:
     _reload_dotenv()
     ok, msg = check_provider_connection(req.provider, req.model or None)
     # Extract model name from message for structured response (client formats display)
-    model_used = (req.model or DEFAULT_MODELS.get(req.provider, "")).strip()
+    model_used = get_effective_model(req.provider, req.model).strip()
     return {"ok": ok, "message": msg, "model": model_used}
 
 
@@ -332,7 +306,7 @@ def _resolve_artifact_context(dedup_key: str, req: ArtifactRequest):
     if profile is None or not cv_hash:
         raise HTTPException(status_code=400, detail="找不到 CV 数据，请先上传 CV。")
 
-    _model = req.model or DEFAULT_MODELS.get(req.provider, "")
+    _model = get_effective_model(req.provider, req.model)
     llm = LLMConfig(provider=req.provider, model=_model)
     jd_profile = job.jd_profile or extract_jd_profile(job, llm)
     match = match_job_to_cv(profile, jd_profile, job.description_snippet, llm, cv_hash=cv_hash)
@@ -418,11 +392,11 @@ def clear_cache() -> dict:
 @app.post("/api/config/clear-keys")
 def clear_api_keys() -> dict:
     """Clear all configured API keys from .env and os.environ."""
-    key_names = {v for v in _PROVIDER_KEY_MAP.values() if v}
+    key_names = {v for v in PROVIDER_KEY_MAP.values() if v}
     cleared: list[str] = []
     for key in key_names:
         if os.getenv(key):
-            _save_env_key(key, "")
+            save_env_key(key, "")
             os.environ.pop(key, None)
             cleared.append(key)
     _reload_dotenv()
@@ -483,7 +457,7 @@ async def parse_cv(
 
         telemetry.reset()
         cv_text = read_cv(tmp_path)
-        _model = model or DEFAULT_MODELS.get(provider, "")
+        _model = get_effective_model(provider, model)
         llm = LLMConfig(provider=provider, model=_model)
         logger.info("CV parse started | file=%s provider=%s model=%s", file.filename, provider, _model)
         profile = extract_cv_profile(cv_text, llm=llm)
@@ -549,7 +523,7 @@ async def _run_search_task(req: SearchRequest) -> None:
 
             profile = profile.model_copy(update={"preferred_roles": req.roles})
 
-            _model = req.model or DEFAULT_MODELS.get(req.provider, "")
+            _model = get_effective_model(req.provider, req.model)
             llm = LLMConfig(provider=req.provider, model=_model)
             logger.info(
                 "Search started | location=%s roles=%s provider=%s model=%s refresh=%s experiment=%s",

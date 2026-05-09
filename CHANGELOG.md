@@ -30,6 +30,18 @@
   Moved interview prep, cover letter, CV optimization, and artifact aggregation persistence into a dedicated internal module while keeping the public cache API unchanged.
   This reduces `cache.py`'s responsibility surface without changing artifact behavior or call sites.
 
+- **Search pipeline stages extracted from `agent.py`** (`agent.py` / `search_prefilter.py` / `search_assessment_stage.py`)
+  Moved prefiltering and assessment/writeback stage logic into dedicated internal modules while keeping `run_search()` and `_write_scraped()` behavior stable.
+  This narrows `agent.py` to top-level orchestration and makes later pipeline refactors less risky.
+
+- **Shared runtime config helpers extracted for CLI and Web** (`runtime_config.py` / `cli.py` / `server.py`)
+  Moved provider key mapping, `.env` writes, saved default lookup, and effective model fallback into a shared internal module.
+  This removes duplicated config plumbing between the Typer CLI and FastAPI server while preserving current behavior.
+
+- **LLM provider registry extracted from `llm_backend.py`** (`llm_backend.py` / `llm_registry.py`)
+  Moved provider typing, compatible-provider metadata, default model mapping, available-model state, and `LLMConfig` into a dedicated internal registry module.
+  This narrows `llm_backend.py` toward transport and completion behavior while keeping its public imports stable.
+
 - **Title gate moved before coarse filter** (`scraping.py` / `agent.py`)
   Reordered the early funnel so the conservative title-only relevance gate runs before the broader card-level coarse filter.
   This keeps the responsibilities cleaner: title-only semantic rejection happens first, then coarse card-level keep/reject uses title + location + snippet.

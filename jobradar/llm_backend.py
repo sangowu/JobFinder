@@ -15,93 +15,11 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 import requests
 from pydantic import BaseModel
-
-# ─── Provider 类型 ────────────────────────────────────────────────────────────
-
-Provider = Literal[
-    # 原生 SDK
-    "claude", "gemini",
-    # OpenAI 兼容 — 国际
-    "openai", "xai", "mistral",
-    # OpenAI 兼容 — 中国
-    "qwen", "glm", "kimi", "deepseek", "minimax",
-    # 本地
-    "ollama", "local",
-]
-
-# ─── OpenAI 兼容 provider 注册表 ──────────────────────────────────────────────
-# base_url=None 表示从环境变量动态读取
-
-_COMPAT_PROVIDERS: dict[str, dict[str, str | None]] = {
-    # 国际
-    "openai":       {"base_url": "https://api.openai.com/v1",                          "key_env": "OPENAI_API_KEY"},
-    "xai":          {"base_url": "https://api.x.ai/v1",                                "key_env": "XAI_API_KEY"},
-    "mistral":      {"base_url": "https://api.mistral.ai/v1",                           "key_env": "MISTRAL_API_KEY"},
-    # 中国
-    "qwen":         {"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",  "key_env": "DASHSCOPE_API_KEY"},
-    "glm":          {"base_url": "https://open.bigmodel.cn/api/paas/v4",               "key_env": "ZHIPUAI_API_KEY"},
-    "kimi":         {"base_url": "https://api.moonshot.cn/v1",                         "key_env": "MOONSHOT_API_KEY"},
-    "deepseek":     {"base_url": "https://api.deepseek.com/v1",                        "key_env": "DEEPSEEK_API_KEY"},
-    "minimax":      {"base_url": "https://api.minimax.io/v1",                          "key_env": "MINIMAX_API_KEY"},
-    # 本地 OpenAI 兼容
-    "ollama":       {"base_url": None, "base_url_env": "LLAMACPP_BASE_URL", "base_url_default": "http://localhost:8080/v1", "key_env": "LLAMACPP_API_KEY"},
-    "local":        {"base_url": None, "base_url_env": "LOCAL_LLM_BASE_URL", "base_url_default": "http://localhost:1234/v1", "key_env": "LOCAL_LLM_API_KEY"},
-}
-
-# ─── 默认模型 ─────────────────────────────────────────────────────────────────
-
-DEFAULT_MODELS: dict[str, str] = {
-    # 原生 SDK
-    "claude":       "claude-haiku-4.5",
-    "gemini":       "gemini-3.1-flash-lite-preview",
-    # OpenAI 兼容 — 国际
-    "openai":       "gpt-5.4-mini",
-    "xai":          "grok-4",
-    "mistral":      "mistral-small-2603",
-    # OpenAI 兼容 — 中国
-    "qwen":         "qwen3.5-flash-02-23",
-    "glm":          "glm-4.7-flash",
-    "kimi":         "kimi-k2",
-    "deepseek":     "deepseek-chat-v3.1",
-    "minimax":      "minimax-m2",
-    # 本地
-    "ollama":       "llama-3.2-3b-instruct",
-    "local":        "local-model",
-}
-
-# ─── 可选模型列表（供 Web UI / CLI 展示）──────────────────────────────────────
-
-AVAILABLE_MODELS: dict[str, list[str]] = {
-    "claude": [],   # 本地动态获取 / 无 API Key
-    "gemini": [],   # 本地动态获取 / 无 API Key
-    "openai": [],   # 本地动态获取 / 无 API Key
-    "xai": [],   # 本地动态获取 / 无 API Key
-    "mistral": [],   # 本地动态获取 / 无 API Key
-    "qwen": [],   # 本地动态获取 / 无 API Key
-    "glm": [],   # 本地动态获取 / 无 API Key
-    "kimi": [],   # 本地动态获取 / 无 API Key
-    "deepseek": [],   # 本地动态获取 / 无 API Key
-    "minimax": [],   # 本地动态获取 / 无 API Key
-    "ollama": [],   # 本地动态获取 / 无 API Key
-    "local": [],   # 本地动态获取 / 无 API Key
-}
-
-# ─── LLMConfig ────────────────────────────────────────────────────────────────
-
-
-@dataclass
-class LLMConfig:
-    """统一的 LLM 配置，贯穿所有 skill 调用，避免 provider/model 重复传参。"""
-    provider: str
-    model: str
-
-    @classmethod
-    def from_defaults(cls, provider: str) -> "LLMConfig":
-        return cls(provider=provider, model=DEFAULT_MODELS.get(provider, ""))
+from jobradar.llm_registry import AVAILABLE_MODELS, DEFAULT_MODELS, LLMConfig, Provider, _COMPAT_PROVIDERS
 
 
 # ─── 统一响应格式 ─────────────────────────────────────────────────────────────
