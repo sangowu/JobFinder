@@ -26,6 +26,10 @@
 
 ### Improvements
 
+- **Artifact cache persistence extracted from `cache.py`** (`cache.py` / `artifact_store.py`)
+  Moved interview prep, cover letter, CV optimization, and artifact aggregation persistence into a dedicated internal module while keeping the public cache API unchanged.
+  This reduces `cache.py`'s responsibility surface without changing artifact behavior or call sites.
+
 - **Title gate moved before coarse filter** (`scraping.py` / `agent.py`)
   Reordered the early funnel so the conservative title-only relevance gate runs before the broader card-level coarse filter.
   This keeps the responsibilities cleaner: title-only semantic rejection happens first, then coarse card-level keep/reject uses title + location + snippet.
