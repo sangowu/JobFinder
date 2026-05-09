@@ -42,6 +42,10 @@
   Moved provider typing, compatible-provider metadata, default model mapping, available-model state, and `LLMConfig` into a dedicated internal registry module.
   This narrows `llm_backend.py` toward transport and completion behavior while keeping its public imports stable.
 
+- **Pipeline stats reports moved out of the source package** (`pipeline_stats.py`)
+  Changed `PipelineStats.write_report()` to default to the project-root `reports/` directory instead of `jobradar/reports/`.
+  This keeps runtime report artifacts out of the importable source package while preserving the same report filenames.
+
 - **Title gate moved before coarse filter** (`scraping.py` / `agent.py`)
   Reordered the early funnel so the conservative title-only relevance gate runs before the broader card-level coarse filter.
   This keeps the responsibilities cleaner: title-only semantic rejection happens first, then coarse card-level keep/reject uses title + location + snippet.

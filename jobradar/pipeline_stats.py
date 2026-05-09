@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .paths import REPORTS_DIR
+
 
 @dataclass
 class PipelineStats:
@@ -135,7 +137,7 @@ class PipelineStats:
 
     # ── 文件写入 ──────────────────────────────────────────────────────────────
 
-    def write_report(self, directory: str = "reports") -> str:
+    def write_report(self, directory: str | Path = REPORTS_DIR) -> str:
         """
         将统计数据写入两个文件并返回 latest JSON 路径：
           - pipeline_stats.jsonl      逐行追加，保留全量历史
