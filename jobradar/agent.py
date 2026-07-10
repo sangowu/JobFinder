@@ -55,8 +55,10 @@ def run_search(
 
     # ── Session 缓存检查 ───────────────────────────────────────────────────────
     active_sources = []
-    if limit_per_role > 0:          active_sources.append("indeed")
-    if linkedin_limit_per_role > 0: active_sources.append("linkedin")
+    if limit_per_role > 0:
+        active_sources.append("indeed")
+    if linkedin_limit_per_role > 0:
+        active_sources.append("linkedin")
 
     session = SearchSession(
         roles=profile.preferred_roles,

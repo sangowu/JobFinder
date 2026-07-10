@@ -698,7 +698,7 @@ def get_logs(lines: int = 200, level: str = "") -> dict:
         all_lines = text.splitlines()
         if level:
             lvl = level.upper()
-            all_lines = [l for l in all_lines if f"[{lvl}]" in l]
+            all_lines = [line for line in all_lines if f"[{lvl}]" in line]
         tail = all_lines[-lines:]
         return {"lines": tail, "path": str(log_path)}
     except Exception as e:

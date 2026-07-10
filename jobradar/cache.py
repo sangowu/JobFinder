@@ -10,7 +10,7 @@ import hashlib
 from pathlib import Path
 
 from jobradar import artifact_store
-from jobradar.schemas import CVOptimization, CoarseFilterResult, CoverLetter, CVProfile, FailedURL, InterviewPrep, JDProfile, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
+from jobradar.schemas import CVOptimization, CoarseFilterResult, CoverLetter, CVProfile, InterviewPrep, JDProfile, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
 from jobradar.paths import DATA_DIR, ensure_parent
 
 _DEFAULT_DB_PATH = str(DATA_DIR / "jobradar_cache.db")

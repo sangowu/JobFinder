@@ -1,7 +1,6 @@
 """Post-search dedup verification: L1 exact key / L2 URL conflict."""
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 
 from jobradar import cache

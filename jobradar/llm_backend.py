@@ -19,7 +19,13 @@ from typing import Any
 
 import requests
 from pydantic import BaseModel
-from jobradar.llm_registry import AVAILABLE_MODELS, DEFAULT_MODELS, LLMConfig, Provider, _COMPAT_PROVIDERS
+from jobradar.llm_registry import (
+    AVAILABLE_MODELS,
+    DEFAULT_MODELS,
+    LLMConfig,  # noqa: F401 — 供其他模块从 llm_backend 重导出使用
+    Provider,  # noqa: F401 — 同上
+    _COMPAT_PROVIDERS,
+)
 
 
 # ─── 统一响应格式 ─────────────────────────────────────────────────────────────

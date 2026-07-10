@@ -9,7 +9,7 @@ import requests
 
 from jobradar import cache
 from jobradar.logger import get_logger
-from jobradar.schemas import CoarseFilterResult, JobAssessment, JobResult, make_dedup_key
+from jobradar.schemas import CoarseFilterResult, JobAssessment, JobResult
 
 log = get_logger(__name__)
 

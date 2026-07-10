@@ -24,10 +24,10 @@ scripts/seed_demo_data.py
 seed_*.py
 
 # ── 探索/调试脚本（本地使用，不发布）──────────────────────────────────────────
-bench_*.py
-test_*.py
-preview_*.py
-text.py
+/bench_*.py
+/test_*.py
+/preview_*.py
+/text.py
 
 # ── 搜索统计报告（本地产物，含搜索时间戳，不上传）────────────────────────────────
 reports/

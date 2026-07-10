@@ -43,7 +43,7 @@ from jobradar.llm_backend import (
 
 load_dotenv()
 
-from jobradar import __version__
+from jobradar import __version__  # noqa: E402 — 需在 load_dotenv() 之后导入
 
 
 def _version_callback(value: bool) -> None:
@@ -178,7 +178,7 @@ def _preflight(provider: Provider) -> None:
 @app.command()
 def model() -> None:
     """交互式选择默认 LLM provider 和模型，保存后自动用于 find / parse。"""
-    saved_provider, saved_model = _get_saved_defaults()
+    saved_provider, saved_model = get_saved_defaults()
 
     console.print(f"\n[dim]当前默认：{saved_provider} / {saved_model}[/dim]\n")
 
@@ -258,7 +258,7 @@ def find(
     """根据 CV 文件搜索匹配职位。"""
     telemetry.reset()
 
-    saved_provider, saved_model = _get_saved_defaults()
+    saved_provider, saved_model = get_saved_defaults()
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
     _preflight(effective_provider)
 
@@ -434,7 +434,7 @@ def assess(
     """对缓存中尚未评估的 JD 单独运行 LLM 评估（无需重新抓取）。"""
     telemetry.reset()
 
-    saved_provider, saved_model = _get_saved_defaults()
+    saved_provider, saved_model = get_saved_defaults()
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
     _preflight(effective_provider)
 
@@ -506,7 +506,7 @@ def parse(
     model: Annotated[Optional[str], typer.Option("--model", "-m", help="覆盖默认模型")] = None,
 ) -> None:
     """只解析 CV，展示提取结果，不执行搜索。"""
-    saved_provider, saved_model = _get_saved_defaults()
+    saved_provider, saved_model = get_saved_defaults()
     effective_provider: Provider = provider or saved_provider  # type: ignore[assignment]
     effective_model = get_effective_model(effective_provider, model, saved_model)
 
@@ -552,7 +552,8 @@ def serve(
     mock: Annotated[bool, typer.Option("--mock", help="测试模式：使用独立数据库（data/jobradar_test_cache.db），不污染正式缓存")] = False,
 ) -> None:
     """启动 Web UI（FastAPI + uvicorn），在浏览器中使用 JobRadar。"""
-    import threading, time
+    import threading
+    import time
     import uvicorn
 
     if mock:

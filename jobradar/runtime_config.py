@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 
-from jobradar.llm_registry import DEFAULT_MODELS, Provider, _COMPAT_PROVIDERS
+from jobradar.llm_registry import DEFAULT_MODELS, _COMPAT_PROVIDERS
 
 PROVIDER_KEY_MAP: dict[str, str] = {
     "claude": "ANTHROPIC_API_KEY",
