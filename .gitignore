@@ -46,3 +46,6 @@ jobfinder_results.json
 jobspy_*.json
 jobspy_test_result.json
 jobspy_*.md
+
+# Google OAuth local credentials
+/data/google_gmail_token.json

@@ -190,6 +190,25 @@ python scripts/show_filter_events.py --run-id <run_id> --json --out reports/filt
 
 ## 对比脚本
 
+## 邮件投递追踪
+
+Web UI 的“投递追踪”页面通过 Google OAuth 登录 Gmail，将招聘邮件识别为已投递、测评、面试、Offer、拒绝或待确认，并将状态时间线保存到同一个 SQLite 数据库。
+
+1. 在 Google Cloud Console 创建 OAuth 2.0 Web application client。
+2. 启用 Gmail API。
+3. 添加回调地址：`http://127.0.0.1:8765/api/email/google/callback`。
+4. 在 `.env` 中配置：
+
+```env
+GOOGLE_OAUTH_CLIENT_ID=your_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
+EMAIL_SYNC_INTERVAL_SECONDS=900
+```
+
+启动 `jobradar serve` 后，在“投递追踪”页面点击“使用 Google 登录”完成授权。应用只申请 Gmail 只读权限，不需要 Gmail 密码。OAuth token 保存在本地 `data/google_gmail_token.json`，该目录不会提交到 Git。
+
+定时同步只在服务运行期间执行，也可以在投递追踪页面手动同步。系统不会保存邮件正文，只保存正文哈希、邮件元数据和结构化分析结果。
+
 可以使用 `scripts/compare_title_gate.py` 做受控 A/B 对比，比较两种流程：
 
 - `baseline_gate_off`

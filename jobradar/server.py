@@ -16,14 +16,25 @@ import threading
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
 from dotenv import load_dotenv
 
 from jobradar import __version__, cache
+from jobradar import application_store
+from jobradar.email_sync import (
+    complete_google_oauth,
+    disconnect_google_email,
+    email_sync_configured,
+    google_oauth_authorization_url,
+    google_oauth_configured,
+    gmail_message_url,
+    sync_email,
+)
+from jobradar.schemas import APPLICATION_STATUSES
 from jobradar.cover_letter import generate_cover_letter
 from jobradar.assessment import TITLE_RELEVANCE_PROMPT_VERSION
 from jobradar.cv_extractor import PROMPT_VERSION as CV_PROMPT_VERSION
@@ -86,6 +97,9 @@ app.add_middleware(
 _progress_q: asyncio.Queue[str] = asyncio.Queue()
 _search_running = False
 _main_loop: asyncio.AbstractEventLoop | None = None
+_email_sync_task: asyncio.Task | None = None
+_google_oauth_state: str | None = None
+_google_oauth_code_verifier: str | None = None
 
 _MODULE_STEP_MAP = {
     "CV 解析": "cv_parse",
@@ -105,6 +119,28 @@ async def _capture_loop() -> None:
     _main_loop = asyncio.get_event_loop()
     db_path = os.getenv("CACHE_DB_PATH", str(DATA_DIR / "jobradar_cache.db"))
     logger.info("JobRadar server started | mock=%s | db=%s", MOCK_MODE, db_path)
+    global _email_sync_task
+    if email_sync_configured() and not MOCK_MODE:
+        _email_sync_task = asyncio.create_task(_email_sync_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_email_sync() -> None:
+    if _email_sync_task:
+        _email_sync_task.cancel()
+
+
+async def _email_sync_loop() -> None:
+    interval = max(60, int(os.getenv("EMAIL_SYNC_INTERVAL_SECONDS", "900")))
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            result = await asyncio.to_thread(sync_email, trigger="scheduled")
+            logger.info("Scheduled email sync | scanned=%s matched=%s", result["scanned"], result["matched"])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Scheduled email sync failed: %s", exc)
 
 
 def _emit(event_type: str, **kwargs) -> None:
@@ -194,8 +230,9 @@ _ALLOWED_ENV_KEYS: set[str] = {
     "LLAMACPP_BASE_URL", "LLAMACPP_API_KEY", "LOCAL_LLM_BASE_URL",
     "DEFAULT_PROVIDER", "DEFAULT_MODEL",
     "JOB_TTL_DAYS", "SESSION_TTL_HOURS",
+    "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
+    "EMAIL_SYNC_INTERVAL_SECONDS",
 }
-
 
 @app.post("/api/config")
 def save_config(req: ConfigSaveRequest) -> dict:
@@ -254,6 +291,144 @@ def _job_to_dict(j) -> dict:
         d["seniority_conflict"] = j.jd_profile.seniority_conflict
     return d
 
+
+class ApplicationUpdateRequest(BaseModel):
+    status: str
+    company: str
+    job_title: str
+
+
+@app.get("/api/email/status")
+def get_email_status() -> dict:
+    return {
+        "configured": google_oauth_configured(),
+        "connected": email_sync_configured(),
+        "interval_seconds": int(os.getenv("EMAIL_SYNC_INTERVAL_SECONDS", "900")),
+        "latest_sync": application_store.latest_sync_run(),
+    }
+
+
+@app.post("/api/email/google/connect")
+def connect_google_email(request: Request) -> dict:
+    global _google_oauth_state, _google_oauth_code_verifier
+    if not google_oauth_configured():
+        raise HTTPException(status_code=400, detail="Google OAuth client is not configured")
+    redirect_uri = str(request.url_for("google_email_callback"))
+    authorization_url, _google_oauth_state, _google_oauth_code_verifier = google_oauth_authorization_url(redirect_uri)
+    return {"authorization_url": authorization_url}
+
+
+@app.get("/api/email/google/callback", response_class=HTMLResponse)
+async def google_email_callback(request: Request, state: str, code: str) -> HTMLResponse:
+    global _email_sync_task, _google_oauth_state, _google_oauth_code_verifier
+    if (
+        not _google_oauth_state
+        or state != _google_oauth_state
+        or not _google_oauth_code_verifier
+    ):
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    redirect_uri = str(request.url_for("google_email_callback"))
+    try:
+        complete_google_oauth(
+            code=code,
+            redirect_uri=redirect_uri,
+            expected_state=_google_oauth_state,
+            code_verifier=_google_oauth_code_verifier,
+        )
+    except Exception as exc:
+        logger.exception("Google OAuth callback failed: %s", type(exc).__name__)
+        return HTMLResponse(
+            "<html><body><p>Google authorization failed. Close this window and try again.</p></body></html>",
+            status_code=502,
+        )
+    _google_oauth_state = None
+    _google_oauth_code_verifier = None
+    if _email_sync_task is None or _email_sync_task.done():
+        _email_sync_task = asyncio.create_task(_email_sync_loop())
+    return HTMLResponse(
+        "<html><body><p>Google email connected. You can close this window.</p>"
+        "<script>window.opener && window.opener.postMessage('google-email-connected', location.origin);"
+        "window.close();</script></body></html>"
+    )
+
+
+@app.delete("/api/email/google")
+def disconnect_google_email_endpoint() -> dict:
+    global _email_sync_task
+    disconnect_google_email()
+    if _email_sync_task:
+        _email_sync_task.cancel()
+        _email_sync_task = None
+    return {"ok": True}
+
+
+@app.post("/api/email/sync")
+async def run_email_sync() -> dict:
+    try:
+        return await asyncio.to_thread(sync_email, trigger="manual")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/email/sync-history")
+def get_email_sync_history(limit: int = 20) -> list[dict]:
+    return application_store.list_sync_runs(limit)
+
+@app.get("/api/applications")
+def get_applications(status: str | None = None) -> list[dict]:
+    if status and status not in APPLICATION_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid application status")
+    return [item.model_dump(mode="json") for item in application_store.list_applications(status)]
+
+
+@app.get("/api/applications/{application_id}")
+def get_application(application_id: int) -> dict:
+    item = application_store.get_application(application_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return item.model_dump(mode="json")
+
+
+@app.get("/api/applications/{application_id}/email")
+def open_application_email(application_id: int) -> RedirectResponse:
+    item = application_store.get_application(application_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Application not found")
+    event = next(
+        (
+            event
+            for event in item.events
+            if event.email_message_id and not event.email_message_id.startswith("manual:")
+        ),
+        None,
+    )
+    if not event:
+        raise HTTPException(status_code=404, detail="No source email is available")
+    try:
+        return RedirectResponse(gmail_message_url(event.email_message_id), status_code=302)
+    except Exception as exc:
+        logger.exception("Could not open Gmail message for application %s", application_id)
+        raise HTTPException(status_code=502, detail="Could not resolve the Gmail message") from exc
+
+@app.patch("/api/applications/{application_id}")
+def update_application(application_id: int, req: ApplicationUpdateRequest) -> dict:
+    if req.status not in APPLICATION_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid application status")
+    if not req.company.strip() or not req.job_title.strip():
+        raise HTTPException(status_code=400, detail="Company and job title are required")
+    item = application_store.update_application(
+        application_id, status=req.status, company=req.company, job_title=req.job_title,
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return item.model_dump(mode="json")
+
+
+@app.delete("/api/applications/{application_id}")
+def delete_application(application_id: int) -> dict:
+    if not application_store.delete_application(application_id):
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"ok": True}
 
 @app.get("/api/jobs")
 def get_jobs(limit: int = 200, language: str = "zh") -> list[dict]:

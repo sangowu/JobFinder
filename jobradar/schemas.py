@@ -20,6 +20,53 @@ from jobradar.seniority import (
 
 DEFAULT_TTL_DAYS = 7
 
+APPLICATION_STATUSES = (
+    "submitted", "assessment", "interview", "offer", "rejected", "withdrawn", "unknown",
+)
+
+
+class ApplicationEmailAnalysis(BaseModel):
+    is_job_related: bool = False
+    status: Literal[
+        "submitted", "assessment", "interview", "offer", "rejected", "withdrawn", "unknown"
+    ] = "unknown"
+    company: str = ""
+    job_title: str = ""
+    application_reference: str | None = None
+    event_at: datetime | None = None
+    confidence: float = Field(default=0, ge=0, le=1)
+    summary: str = ""
+
+
+class ApplicationEvent(BaseModel):
+    id: int | None = None
+    application_id: int
+    email_message_id: str = ""
+    event_type: Literal[
+        "submitted", "assessment", "interview", "offer", "rejected", "withdrawn", "unknown"
+    ]
+    event_at: datetime
+    confidence: float = Field(default=0, ge=0, le=1)
+    summary: str = ""
+    created_at: datetime | None = None
+
+
+class JobApplication(BaseModel):
+    id: int | None = None
+    job_id: str | None = None
+    company: str
+    job_title: str
+    current_status: Literal[
+        "submitted", "assessment", "interview", "offer", "rejected", "withdrawn", "unknown"
+    ] = "unknown"
+    applied_at: datetime | None = None
+    last_event_at: datetime
+    source: str = "email"
+    external_reference: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    events: list[ApplicationEvent] = Field(default_factory=list)
+
 # 检测职位已关闭的关键词模式
 _CLOSED_PATTERN = re.compile(
     r"\b("

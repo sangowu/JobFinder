@@ -110,6 +110,70 @@
 
 <!-- ── API Config Overlay ──────────────────────────────────────────────────── -->
 <!-- ── History Page ─────────────────────────────────────────────────────── -->
+<div id="applications-page" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
+  <div class="max-w-5xl mx-auto px-4 py-12">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white" data-i18n="apps.title"></h1>
+        <p id="email-sync-status" class="text-xs text-gray-400 mt-1"></p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="google-connect-btn" onclick="connectGoogleEmail()"
+          class="px-4 py-2 border border-gray-600 hover:border-blue-500 text-gray-200 text-sm rounded-lg transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M21.35 11.1h-9.18v3.71h5.27c-.23 1.2-.91 2.22-1.94 2.9v2.41h3.14c1.84-1.69 2.9-4.19 2.9-7.13 0-.65-.06-1.28-.19-1.89z"/>
+          </svg>
+          <span id="google-connect-label" data-i18n="apps.google_connect"></span>
+        </button>
+        <button id="email-sync-btn" onclick="syncApplicationEmail()"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2M18.4 9A7 7 0 006.5 7"/>
+          </svg>
+          <span data-i18n="apps.sync"></span>
+        </button>
+        <button onclick="closeApplicationsPage()" class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700" data-i18n-title="tip.close_log">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="email-sync-meta" class="hidden mb-5 border-y border-gray-700 py-4">
+      <h2 class="text-sm font-bold uppercase tracking-wide text-gray-300 mb-[18px]" data-i18n="apps.sync_meta"></h2>
+      <div id="email-sync-summary" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-5"></div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="text-gray-500 uppercase"><tr>
+            <th class="py-2 pr-4" data-i18n="apps.sync_time"></th><th class="py-2 pr-4" data-i18n="apps.trigger"></th>
+            <th class="py-2 pr-4" data-i18n="apps.candidates"></th><th class="py-2 pr-4" data-i18n="apps.skipped"></th>
+            <th class="py-2 pr-4" data-i18n="apps.scanned"></th><th class="py-2 pr-4" data-i18n="apps.matched"></th>
+            <th class="py-2 pr-4" data-i18n="apps.duration"></th><th class="py-2" data-i18n="apps.result"></th>
+          </tr></thead>
+          <tbody id="email-sync-history" class="divide-y divide-gray-800 text-gray-300"></tbody>
+        </table>
+      </div>
+    </div>    <div id="application-filters" class="flex flex-wrap gap-2 mb-5">
+      <button data-status="" class="app-filter px-3 py-1.5 rounded-md text-xs bg-blue-600 text-white" data-i18n="apps.all"></button>
+      <button data-status="submitted" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.submitted"></button>
+      <button data-status="assessment" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.assessment"></button>
+      <button data-status="interview" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.interview"></button>
+      <button data-status="offer" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.offer"></button>
+      <button data-status="rejected" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.rejected"></button>
+      <button data-status="unknown" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.unknown"></button>
+    </div>
+    <div class="bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
+      <table class="w-full text-left">
+        <thead class="text-xs text-gray-400 uppercase bg-gray-700/50"><tr>
+          <th class="px-4 py-3" data-i18n="apps.company"></th><th class="px-4 py-3" data-i18n="apps.role"></th>
+          <th class="px-4 py-3" data-i18n="apps.status"></th><th class="px-4 py-3" data-i18n="apps.updated"></th><th class="px-4 py-3" data-i18n="apps.actions"></th>
+        </tr></thead>
+        <tbody id="applications-body" class="divide-y divide-gray-700 text-xs"></tbody>
+      </table>
+      <p id="applications-empty" class="hidden text-center text-gray-500 py-12 text-sm" data-i18n="apps.empty"></p>
+    </div>
+    <div id="application-events" class="hidden mt-6 border-t border-gray-700 pt-5"></div>
+  </div>
+</div>
+
 <div id="history-page" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
   <div class="max-w-4xl mx-auto px-4 py-12">
     <div class="flex items-center justify-between mb-6">
@@ -258,10 +322,17 @@
       class="text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 transition-colors flex items-center gap-1">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543-.94-3.31.826-2.37 2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
       </svg>
       <span data-i18n="nav.config">API 配置</span>
+    </button>
+    <button onclick="openApplicationsPage()"
+      class="text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 transition-colors flex items-center gap-1">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"/>
+      </svg>
+      <span data-i18n="nav.applications"></span>
     </button>
     <button onclick="openHistoryPage()"
       class="text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 transition-colors flex items-center gap-1">
@@ -737,6 +808,21 @@ const I18N = {
     'hist.experiment': '实验：{0}', 'hist.notes': '备注：{0}',
     'hist.clear': '清空历史', 'hist.clear_confirm': '确定要清空全部搜索历史吗？此操作不可撤销。',
     'hist.clear_done': '历史记录已清空', 'hist.col_funnel': '漏斗',
+    'nav.applications': '投递追踪', 'apps.title': '投递追踪', 'apps.sync': '同步邮件',
+    'apps.all': '全部', 'apps.submitted': '已投递', 'apps.assessment': '测评中',
+    'apps.interview': '面试中', 'apps.offer': 'Offer', 'apps.rejected': '已拒绝', 'apps.withdrawn': '已撤回', 'apps.unknown': '待确认',
+    'apps.company': '公司', 'apps.role': '职位', 'apps.status': '状态', 'apps.updated': '最近更新',
+    'apps.empty': '暂无投递记录', 'apps.not_configured': '邮箱尚未配置',
+    'apps.configured': '自动同步已启用，每 {0} 分钟检查一次', 'apps.sync_done': '同步完成：扫描 {0} 封，识别 {1} 封',
+    'apps.timeline': '状态时间线',
+    'apps.sync_meta': '同步历史', 'apps.sync_time': '时间', 'apps.trigger': '触发', 'apps.candidates': '候选',
+    'apps.skipped': '已处理', 'apps.scanned': '新扫描', 'apps.matched': '识别', 'apps.duration': '耗时', 'apps.result': '结果',
+    'apps.manual': '手动', 'apps.scheduled': '定时', 'apps.success': '成功', 'apps.failed': '失败', 'apps.sync_skipped': '跳过', 'apps.never_synced': '尚无同步记录',
+    'apps.actions': '操作', 'apps.confirm': '确认', 'apps.discard': '舍弃', 'apps.discard_confirm': '确定舍弃这条待确认记录吗？',
+    'apps.review_title': '确认投递信息', 'apps.save_review': '保存确认', 'apps.choose_status': '请选择状态',
+    'apps.google_connect': '使用 Google 登录', 'apps.google_disconnect': '断开 Google',
+    'apps.disconnected': 'Google 邮箱尚未连接', 'apps.oauth_missing': '请先配置 Google OAuth 客户端',
+
     'hist.benchmark_title': '漏斗 Benchmark',
     'hist.benchmark_empty': '暂无可对比的 benchmark 数据',
     'hist.benchmark_current': '当前版本',
@@ -888,6 +974,21 @@ const I18N = {
     'hist.clear': 'Clear History', 'hist.clear_confirm': 'Clear all search history? This cannot be undone.',
     'hist.clear_done': 'History cleared', 'hist.col_funnel': 'Funnel',
     'hist.benchmark_title': 'Funnel Benchmark',
+    'nav.applications': 'Applications', 'apps.title': 'Application Tracker', 'apps.sync': 'Sync email',
+    'apps.all': 'All', 'apps.submitted': 'Submitted', 'apps.assessment': 'Assessment',
+    'apps.interview': 'Interview', 'apps.offer': 'Offer', 'apps.rejected': 'Rejected', 'apps.withdrawn': 'Withdrawn', 'apps.unknown': 'Review',
+    'apps.company': 'Company', 'apps.role': 'Role', 'apps.status': 'Status', 'apps.updated': 'Updated',
+    'apps.empty': 'No applications yet', 'apps.not_configured': 'Email is not configured',
+    'apps.configured': 'Automatic sync enabled; checking every {0} minutes', 'apps.sync_done': 'Sync complete: scanned {0}, matched {1}',
+    'apps.timeline': 'Status timeline',
+    'apps.sync_meta': 'Sync history', 'apps.sync_time': 'Time', 'apps.trigger': 'Trigger', 'apps.candidates': 'Candidates',
+    'apps.skipped': 'Processed', 'apps.scanned': 'New scanned', 'apps.matched': 'Matched', 'apps.duration': 'Duration', 'apps.result': 'Result',
+    'apps.manual': 'Manual', 'apps.scheduled': 'Scheduled', 'apps.success': 'Success', 'apps.failed': 'Failed', 'apps.sync_skipped': 'Skipped', 'apps.never_synced': 'No sync history yet',
+    'apps.actions': 'Actions', 'apps.confirm': 'Confirm', 'apps.discard': 'Discard', 'apps.discard_confirm': 'Discard this review item?',
+    'apps.review_title': 'Confirm application', 'apps.save_review': 'Save confirmation', 'apps.choose_status': 'Choose a status',
+    'apps.google_connect': 'Sign in with Google', 'apps.google_disconnect': 'Disconnect Google',
+    'apps.disconnected': 'Google email is not connected', 'apps.oauth_missing': 'Configure the Google OAuth client first',
+
     'hist.benchmark_empty': 'No benchmark comparison available yet',
     'hist.benchmark_current': 'Current Version',
     'hist.benchmark_previous': 'Previous Version',
@@ -1039,6 +1140,21 @@ const I18N = {
     'hist.clear_done': 'Historial eliminado', 'hist.col_funnel': 'Embudo',
     'hist.benchmark_title': 'Benchmark del embudo',
     'hist.benchmark_empty': 'Todavía no hay datos comparables de benchmark',
+    'nav.applications': 'Candidaturas', 'apps.title': 'Seguimiento de candidaturas', 'apps.sync': 'Sincronizar correo',
+    'apps.all': 'Todas', 'apps.submitted': 'Enviada', 'apps.assessment': 'Evaluación',
+    'apps.interview': 'Entrevista', 'apps.offer': 'Oferta', 'apps.rejected': 'Rechazada', 'apps.withdrawn': 'Retirada', 'apps.unknown': 'Revisar',
+    'apps.company': 'Empresa', 'apps.role': 'Puesto', 'apps.status': 'Estado', 'apps.updated': 'Actualizado',
+    'apps.empty': 'Todavía no hay candidaturas', 'apps.not_configured': 'El correo no está configurado',
+    'apps.configured': 'Sincronización automática cada {0} minutos', 'apps.sync_done': 'Sincronización: {0} revisados, {1} detectados',
+    'apps.timeline': 'Cronología de estados',
+    'apps.sync_meta': 'Historial de sincronización', 'apps.sync_time': 'Hora', 'apps.trigger': 'Inicio', 'apps.candidates': 'Candidatos',
+    'apps.skipped': 'Procesados', 'apps.scanned': 'Nuevos', 'apps.matched': 'Detectados', 'apps.duration': 'Duración', 'apps.result': 'Resultado',
+    'apps.manual': 'Manual', 'apps.scheduled': 'Programada', 'apps.success': 'Correcta', 'apps.failed': 'Fallida', 'apps.sync_skipped': 'Omitida', 'apps.never_synced': 'Sin historial todavía',
+    'apps.actions': 'Acciones', 'apps.confirm': 'Confirmar', 'apps.discard': 'Descartar', 'apps.discard_confirm': '¿Descartar este elemento?',
+    'apps.review_title': 'Confirmar candidatura', 'apps.save_review': 'Guardar', 'apps.choose_status': 'Elige un estado',
+    'apps.google_connect': 'Iniciar con Google', 'apps.google_disconnect': 'Desconectar Google',
+    'apps.disconnected': 'El correo de Google no está conectado', 'apps.oauth_missing': 'Configura primero el cliente OAuth de Google',
+
     'hist.benchmark_current': 'Versión actual',
     'hist.benchmark_previous': 'Versión anterior',
     'hist.benchmark_runs': 'Ejecuciones',
@@ -3420,6 +3536,192 @@ function toggleLogAuto() {
     e.preventDefault();
   });
 })();
+let APPLICATIONS = [];
+let applicationStatus = '';
+
+async function openApplicationsPage() {
+  document.getElementById('applications-page').classList.remove('hidden');
+  await Promise.all([loadApplicationEmailStatus(), loadApplications(), loadEmailSyncHistory()]);
+}
+
+function closeApplicationsPage() {
+  document.getElementById('applications-page').classList.add('hidden');
+}
+
+async function loadApplicationEmailStatus() {
+  try {
+    const status = await api('GET', '/api/email/status');
+    const connected = status.connected;
+    document.getElementById('email-sync-status').textContent = !status.configured
+      ? t('apps.oauth_missing')
+      : connected ? t('apps.configured', Math.round(status.interval_seconds / 60)) : t('apps.disconnected');
+    document.getElementById('email-sync-btn').disabled = !connected;
+    document.getElementById('email-sync-btn').classList.toggle('opacity-50', !connected);
+    const googleButton = document.getElementById('google-connect-btn');
+    googleButton.disabled = !status.configured;
+    googleButton.dataset.connected = connected ? '1' : '0';
+    document.getElementById('google-connect-label').textContent = t(connected ? 'apps.google_disconnect' : 'apps.google_connect');
+  } catch (e) {
+    document.getElementById('email-sync-status').textContent = e.message;
+  }
+}
+
+async function connectGoogleEmail() {
+  const button = document.getElementById('google-connect-btn');
+  if (button.dataset.connected === '1') {
+    try {
+      await api('DELETE', '/api/email/google');
+      await loadApplicationEmailStatus();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+    return;
+  }
+  try {
+    const result = await api('POST', '/api/email/google/connect');
+    const popup = window.open(result.authorization_url, 'google-oauth', 'width=560,height=720');
+    if (!popup) showToast('Popup blocked', true);
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+
+async function syncApplicationEmail() {
+  const button = document.getElementById('email-sync-btn');
+  button.disabled = true;
+  try {
+    const result = await api('POST', '/api/email/sync');
+    showToast(t('apps.sync_done', result.scanned, result.matched), !result.ok);
+    await Promise.all([loadApplications(), loadEmailSyncHistory()]);
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function loadApplications() {
+  const query = applicationStatus ? `?status=${encodeURIComponent(applicationStatus)}` : '';
+  APPLICATIONS = await api('GET', `/api/applications${query}`);
+  renderApplications();
+}
+
+async function loadEmailSyncHistory() {
+  const runs = await api('GET', '/api/email/sync-history?limit=10');
+  const panel = document.getElementById('email-sync-meta');
+  panel.classList.remove('hidden');
+  const latest = runs[0];
+  const summary = document.getElementById('email-sync-summary');
+  if (!latest) {
+    summary.innerHTML = `<p class="text-xs text-gray-500 col-span-full">${t('apps.never_synced')}</p>`;
+    document.getElementById('email-sync-history').innerHTML = '';
+    return;
+  }
+  const items = [
+    ['apps.sync_time', new Date(latest.completed_at).toLocaleString()],
+    ['apps.trigger', t(`apps.${latest.trigger}`)],
+    ['apps.candidates', latest.candidates], ['apps.skipped', latest.already_processed],
+    ['apps.scanned', latest.scanned], ['apps.matched', latest.matched],
+    ['apps.duration', `${(latest.duration_ms / 1000).toFixed(2)}s`],
+  ];
+  summary.innerHTML = items.map(([label, value]) => `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${_esc(String(value))}</p></div>`).join('');
+  document.getElementById('email-sync-history').innerHTML = runs.map(run => {
+    const resultKey = run.status === 'skipped' ? 'sync_skipped' : run.status;
+    const resultClass = run.status === 'success' ? 'text-green-400' : run.status === 'failed' ? 'text-red-400' : 'text-yellow-400';
+    return `<tr title="${_esc(run.error_message || '')}">
+      <td class="py-2 pr-4 font-mono">${new Date(run.completed_at).toLocaleString()}</td>
+      <td class="py-2 pr-4">${t(`apps.${run.trigger}`)}</td><td class="py-2 pr-4 font-mono">${run.candidates}</td>
+      <td class="py-2 pr-4 font-mono">${run.already_processed}</td><td class="py-2 pr-4 font-mono">${run.scanned}</td>
+      <td class="py-2 pr-4 font-mono">${run.matched}</td><td class="py-2 pr-4 font-mono">${(run.duration_ms / 1000).toFixed(2)}s</td>
+      <td class="py-2 ${resultClass}">${t(`apps.${resultKey}`)}</td></tr>`;
+  }).join('');
+}
+
+function renderApplications() {
+  const body = document.getElementById('applications-body');
+  const empty = document.getElementById('applications-empty');
+  empty.classList.toggle('hidden', APPLICATIONS.length > 0);
+  body.innerHTML = APPLICATIONS.map(item => `
+    <tr onclick="openApplicationEmail(${item.id})" class="text-gray-300 hover:bg-gray-700/50 cursor-pointer">
+      <td class="px-4 py-3 font-medium text-white">${_esc(item.company)}</td>
+      <td class="px-4 py-3">${_esc(item.job_title)}</td>
+      <td class="px-4 py-3"><span class="px-2 py-1 rounded bg-gray-700">${_esc(t(`apps.${item.current_status}`))}</span></td>
+      <td class="px-4 py-3 font-mono text-gray-400">${new Date(item.last_event_at).toLocaleString()}</td>      <td class="px-4 py-3">${item.current_status === 'unknown' ? `<div class="flex gap-2">
+        <button onclick="reviewApplication(event, ${item.id})" class="text-xs text-blue-400 hover:text-blue-300">${t('apps.confirm')}</button>
+        <button onclick="discardApplication(event, ${item.id})" class="text-xs text-red-400 hover:text-red-300">${t('apps.discard')}</button>
+      </div>` : ''}</td>
+    </tr>`).join('');
+}
+
+function openApplicationEmail(id) {
+  window.open(`/api/applications/${id}/email`, '_blank', 'noopener');
+}
+
+async function reviewApplication(event, id) {
+  event.stopPropagation();
+  const item = await api('GET', `/api/applications/${id}`);
+  const panel = document.getElementById('application-events');
+  const statuses = ['submitted', 'assessment', 'interview', 'offer', 'rejected', 'withdrawn'];
+  panel.classList.remove('hidden');
+  panel.innerHTML = `<h2 class="text-sm font-bold uppercase tracking-wide text-gray-300 mb-[18px]">${t('apps.review_title')}</h2>
+    <div class="grid sm:grid-cols-3 gap-3">
+      <input id="review-company" value="${_esc(item.company)}" class="bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-sm text-white" />
+      <input id="review-role" value="${_esc(item.job_title)}" class="bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-sm text-white" />
+      <select id="review-status" class="bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-sm text-white">
+        <option value="">${t('apps.choose_status')}</option>${statuses.map(status => `<option value="${status}">${t(`apps.${status}`)}</option>`).join('')}
+      </select>
+    </div>
+    <button onclick="saveApplicationReview(${id})" class="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">${t('apps.save_review')}</button>`;
+}
+
+async function saveApplicationReview(id) {
+  const company = document.getElementById('review-company').value.trim();
+  const jobTitle = document.getElementById('review-role').value.trim();
+  const status = document.getElementById('review-status').value;
+  if (!company || !jobTitle || !status) {
+    showToast(t('apps.choose_status'), true);
+    return;
+  }
+  await api('PATCH', `/api/applications/${id}`, { company, job_title: jobTitle, status });
+  document.getElementById('application-events').classList.add('hidden');
+  await loadApplications();
+}
+
+async function discardApplication(event, id) {
+  event.stopPropagation();
+  if (!confirm(t('apps.discard_confirm'))) return;
+  await api('DELETE', `/api/applications/${id}`);
+  document.getElementById('application-events').classList.add('hidden');
+  await loadApplications();
+}
+
+async function showApplicationEvents(id) {
+  const item = await api('GET', `/api/applications/${id}`);
+  const panel = document.getElementById('application-events');
+  panel.classList.remove('hidden');
+  panel.innerHTML = `<h2 class="text-sm font-bold uppercase tracking-wide text-gray-300 mb-[18px]">${t('apps.timeline')}</h2>
+    <div class="space-y-3">${item.events.map(event => `
+      <div class="border-l-2 border-blue-500 pl-4 py-1">
+        <div class="flex items-center gap-3"><span class="text-sm text-white">${_esc(t(`apps.${event.event_type}`))}</span>
+          <span class="text-xs font-mono text-gray-500">${new Date(event.event_at).toLocaleString()}</span></div>
+        <p class="text-xs text-gray-400 mt-1">${_esc(event.summary || '')}</p>
+      </div>`).join('')}</div>`;
+}
+
+document.querySelectorAll('.app-filter').forEach(button => button.addEventListener('click', async () => {
+  applicationStatus = button.dataset.status;
+  document.querySelectorAll('.app-filter').forEach(item => {
+    item.classList.toggle('bg-blue-600', item === button);
+    item.classList.toggle('bg-gray-800', item !== button);
+  });
+  await loadApplications();
+}));
+
+window.addEventListener('message', async event => {
+  if (event.origin !== location.origin || event.data !== 'google-email-connected') return;
+  await loadApplicationEmailStatus();
+  await syncApplicationEmail();
+});
 </script>
 </body>
 </html>
