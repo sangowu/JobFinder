@@ -8,17 +8,27 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Install dependencies
         run: uv sync
 
       - name: Lint
         run: uv run ruff check .
+
+      - name: Frontend syntax
+        run: uv run python scripts/check_frontend_js.py
 
       - name: Test
         run: uv run python -m pytest tests/ -v

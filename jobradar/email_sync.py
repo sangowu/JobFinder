@@ -6,9 +6,11 @@ import hashlib
 import os
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 from urllib.parse import quote
 
 import requests
@@ -18,12 +20,15 @@ from google_auth_oauthlib.flow import Flow
 
 from jobradar import application_store
 from jobradar.email_classifier import classify_application_email
+from jobradar.logger import get_logger
 from jobradar.paths import DATA_DIR, ensure_parent
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 _GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 _TOKEN_PATH = DATA_DIR / "google_gmail_token.json"
 _sync_lock = threading.Lock()
+_DEFAULT_MAX_MESSAGES = 5000
+logger = get_logger("email_sync")
 
 
 def google_oauth_configured() -> bool:
@@ -70,81 +75,165 @@ def gmail_message_url(message_id: str) -> str:
     thread_id = message.get("threadId")
     if not thread_id:
         raise RuntimeError("Gmail message does not contain a thread ID")
+    return _gmail_thread_url(credentials, thread_id)
+
+
+def gmail_thread_url(thread_id: str) -> str:
+    return _gmail_thread_url(_load_credentials(), thread_id)
+
+
+def _gmail_thread_url(credentials: Credentials, thread_id: str) -> str:
     profile = _gmail_get(credentials, "/profile")
     email_address = profile.get("emailAddress", "")
     authuser = f"?authuser={quote(email_address)}" if email_address else ""
     return f"https://mail.google.com/mail/u/{authuser}#all/{thread_id}"
 
-def sync_email(limit: int = 100, trigger: str = "manual") -> dict[str, int | str | bool]:
+
+def set_automatic_sync_paused(paused: bool) -> dict:
+    return application_store.set_sync_paused(paused)
+
+
+def clear_email_tracking_data(*, pause: bool = True) -> None:
+    if not _sync_lock.acquire(blocking=False):
+        raise RuntimeError("Email sync is already running")
+    owner = f"control:{os.getpid()}:{uuid.uuid4().hex}"
+    try:
+        if not application_store.acquire_sync_lease(owner):
+            raise RuntimeError("Email sync is running in another process")
+        application_store.clear_email_data(reset_history=True, pause=pause)
+    finally:
+        application_store.release_sync_lease(owner)
+        _sync_lock.release()
+
+
+def reanalyse_email() -> dict[str, int | str | bool]:
+    return sync_email(trigger="reanalysis", force_full=True, reset_data=True)
+
+def sync_email(
+    limit: int | None = None,
+    trigger: str = "manual",
+    *,
+    force_full: bool = False,
+    reset_data: bool = False,
+) -> dict[str, int | str | bool]:
     started_at = datetime.utcnow()
     started_perf = time.perf_counter()
-    metrics = {"candidates": 0, "already_processed": 0, "scanned": 0, "matched": 0}
+    metrics = {
+        "candidates": 0, "already_processed": 0, "scanned": 0, "matched": 0,
+        "pages": 0, "job_related": 0, "subscription_filtered": 0, "unrelated": 0,
+        "unknown": 0, "failed_messages": 0,
+    }
+    sync_mode = "full"
+    history_id = ""
 
     if not email_sync_configured():
         return _record_sync_result(
             trigger=trigger, status="failed", started_at=started_at, started_perf=started_perf,
-            metrics=metrics, message="Google email is not connected",
+            metrics=metrics, message="Google email is not connected", sync_mode=sync_mode,
+        )
+    if trigger == "scheduled" and application_store.get_sync_state()["paused"]:
+        return _record_sync_result(
+            trigger=trigger, status="skipped", started_at=started_at, started_perf=started_perf,
+            metrics=metrics, message="Automatic email sync is paused", sync_mode=sync_mode,
         )
     if not _sync_lock.acquire(blocking=False):
         return _record_sync_result(
             trigger=trigger, status="skipped", started_at=started_at, started_perf=started_perf,
-            metrics=metrics, message="Email sync is already running",
+            metrics=metrics, message="Email sync is already running", sync_mode=sync_mode,
         )
+    owner = f"{os.getpid()}:{uuid.uuid4().hex}"
     try:
+        if not application_store.acquire_sync_lease(owner):
+            return _record_sync_result(
+                trigger=trigger, status="skipped", started_at=started_at,
+                started_perf=started_perf, metrics=metrics,
+                message="Email sync is running in another process", sync_mode=sync_mode,
+            )
+        if reset_data:
+            application_store.clear_email_data(reset_history=True)
         credentials = _load_credentials()
-        response = _gmail_get(credentials, "/messages", params={
-            "maxResults": max(1, min(limit, 500)), "q": "newer_than:30d",
-        })
-        messages = response.get("messages", [])
-        metrics["candidates"] = len(messages)
-        for item in messages:
-            message_id = item["id"]
+        max_messages = limit or int(os.getenv("EMAIL_SYNC_MAX_MESSAGES", str(_DEFAULT_MAX_MESSAGES)))
+        state = application_store.get_sync_state()
+        if state["history_id"] and not force_full:
+            try:
+                message_ids, history_id, pages = _list_history_message_ids(
+                    credentials, state["history_id"], max_messages
+                )
+                sync_mode = "history"
+            except requests.HTTPError as exc:
+                if exc.response is None or exc.response.status_code != 404:
+                    raise
+                message_ids, pages = _list_recent_message_ids(credentials, max_messages)
+                history_id = _gmail_get(credentials, "/profile").get("historyId", "")
+                sync_mode = "full_recovery"
+        else:
+            message_ids, pages = _list_recent_message_ids(credentials, max_messages)
+            history_id = _gmail_get(credentials, "/profile").get("historyId", "")
+        metrics["pages"] = pages
+        metrics["candidates"] = len(message_ids)
+        pending: list[dict] = []
+        for message_id in message_ids:
             if application_store.email_was_processed("gmail", message_id):
                 metrics["already_processed"] += 1
                 continue
-            message = _gmail_get(credentials, f"/messages/{message_id}", params={"format": "full"})
-            payload = message.get("payload", {})
-            headers = {header["name"].lower(): header["value"] for header in payload.get("headers", [])}
-            subject = _decode_header(headers.get("subject", ""))
-            sender = _decode_header(headers.get("from", ""))
-            received_at = _message_datetime(headers.get("date", ""), message.get("internalDate"))
-            body = _payload_text(payload)
+            try:
+                pending.append(_fetch_message(credentials, message_id))
+            except Exception as exc:
+                metrics["failed_messages"] += 1
+                logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
+        for item in sorted(pending, key=lambda value: value["received_at"]):
             analysis = classify_application_email(
-                subject=subject, body=body, received_at=received_at, sender=sender, headers=headers,
+                subject=item["subject"], body=item["body"], received_at=item["received_at"],
+                sender=item["sender"], headers=item["headers"],
             )
             result = application_store.record_email(
-                provider="gmail", message_id=message_id, received_at=received_at,
-                sender=sender, subject=subject,
-                body_hash=hashlib.sha256(body.encode("utf-8", errors="ignore")).hexdigest(),
-                analysis=analysis,
+                provider="gmail", message_id=item["message_id"],
+                received_at=item["received_at"], sender=item["sender"],
+                subject=item["subject"], thread_id=item["thread_id"],
+                history_id=item["history_id"],
+                body_hash=hashlib.sha256(
+                    item["body"].encode("utf-8", errors="ignore")
+                ).hexdigest(), analysis=analysis,
             )
             metrics["scanned"] += 1
+            if analysis.is_job_related:
+                metrics["job_related"] += 1
+                if analysis.status == "unknown":
+                    metrics["unknown"] += 1
+            elif analysis.classification_reason.startswith("subscription:"):
+                metrics["subscription_filtered"] += 1
+            else:
+                metrics["unrelated"] += 1
             if result is not None:
                 metrics["matched"] += 1
+        if not metrics["failed_messages"] and history_id:
+            application_store.set_history_id(history_id)
         return _record_sync_result(
             trigger=trigger, status="success", started_at=started_at, started_perf=started_perf,
-            metrics=metrics, message="Email sync complete",
+            metrics=metrics, message="Email sync complete", sync_mode=sync_mode,
+            history_id=history_id,
         )
     except Exception as exc:
         _record_sync_result(
             trigger=trigger, status="failed", started_at=started_at, started_perf=started_perf,
-            metrics=metrics, message=str(exc),
+            metrics=metrics, message=str(exc), sync_mode=sync_mode, history_id=history_id,
         )
         raise
     finally:
+        application_store.release_sync_lease(owner)
         _sync_lock.release()
 
 
 def _record_sync_result(
     *, trigger: str, status: str, started_at: datetime, started_perf: float,
-    metrics: dict[str, int], message: str,
+    metrics: dict[str, int], message: str, sync_mode: str, history_id: str = "",
 ) -> dict[str, int | str | bool]:
     completed_at = datetime.utcnow()
     duration_ms = round((time.perf_counter() - started_perf) * 1000)
     run = application_store.record_sync_run(
         trigger=trigger, status=status, started_at=started_at, completed_at=completed_at,
         duration_ms=duration_ms, error_message=message if status == "failed" else "",
-        **metrics,
+        sync_mode=sync_mode, history_id=history_id, **metrics,
     )
     return {
         "ok": status == "success",
@@ -152,7 +241,86 @@ def _record_sync_result(
         "run_id": run["id"],
         "status": status,
         "duration_ms": duration_ms,
+        "sync_mode": sync_mode,
+        "history_id": history_id,
         **metrics,
+    }
+
+
+def _list_recent_message_ids(credentials: Credentials, limit: int) -> tuple[list[str], int]:
+    return _paginate_message_ids(
+        credentials, "/messages", {"q": "newer_than:30d"}, limit,
+        lambda response: [item["id"] for item in response.get("messages", [])],
+    )
+
+
+def _list_history_message_ids(
+    credentials: Credentials, start_history_id: str, limit: int,
+) -> tuple[list[str], str, int]:
+    latest_history_id = start_history_id
+
+    def extract(response: dict) -> list[str]:
+        nonlocal latest_history_id
+        latest_history_id = response.get("historyId", latest_history_id)
+        return [
+            added["message"]["id"]
+            for entry in response.get("history", [])
+            for added in entry.get("messagesAdded", [])
+        ]
+
+    message_ids, pages = _paginate_message_ids(
+        credentials, "/history",
+        {"startHistoryId": start_history_id, "historyTypes": "messageAdded"},
+        limit, extract,
+    )
+    return message_ids, latest_history_id, pages
+
+
+def _paginate_message_ids(
+    credentials: Credentials, path: str, base_params: dict, limit: int, extractor,
+) -> tuple[list[str], int]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    page_token = ""
+    pages = 0
+    while len(ids) < limit:
+        params = {**base_params, "maxResults": min(500, limit - len(ids))}
+        if page_token:
+            params["pageToken"] = page_token
+        response = _gmail_get(credentials, path, params=params)
+        pages += 1
+        for message_id in extractor(response):
+            if message_id not in seen:
+                seen.add(message_id)
+                ids.append(message_id)
+                if len(ids) >= limit:
+                    break
+        page_token = response.get("nextPageToken", "")
+        if not page_token:
+            break
+    if page_token:
+        raise RuntimeError(
+            f"Email sync reached the {limit} message safety limit; "
+            "increase EMAIL_SYNC_MAX_MESSAGES"
+        )
+    return ids, pages
+
+
+def _fetch_message(credentials: Credentials, message_id: str) -> dict:
+    message = _gmail_get(credentials, f"/messages/{message_id}", params={"format": "full"})
+    payload = message.get("payload", {})
+    headers = {
+        header["name"].lower(): header["value"] for header in payload.get("headers", [])
+    }
+    return {
+        "message_id": message_id,
+        "thread_id": message.get("threadId", ""),
+        "history_id": message.get("historyId", ""),
+        "headers": headers,
+        "subject": _decode_header(headers.get("subject", "")),
+        "sender": _decode_header(headers.get("from", "")),
+        "received_at": _message_datetime(headers.get("date", ""), message.get("internalDate")),
+        "body": _payload_text(payload),
     }
 
 def _oauth_flow(redirect_uri: str, state: str | None = None, code_verifier: str | None = None) -> Flow:
@@ -217,12 +385,53 @@ def _message_datetime(date_header: str, internal_date: str | None) -> datetime:
 
 
 def _payload_text(payload: dict) -> str:
-    texts: list[str] = []
-    if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
-        texts.append(_decode_body(payload["body"]["data"]))
-    for part in payload.get("parts", []):
-        texts.append(_payload_text(part))
-    return "\n".join(text for text in texts if text)
+    plain: list[str] = []
+    html: list[str] = []
+
+    def collect(part: dict) -> None:
+        data = part.get("body", {}).get("data")
+        if data and part.get("mimeType") == "text/plain":
+            plain.append(_decode_body(data))
+        elif data and part.get("mimeType") == "text/html":
+            html.append(_decode_body(data))
+        for child in part.get("parts", []):
+            collect(child)
+
+    collect(payload)
+    if plain:
+        return "\n".join(text for text in plain if text)
+    return "\n".join(_html_to_text(text) for text in html if text)
+
+
+class _TextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.ignored_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in {"script", "style"}:
+            self.ignored_depth += 1
+        elif tag in {"br", "p", "div", "li", "tr"}:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self.ignored_depth:
+            self.ignored_depth -= 1
+        elif tag in {"p", "div", "li", "tr"}:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.ignored_depth:
+            self.parts.append(data)
+
+
+def _html_to_text(value: str) -> str:
+    parser = _TextExtractor()
+    parser.feed(value)
+    return "\n".join(
+        line.strip() for line in "".join(parser.parts).splitlines() if line.strip()
+    )
 
 
 def _decode_body(value: str) -> str:

@@ -80,6 +80,24 @@ def test_classifier_keeps_transactional_email_with_unsubscribe_header():
     assert result.is_job_related is True
     assert result.status == "submitted"
 
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Your latest jobs from gradireland",
+        "Michael Madden and others share their thoughts on LinkedIn",
+        "Better Work: How hiring has changed",
+    ],
+)
+def test_subscription_subject_overrides_transactional_words_in_digest_body(subject):
+    result = classify_application_email(
+        subject=subject,
+        body="This digest discusses interviews, coding challenges and candidates not moving forward.",
+        received_at=datetime(2026, 7, 18),
+    )
+    assert result.is_job_related is False
+    assert result.classification_reason.startswith("subscription:content:")
+
 def test_store_is_idempotent_and_builds_timeline(store):
     received = datetime(2026, 7, 17, 10, 30)
     submitted = ApplicationEmailAnalysis(
@@ -328,3 +346,233 @@ def test_application_row_opens_source_email():
     )
     assert "openApplicationEmail(" in html
     assert "/api/applications/${id}/email" in html
+
+
+def test_older_email_cannot_regress_current_status(store):
+    newer = ApplicationEmailAnalysis(
+        is_job_related=True, status="rejected", company="Acme", job_title="AI Engineer",
+        event_at=datetime(2026, 7, 20), confidence=0.9,
+    )
+    older = newer.model_copy(update={"status": "submitted", "event_at": datetime(2026, 7, 10)})
+    store.record_email(
+        provider="gmail", message_id="newer", thread_id="thread-1",
+        received_at=newer.event_at, sender="", subject="Rejected", body_hash="new", analysis=newer,
+    )
+    store.record_email(
+        provider="gmail", message_id="older", thread_id="thread-1",
+        received_at=older.event_at, sender="", subject="Submitted", body_hash="old", analysis=older,
+    )
+    item = store.list_applications()[0]
+    assert item.current_status == "rejected"
+    assert item.last_event_at == datetime(2026, 7, 20)
+    assert len(store.get_application(item.id).events) == 2
+
+
+def test_application_merges_by_reference_before_company_title(store):
+    first = ApplicationEmailAnalysis(
+        is_job_related=True, status="submitted", company="Acme Ltd",
+        job_title="Engineer", application_reference="REQ-123", confidence=0.9,
+    )
+    second = first.model_copy(update={
+        "status": "interview", "company": "Acme", "job_title": "Software Engineer",
+    })
+    store.record_email(
+        provider="gmail", message_id="ref-1", received_at=datetime(2026, 7, 10),
+        sender="", subject="Applied", body_hash="1", analysis=first,
+    )
+    store.record_email(
+        provider="gmail", message_id="ref-2", received_at=datetime(2026, 7, 11),
+        sender="", subject="Interview", body_hash="2", analysis=second,
+    )
+    assert len(store.list_applications()) == 1
+    assert store.list_applications()[0].current_status == "interview"
+
+
+def test_application_merges_unknown_messages_by_gmail_thread(store):
+    analysis = ApplicationEmailAnalysis(
+        is_job_related=True, status="unknown", company="", job_title="", confidence=0.55,
+    )
+    for index in (1, 2):
+        store.record_email(
+            provider="gmail", message_id=f"thread-{index}", thread_id="shared-thread",
+            received_at=datetime(2026, 7, 10 + index), sender="", subject="Update",
+            body_hash=str(index), analysis=analysis,
+        )
+    assert len(store.list_applications()) == 1
+
+
+def test_application_merges_normalized_company_identity(store):
+    base = ApplicationEmailAnalysis(
+        is_job_related=True, status="submitted", company="Acme Ltd.",
+        job_title="AI  Engineer", confidence=0.9,
+    )
+    follow_up = base.model_copy(update={"status": "assessment", "company": "ACME"})
+    store.record_email(
+        provider="gmail", message_id="normalized-1", received_at=datetime(2026, 7, 10),
+        sender="", subject="Applied", body_hash="1", analysis=base,
+    )
+    store.record_email(
+        provider="gmail", message_id="normalized-2", received_at=datetime(2026, 7, 11),
+        sender="", subject="Assessment", body_hash="2", analysis=follow_up,
+    )
+    assert len(store.list_applications()) == 1
+
+
+def test_classifier_reports_reason_version_and_reference():
+    result = classify_application_email(
+        subject="Thank you for applying - Application ID: REQ-789",
+        body="Position: AI Engineer\nCompany: Acme",
+        received_at=datetime(2026, 7, 18),
+    )
+    assert result.classification_reason == "transactional:submitted"
+    assert result.classifier_version == "rules-v2"
+    assert result.application_reference == "REQ-789"
+
+
+def test_gmail_html_only_payload_is_converted_to_text():
+    import base64
+    from jobradar.email_sync import _payload_text
+
+    html = "<html><style>.x{}</style><body><p>Interview invitation</p><script>x()</script></body></html>"
+    encoded = base64.urlsafe_b64encode(html.encode()).decode().rstrip("=")
+    result = _payload_text({"mimeType": "text/html", "body": {"data": encoded}})
+    assert result == "Interview invitation"
+
+
+def test_gmail_pagination_collects_all_pages(monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    calls = []
+
+    def fake_get(credentials, path, params=None):
+        calls.append(dict(params))
+        if params.get("pageToken") == "next":
+            return {"messages": [{"id": "3"}]}
+        return {"messages": [{"id": "1"}, {"id": "2"}], "nextPageToken": "next"}
+
+    monkeypatch.setattr(email_sync, "_gmail_get", fake_get)
+    ids, pages = email_sync._list_recent_message_ids(object(), 10)
+    assert ids == ["1", "2", "3"]
+    assert pages == 2
+    assert calls[1]["pageToken"] == "next"
+
+
+def test_gmail_history_collects_added_messages(monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    monkeypatch.setattr(email_sync, "_gmail_get", lambda *args, **kwargs: {
+        "historyId": "102",
+        "history": [{"messagesAdded": [
+            {"message": {"id": "message-2"}}, {"message": {"id": "message-2"}},
+        ]}],
+    })
+    ids, history_id, pages = email_sync._list_history_message_ids(object(), "100", 10)
+    assert ids == ["message-2"]
+    assert history_id == "102"
+    assert pages == 1
+
+
+def test_full_sync_processes_messages_chronologically_and_saves_cursor(store, monkeypatch):
+    import base64
+    import jobradar.email_sync as email_sync
+
+    monkeypatch.setattr(email_sync, "email_sync_configured", lambda: True)
+    monkeypatch.setattr(email_sync, "_load_credentials", lambda: object())
+
+    def message(message_id, timestamp, subject, body):
+        return {
+            "id": message_id,
+            "threadId": "thread-1",
+            "historyId": str(timestamp),
+            "internalDate": str(timestamp * 1000),
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [{"name": "Subject", "value": subject}],
+                "body": {"data": base64.urlsafe_b64encode(body.encode()).decode().rstrip("=")},
+            },
+        }
+
+    responses = {
+        "/messages/new": message(
+            "new", 200, "Unfortunately, we are not moving forward",
+            "Position: AI Engineer\nCompany: Acme",
+        ),
+        "/messages/old": message(
+            "old", 100, "Thank you for applying",
+            "Position: AI Engineer\nCompany: Acme",
+        ),
+    }
+
+    def fake_get(credentials, path, params=None):
+        if path == "/messages":
+            return {"messages": [{"id": "new"}, {"id": "old"}]}
+        if path == "/profile":
+            return {"historyId": "300"}
+        return responses[path]
+
+    monkeypatch.setattr(email_sync, "_gmail_get", fake_get)
+    result = email_sync.sync_email(limit=10, force_full=True)
+    assert result["sync_mode"] == "full"
+    assert result["matched"] == 2
+    assert store.list_applications()[0].current_status == "rejected"
+    assert store.get_sync_state()["history_id"] == "300"
+
+
+def test_sync_state_pause_history_and_lease(store):
+    assert store.get_sync_state()["paused"] == 0
+    assert store.set_sync_paused(True)["paused"] == 1
+    store.set_history_id("500")
+    assert store.get_sync_state()["history_id"] == "500"
+    assert store.acquire_sync_lease("owner-1") is True
+    assert store.acquire_sync_lease("owner-2") is False
+    store.release_sync_lease("owner-1")
+    assert store.acquire_sync_lease("owner-2") is True
+
+
+def test_existing_email_database_is_migrated(tmp_path, monkeypatch):
+    import sqlite3
+    import jobradar.application_store as store_mod
+
+    path = tmp_path / "legacy.db"
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE processed_emails (provider TEXT, provider_message_id TEXT, "
+        "received_at TEXT, sender TEXT DEFAULT '', subject TEXT DEFAULT '', "
+        "body_hash TEXT DEFAULT '', analysis_json TEXT, processed_at TEXT, "
+        "PRIMARY KEY (provider, provider_message_id))"
+    )
+    con.commit()
+    con.close()
+    monkeypatch.setenv("CACHE_DB_PATH", str(path))
+    importlib.reload(store_mod)
+    store_mod.get_sync_state()
+    con = sqlite3.connect(path)
+    columns = {row[1] for row in con.execute("PRAGMA table_info(processed_emails)")}
+    con.close()
+    assert {"gmail_thread_id", "classification_reason", "classifier_version"} <= columns
+
+
+def test_clear_email_data_can_pause_and_reset_cursor(store):
+    store.set_history_id("500")
+    store.record_sync_run(
+        trigger="manual", status="success", started_at=datetime(2026, 7, 18),
+        completed_at=datetime(2026, 7, 18), duration_ms=1,
+    )
+    store.clear_email_data(pause=True)
+    assert store.list_applications() == []
+    assert store.list_sync_runs() == []
+    state = store.get_sync_state()
+    assert state["paused"] == 1
+    assert state["history_id"] == ""
+
+
+def test_application_tracker_has_email_data_controls():
+    from pathlib import Path
+
+    html = (Path(__file__).parents[1] / "jobradar" / "templates" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "/api/email/pause" in html
+    assert "/api/email/resume" in html
+    assert "/api/email/data?pause=true" in html
+    assert "/api/email/reanalyse" in html

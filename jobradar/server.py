@@ -12,6 +12,7 @@ import json
 import os
 import tempfile
 import threading
+from contextlib import asynccontextmanager, suppress
 
 from pathlib import Path
 from typing import AsyncIterator, Callable
@@ -26,12 +27,16 @@ from dotenv import load_dotenv
 from jobradar import __version__, cache
 from jobradar import application_store
 from jobradar.email_sync import (
+    clear_email_tracking_data,
     complete_google_oauth,
     disconnect_google_email,
     email_sync_configured,
     google_oauth_authorization_url,
     google_oauth_configured,
+    gmail_thread_url,
     gmail_message_url,
+    reanalyse_email,
+    set_automatic_sync_paused,
     sync_email,
 )
 from jobradar.schemas import APPLICATION_STATUSES
@@ -83,7 +88,25 @@ def _reload_dotenv() -> None:
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
 
-app = FastAPI(title="JobRadar")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    global _main_loop, _email_sync_task
+    _main_loop = asyncio.get_running_loop()
+    db_path = os.getenv("CACHE_DB_PATH", str(DATA_DIR / "jobradar_cache.db"))
+    logger.info("JobRadar server started | mock=%s | db=%s", MOCK_MODE, db_path)
+    if email_sync_configured() and not MOCK_MODE:
+        _email_sync_task = asyncio.create_task(_email_sync_loop())
+    try:
+        yield
+    finally:
+        if _email_sync_task:
+            _email_sync_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await _email_sync_task
+
+
+app = FastAPI(title="JobRadar", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -113,30 +136,18 @@ _MODULE_STEP_MAP = {
 }
 
 
-@app.on_event("startup")
-async def _capture_loop() -> None:
-    global _main_loop
-    _main_loop = asyncio.get_event_loop()
-    db_path = os.getenv("CACHE_DB_PATH", str(DATA_DIR / "jobradar_cache.db"))
-    logger.info("JobRadar server started | mock=%s | db=%s", MOCK_MODE, db_path)
-    global _email_sync_task
-    if email_sync_configured() and not MOCK_MODE:
-        _email_sync_task = asyncio.create_task(_email_sync_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_email_sync() -> None:
-    if _email_sync_task:
-        _email_sync_task.cancel()
-
-
 async def _email_sync_loop() -> None:
     interval = max(60, int(os.getenv("EMAIL_SYNC_INTERVAL_SECONDS", "900")))
     while True:
         await asyncio.sleep(interval)
         try:
             result = await asyncio.to_thread(sync_email, trigger="scheduled")
-            logger.info("Scheduled email sync | scanned=%s matched=%s", result["scanned"], result["matched"])
+            logger.info(
+                "Scheduled email sync | mode=%s pages=%s scanned=%s matched=%s "
+                "subscriptions=%s failed=%s",
+                result.get("sync_mode"), result["pages"], result["scanned"], result["matched"],
+                result["subscription_filtered"], result["failed_messages"],
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -231,7 +242,7 @@ _ALLOWED_ENV_KEYS: set[str] = {
     "DEFAULT_PROVIDER", "DEFAULT_MODEL",
     "JOB_TTL_DAYS", "SESSION_TTL_HOURS",
     "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-    "EMAIL_SYNC_INTERVAL_SECONDS",
+    "EMAIL_SYNC_INTERVAL_SECONDS", "EMAIL_SYNC_MAX_MESSAGES",
 }
 
 @app.post("/api/config")
@@ -300,11 +311,14 @@ class ApplicationUpdateRequest(BaseModel):
 
 @app.get("/api/email/status")
 def get_email_status() -> dict:
+    state = application_store.get_sync_state()
     return {
         "configured": google_oauth_configured(),
         "connected": email_sync_configured(),
         "interval_seconds": int(os.getenv("EMAIL_SYNC_INTERVAL_SECONDS", "900")),
         "latest_sync": application_store.latest_sync_run(),
+        "paused": bool(state["paused"]),
+        "history_enabled": bool(state["history_id"]),
     }
 
 
@@ -370,6 +384,37 @@ async def run_email_sync() -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.post("/api/email/pause")
+def pause_email_sync() -> dict:
+    state = set_automatic_sync_paused(True)
+    return {"ok": True, "paused": bool(state["paused"])}
+
+
+@app.post("/api/email/resume")
+def resume_email_sync() -> dict:
+    state = set_automatic_sync_paused(False)
+    return {"ok": True, "paused": bool(state["paused"])}
+
+
+@app.delete("/api/email/data")
+def clear_email_data(pause: bool = True) -> dict:
+    try:
+        clear_email_tracking_data(pause=pause)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "paused": pause}
+
+
+@app.post("/api/email/reanalyse")
+async def reanalyse_email_data() -> dict:
+    try:
+        return await asyncio.to_thread(reanalyse_email)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/api/email/sync-history")
 def get_email_sync_history(limit: int = 20) -> list[dict]:
     return application_store.list_sync_runs(limit)
@@ -405,7 +450,10 @@ def open_application_email(application_id: int) -> RedirectResponse:
     if not event:
         raise HTTPException(status_code=404, detail="No source email is available")
     try:
-        return RedirectResponse(gmail_message_url(event.email_message_id), status_code=302)
+        url = gmail_thread_url(event.gmail_thread_id) if event.gmail_thread_id else gmail_message_url(
+            event.email_message_id
+        )
+        return RedirectResponse(url, status_code=302)
     except Exception as exc:
         logger.exception("Could not open Gmail message for application %s", application_id)
         raise HTTPException(status_code=502, detail="Could not resolve the Gmail message") from exc

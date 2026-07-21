@@ -111,13 +111,13 @@
 <!-- ── API Config Overlay ──────────────────────────────────────────────────── -->
 <!-- ── History Page ─────────────────────────────────────────────────────── -->
 <div id="applications-page" class="hidden fixed inset-0 bg-gray-900/95 z-50 overflow-y-auto">
-  <div class="max-w-5xl mx-auto px-4 py-12">
-    <div class="flex items-center justify-between mb-6">
+  <div class="relative max-w-5xl mx-auto px-4 py-12">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
       <div>
         <h1 class="text-2xl font-bold text-white" data-i18n="apps.title"></h1>
         <p id="email-sync-status" class="text-xs text-gray-400 mt-1"></p>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex w-full sm:w-auto flex-wrap items-center justify-start sm:justify-end gap-3">
         <button id="google-connect-btn" onclick="connectGoogleEmail()"
           class="px-4 py-2 border border-gray-600 hover:border-blue-500 text-gray-200 text-sm rounded-lg transition-colors flex items-center gap-2">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -132,20 +132,32 @@
           </svg>
           <span data-i18n="apps.sync"></span>
         </button>
-        <button onclick="closeApplicationsPage()" class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700" data-i18n-title="tip.close_log">
+        <button id="email-auto-btn" onclick="toggleAutomaticEmailSync()"
+          class="px-4 py-2 border border-gray-600 hover:border-blue-500 text-gray-200 text-sm rounded-lg transition-colors">
+          <span id="email-auto-label" data-i18n="apps.pause_auto"></span>
+        </button>
+        <button onclick="reanalyseApplicationEmail()"
+          class="px-4 py-2 border border-gray-600 hover:border-blue-500 text-gray-200 text-sm rounded-lg transition-colors"
+          data-i18n="apps.reanalyse"></button>
+        <button onclick="clearApplicationEmailData()"
+          class="text-xs px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-800/60 text-red-400 hover:text-red-300 transition-colors border border-red-800/50"
+          data-i18n="apps.clear_data"></button>
+        <button onclick="closeApplicationsPage()" class="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700" data-i18n-title="tip.close_log">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
       </div>
     </div>
     <div id="email-sync-meta" class="hidden mb-5 border-y border-gray-700 py-4">
       <h2 class="text-sm font-bold uppercase tracking-wide text-gray-300 mb-[18px]" data-i18n="apps.sync_meta"></h2>
-      <div id="email-sync-summary" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-5"></div>
+      <div id="email-sync-summary" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 mb-5"></div>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="text-gray-500 uppercase"><tr>
             <th class="py-2 pr-4" data-i18n="apps.sync_time"></th><th class="py-2 pr-4" data-i18n="apps.trigger"></th>
+            <th class="py-2 pr-4" data-i18n="apps.sync_mode"></th><th class="py-2 pr-4" data-i18n="apps.pages"></th>
             <th class="py-2 pr-4" data-i18n="apps.candidates"></th><th class="py-2 pr-4" data-i18n="apps.skipped"></th>
             <th class="py-2 pr-4" data-i18n="apps.scanned"></th><th class="py-2 pr-4" data-i18n="apps.matched"></th>
+            <th class="py-2 pr-4" data-i18n="apps.subscriptions"></th><th class="py-2 pr-4" data-i18n="apps.failed_messages"></th>
             <th class="py-2 pr-4" data-i18n="apps.duration"></th><th class="py-2" data-i18n="apps.result"></th>
           </tr></thead>
           <tbody id="email-sync-history" class="divide-y divide-gray-800 text-gray-300"></tbody>
@@ -160,8 +172,8 @@
       <button data-status="rejected" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.rejected"></button>
       <button data-status="unknown" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.unknown"></button>
     </div>
-    <div class="bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
-      <table class="w-full text-left">
+    <div class="bg-gray-800 rounded-lg overflow-x-auto border border-gray-700">
+      <table class="w-full min-w-[720px] text-left">
         <thead class="text-xs text-gray-400 uppercase bg-gray-700/50"><tr>
           <th class="px-4 py-3" data-i18n="apps.company"></th><th class="px-4 py-3" data-i18n="apps.role"></th>
           <th class="px-4 py-3" data-i18n="apps.status"></th><th class="px-4 py-3" data-i18n="apps.updated"></th><th class="px-4 py-3" data-i18n="apps.actions"></th>
@@ -822,6 +834,12 @@ const I18N = {
     'apps.review_title': '确认投递信息', 'apps.save_review': '保存确认', 'apps.choose_status': '请选择状态',
     'apps.google_connect': '使用 Google 登录', 'apps.google_disconnect': '断开 Google',
     'apps.disconnected': 'Google 邮箱尚未连接', 'apps.oauth_missing': '请先配置 Google OAuth 客户端',
+    'apps.pause_auto': '暂停自动同步', 'apps.resume_auto': '恢复自动同步', 'apps.paused': '自动同步已暂停',
+    'apps.reanalyse': '重新分析', 'apps.clear_data': '清空邮件数据',
+    'apps.clear_confirm': '清空全部邮件追踪数据并暂停自动同步？', 'apps.reanalyse_confirm': '清空现有结果并重新分析最近 30 天邮件？',
+    'apps.pages': '页数', 'apps.subscriptions': '订阅过滤', 'apps.failed_messages': '失败', 'apps.sync_mode': '模式',
+    'apps.full': '完整', 'apps.full_recovery': '完整恢复', 'apps.history': '增量', 'apps.reanalysis': '重新分析',
+    'apps.control_done': '邮件同步设置已更新',
 
     'hist.benchmark_title': '漏斗 Benchmark',
     'hist.benchmark_empty': '暂无可对比的 benchmark 数据',
@@ -988,6 +1006,12 @@ const I18N = {
     'apps.review_title': 'Confirm application', 'apps.save_review': 'Save confirmation', 'apps.choose_status': 'Choose a status',
     'apps.google_connect': 'Sign in with Google', 'apps.google_disconnect': 'Disconnect Google',
     'apps.disconnected': 'Google email is not connected', 'apps.oauth_missing': 'Configure the Google OAuth client first',
+    'apps.pause_auto': 'Pause auto sync', 'apps.resume_auto': 'Resume auto sync', 'apps.paused': 'Automatic sync is paused',
+    'apps.reanalyse': 'Reanalyse', 'apps.clear_data': 'Clear email data',
+    'apps.clear_confirm': 'Clear all email tracking data and pause automatic sync?', 'apps.reanalyse_confirm': 'Clear current results and reanalyse the last 30 days?',
+    'apps.pages': 'Pages', 'apps.subscriptions': 'Subscriptions', 'apps.failed_messages': 'Failed', 'apps.sync_mode': 'Mode',
+    'apps.full': 'Full', 'apps.full_recovery': 'Full recovery', 'apps.history': 'Incremental', 'apps.reanalysis': 'Reanalysis',
+    'apps.control_done': 'Email sync settings updated',
 
     'hist.benchmark_empty': 'No benchmark comparison available yet',
     'hist.benchmark_current': 'Current Version',
@@ -1154,6 +1178,12 @@ const I18N = {
     'apps.review_title': 'Confirmar candidatura', 'apps.save_review': 'Guardar', 'apps.choose_status': 'Elige un estado',
     'apps.google_connect': 'Iniciar con Google', 'apps.google_disconnect': 'Desconectar Google',
     'apps.disconnected': 'El correo de Google no está conectado', 'apps.oauth_missing': 'Configura primero el cliente OAuth de Google',
+    'apps.pause_auto': 'Pausar sincronización', 'apps.resume_auto': 'Reanudar sincronización', 'apps.paused': 'Sincronización automática pausada',
+    'apps.reanalyse': 'Volver a analizar', 'apps.clear_data': 'Borrar datos de correo',
+    'apps.clear_confirm': '¿Borrar todos los datos y pausar la sincronización automática?', 'apps.reanalyse_confirm': '¿Borrar los resultados y volver a analizar los últimos 30 días?',
+    'apps.pages': 'Páginas', 'apps.subscriptions': 'Suscripciones', 'apps.failed_messages': 'Fallidos', 'apps.sync_mode': 'Modo',
+    'apps.full': 'Completa', 'apps.full_recovery': 'Recuperación', 'apps.history': 'Incremental', 'apps.reanalysis': 'Nuevo análisis',
+    'apps.control_done': 'Configuración de correo actualizada',
 
     'hist.benchmark_current': 'Versión actual',
     'hist.benchmark_previous': 'Versión anterior',
@@ -3554,15 +3584,53 @@ async function loadApplicationEmailStatus() {
     const connected = status.connected;
     document.getElementById('email-sync-status').textContent = !status.configured
       ? t('apps.oauth_missing')
-      : connected ? t('apps.configured', Math.round(status.interval_seconds / 60)) : t('apps.disconnected');
+      : connected ? (status.paused ? t('apps.paused') : t('apps.configured', Math.round(status.interval_seconds / 60))) : t('apps.disconnected');
     document.getElementById('email-sync-btn').disabled = !connected;
     document.getElementById('email-sync-btn').classList.toggle('opacity-50', !connected);
     const googleButton = document.getElementById('google-connect-btn');
     googleButton.disabled = !status.configured;
     googleButton.dataset.connected = connected ? '1' : '0';
     document.getElementById('google-connect-label').textContent = t(connected ? 'apps.google_disconnect' : 'apps.google_connect');
+    const autoButton = document.getElementById('email-auto-btn');
+    autoButton.disabled = !connected;
+    autoButton.dataset.paused = status.paused ? '1' : '0';
+    document.getElementById('email-auto-label').textContent = t(status.paused ? 'apps.resume_auto' : 'apps.pause_auto');
   } catch (e) {
     document.getElementById('email-sync-status').textContent = e.message;
+  }
+}
+
+async function toggleAutomaticEmailSync() {
+  const paused = document.getElementById('email-auto-btn').dataset.paused === '1';
+  try {
+    await api('POST', paused ? '/api/email/resume' : '/api/email/pause');
+    await loadApplicationEmailStatus();
+    showToast(t('apps.control_done'));
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+
+async function clearApplicationEmailData() {
+  if (!confirm(t('apps.clear_confirm'))) return;
+  try {
+    await api('DELETE', '/api/email/data?pause=true');
+    document.getElementById('application-events').classList.add('hidden');
+    await Promise.all([loadApplicationEmailStatus(), loadApplications(), loadEmailSyncHistory()]);
+    showToast(t('apps.control_done'));
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+
+async function reanalyseApplicationEmail() {
+  if (!confirm(t('apps.reanalyse_confirm'))) return;
+  try {
+    const result = await api('POST', '/api/email/reanalyse');
+    showToast(t('apps.sync_done', result.scanned, result.matched), !result.ok);
+    await Promise.all([loadApplicationEmailStatus(), loadApplications(), loadEmailSyncHistory()]);
+  } catch (e) {
+    showToast(e.message, true);
   }
 }
 
@@ -3620,8 +3688,10 @@ async function loadEmailSyncHistory() {
   const items = [
     ['apps.sync_time', new Date(latest.completed_at).toLocaleString()],
     ['apps.trigger', t(`apps.${latest.trigger}`)],
+    ['apps.sync_mode', t(`apps.${latest.sync_mode || 'full'}`)], ['apps.pages', latest.pages || 0],
     ['apps.candidates', latest.candidates], ['apps.skipped', latest.already_processed],
     ['apps.scanned', latest.scanned], ['apps.matched', latest.matched],
+    ['apps.subscriptions', latest.subscription_filtered || 0], ['apps.failed_messages', latest.failed_messages || 0],
     ['apps.duration', `${(latest.duration_ms / 1000).toFixed(2)}s`],
   ];
   summary.innerHTML = items.map(([label, value]) => `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${_esc(String(value))}</p></div>`).join('');
@@ -3630,9 +3700,12 @@ async function loadEmailSyncHistory() {
     const resultClass = run.status === 'success' ? 'text-green-400' : run.status === 'failed' ? 'text-red-400' : 'text-yellow-400';
     return `<tr title="${_esc(run.error_message || '')}">
       <td class="py-2 pr-4 font-mono">${new Date(run.completed_at).toLocaleString()}</td>
-      <td class="py-2 pr-4">${t(`apps.${run.trigger}`)}</td><td class="py-2 pr-4 font-mono">${run.candidates}</td>
+      <td class="py-2 pr-4">${t(`apps.${run.trigger}`)}</td>
+      <td class="py-2 pr-4">${t(`apps.${run.sync_mode || 'full'}`)}</td><td class="py-2 pr-4 font-mono">${run.pages || 0}</td>
+      <td class="py-2 pr-4 font-mono">${run.candidates}</td>
       <td class="py-2 pr-4 font-mono">${run.already_processed}</td><td class="py-2 pr-4 font-mono">${run.scanned}</td>
-      <td class="py-2 pr-4 font-mono">${run.matched}</td><td class="py-2 pr-4 font-mono">${(run.duration_ms / 1000).toFixed(2)}s</td>
+      <td class="py-2 pr-4 font-mono">${run.matched}</td><td class="py-2 pr-4 font-mono">${run.subscription_filtered || 0}</td>
+      <td class="py-2 pr-4 font-mono">${run.failed_messages || 0}</td><td class="py-2 pr-4 font-mono">${(run.duration_ms / 1000).toFixed(2)}s</td>
       <td class="py-2 ${resultClass}">${t(`apps.${resultKey}`)}</td></tr>`;
   }).join('');
 }

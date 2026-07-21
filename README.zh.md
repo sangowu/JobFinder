@@ -203,11 +203,16 @@ Web UI 的“投递追踪”页面通过 Google OAuth 登录 Gmail，将招聘�
 GOOGLE_OAUTH_CLIENT_ID=your_client_id
 GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
 EMAIL_SYNC_INTERVAL_SECONDS=900
+EMAIL_SYNC_MAX_MESSAGES=5000
 ```
 
 启动 `jobradar serve` 后，在“投递追踪”页面点击“使用 Google 登录”完成授权。应用只申请 Gmail 只读权限，不需要 Gmail 密码。OAuth token 保存在本地 `data/google_gmail_token.json`，该目录不会提交到 Git。
 
-定时同步只在服务运行期间执行，也可以在投递追踪页面手动同步。系统不会保存邮件正文，只保存正文哈希、邮件元数据和结构化分析结果。
+首次同步会分页读取最近 30 天邮件；成功后保存 Gmail History 游标，后续只处理新增邮件。History 游标失效时会自动回退到完整分页同步。`EMAIL_SYNC_MAX_MESSAGES` 是单次同步的安全上限，达到上限时同步失败且不会推进游标，避免静默漏信。
+
+投递追踪页面支持手动同步、暂停/恢复自动同步、清空数据并暂停，以及清空后重新分析最近 30 天。清空和同步共享数据库租约，多进程运行时不会并发写入同一批邮件。
+
+识别时优先保留明确的投递、测评、面试、Offer、拒绝和撤回通知，再过滤 Job Alert、职位推荐和带群发邮件头的 ATS 订阅。系统支持纯文本和 HTML-only 邮件，并记录分类规则、版本、订阅过滤数、失败数和同步模式。系统不会保存邮件正文，只保存正文哈希、邮件元数据和结构化分析结果。
 
 可以使用 `scripts/compare_title_gate.py` 做受控 A/B 对比，比较两种流程：
 

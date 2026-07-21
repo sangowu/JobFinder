@@ -6,6 +6,8 @@ from datetime import datetime
 
 from jobradar.schemas import ApplicationEmailAnalysis
 
+CLASSIFIER_VERSION = "rules-v2"
+
 _STATUS_PATTERNS = {
     "offer": (r"\b(job offer|offer letter|pleased to offer)\b",),
     "interview": (r"\b(interview|schedule (?:a|your) call|meet the hiring)\b",),
@@ -18,7 +20,8 @@ _SUBSCRIPTION_SIGNAL = re.compile(
     r"\b("
     r"job alerts?|jobs? matching your|new jobs? (?:for|in)|recommended jobs?|"
     r"jobs? you may (?:like|be interested in)|daily job digest|weekly job digest|"
-    r"latest (?:jobs?|vacancies)|career opportunities|talent community (?:news|update)"
+    r"latest (?:jobs?|vacancies)|career opportunities|talent community (?:news|update)|"
+    r"share their thoughts on linkedin|better work|newsletter"
     r")\b",
     re.I,
 )
@@ -31,6 +34,12 @@ _TITLE_PATTERNS = (
     re.compile(r"(?:position|role|job title)\s*:\s*([^\n]{2,100})", re.I),
     re.compile(r"application (?:for|to) (?:the )?([^\n,.]{2,100})", re.I),
 )
+_REFERENCE_PATTERNS = (
+    re.compile(
+        r"(?:application|candidate|requisition|job)\s*(?:id|reference|ref|number|no\.?|#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{2,40})",
+        re.I,
+    ),
+)
 
 
 def classify_application_email(
@@ -42,35 +51,55 @@ def classify_application_email(
     headers: dict[str, str] | None = None,
 ) -> ApplicationEmailAnalysis:
     text = f"{subject}\n{body[:12000]}"
-    status = "unknown"
-    for candidate, patterns in _STATUS_PATTERNS.items():
-        if any(re.search(pattern, text, re.I) for pattern in patterns):
-            status = candidate
-            break
+    subject_status = _match_status(subject)
+    subject_subscription = _SUBSCRIPTION_SIGNAL.search(subject)
+    status = subject_status or ("unknown" if subject_subscription else _match_status(text))
     header_values = {key.lower(): value for key, value in (headers or {}).items()}
+    bulk_header = next((
+        name for name in ("list-unsubscribe", "list-id") if header_values.get(name)
+    ), "")
     is_bulk = bool(
-        header_values.get("list-unsubscribe")
-        or header_values.get("list-id")
+        bulk_header
         or header_values.get("precedence", "").lower() in {"bulk", "list"}
     )
-    is_subscription = status == "unknown" and (
-        bool(_SUBSCRIPTION_SIGNAL.search(text)) or is_bulk
-    )
+    subscription_match = subject_subscription or _SUBSCRIPTION_SIGNAL.search(text)
+    is_subscription = status == "unknown" and (bool(subscription_match) or is_bulk)
     is_related = not is_subscription and (
         status != "unknown" or bool(_JOB_SIGNAL.search(text))
     )
     company = _extract(text, _COMPANY_PATTERNS)
     title = _extract(text, _TITLE_PATTERNS)
+    reference = _extract(text, _REFERENCE_PATTERNS)
     confidence = 0.9 if status != "unknown" else (0.55 if is_related else 0.05)
+    if status != "unknown":
+        reason = f"transactional:{status}"
+    elif subscription_match:
+        reason = f"subscription:content:{subscription_match.group(0).lower()}"
+    elif is_bulk:
+        reason = f"subscription:header:{bulk_header or 'precedence'}"
+    elif is_related:
+        reason = "job_signal"
+    else:
+        reason = "unrelated"
     return ApplicationEmailAnalysis(
         is_job_related=is_related,
         status=status,
         company=company,
         job_title=title,
+        application_reference=reference or None,
         event_at=received_at,
         confidence=confidence,
         summary=subject.strip()[:240],
+        classification_reason=reason,
+        classifier_version=CLASSIFIER_VERSION,
     )
+
+
+def _match_status(text: str) -> str:
+    for candidate, patterns in _STATUS_PATTERNS.items():
+        if any(re.search(pattern, text, re.I) for pattern in patterns):
+            return candidate
+    return "unknown"
 
 
 def _extract(text: str, patterns: tuple[re.Pattern[str], ...]) -> str:

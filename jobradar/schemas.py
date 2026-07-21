@@ -36,12 +36,15 @@ class ApplicationEmailAnalysis(BaseModel):
     event_at: datetime | None = None
     confidence: float = Field(default=0, ge=0, le=1)
     summary: str = ""
+    classification_reason: str = "unrelated"
+    classifier_version: str = "rules-v1"
 
 
 class ApplicationEvent(BaseModel):
     id: int | None = None
     application_id: int
     email_message_id: str = ""
+    gmail_thread_id: str = ""
     event_type: Literal[
         "submitted", "assessment", "interview", "offer", "rejected", "withdrawn", "unknown"
     ]
@@ -63,6 +66,7 @@ class JobApplication(BaseModel):
     last_event_at: datetime
     source: str = "email"
     external_reference: str | None = None
+    gmail_thread_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     events: list[ApplicationEvent] = Field(default_factory=list)
