@@ -61,6 +61,7 @@ def complete_structured(
     model: str | None = None,
     system: str = "你是一个专业的信息提取助手，严格按照指定格式返回 JSON。",
     _step: str = "",
+    _metrics: dict[str, Any] | None = None,
 ) -> BaseModel:
     """调用 LLM，返回符合 response_schema 的 Pydantic 对象。"""
     import time
@@ -84,6 +85,14 @@ def complete_structured(
             input_tokens=in_tok, output_tokens=out_tok,
             elapsed=time.monotonic() - t0,
         )
+    if _metrics is not None:
+        _metrics.update({
+            "provider": provider,
+            "model": m,
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "elapsed_ms": round((time.monotonic() - t0) * 1000),
+        })
     return result
 
 

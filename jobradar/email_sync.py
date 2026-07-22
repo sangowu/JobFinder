@@ -20,6 +20,7 @@ from google_auth_oauthlib.flow import Flow
 
 from jobradar import application_store
 from jobradar.email_classifier import classify_application_email
+from jobradar.email_llm_classifier import classify_ambiguous_email
 from jobradar.logger import get_logger
 from jobradar.paths import DATA_DIR, ensure_parent
 
@@ -182,19 +183,51 @@ def sync_email(
                 metrics["failed_messages"] += 1
                 logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
         for item in sorted(pending, key=lambda value: value["received_at"]):
-            analysis = classify_application_email(
+            rule_analysis = classify_application_email(
                 subject=item["subject"], body=item["body"], received_at=item["received_at"],
                 sender=item["sender"], headers=item["headers"],
             )
+            hybrid = classify_ambiguous_email(
+                rule_analysis=rule_analysis,
+                subject=item["subject"], body=item["body"], received_at=item["received_at"],
+                sender=item["sender"], headers=item["headers"],
+            )
+            analysis = hybrid.final_analysis
+            body_hash = hashlib.sha256(
+                item["body"].encode("utf-8", errors="ignore")
+            ).hexdigest()
             result = application_store.record_email(
                 provider="gmail", message_id=item["message_id"],
                 received_at=item["received_at"], sender=item["sender"],
                 subject=item["subject"], thread_id=item["thread_id"],
                 history_id=item["history_id"],
-                body_hash=hashlib.sha256(
-                    item["body"].encode("utf-8", errors="ignore")
-                ).hexdigest(), analysis=analysis,
+                body_hash=body_hash, analysis=analysis,
             )
+            try:
+                application_store.record_classification_observation(
+                    provider="gmail", message_id=item["message_id"],
+                    application_id=result.id if result else None, body_hash=body_hash,
+                    trigger_reason=hybrid.trigger_reason, decision=hybrid.decision,
+                    llm_provider=hybrid.provider, llm_model=hybrid.model,
+                    latency_ms=hybrid.latency_ms, input_tokens=hybrid.input_tokens,
+                    output_tokens=hybrid.output_tokens, disagreement=hybrid.disagreement,
+                    error_message=hybrid.error, rule_analysis=rule_analysis,
+                    llm_analysis=hybrid.llm_analysis, final_analysis=analysis,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Email classification observation failed | id=%s error=%s",
+                    item["message_id"], exc,
+                )
+            if hybrid.trigger_reason:
+                logger.info(
+                    "Email LLM classification | id=%s trigger=%s decision=%s provider=%s "
+                    "model=%s latency_ms=%d tokens=%d/%d disagreement=%s error=%s",
+                    item["message_id"], hybrid.trigger_reason, hybrid.decision,
+                    hybrid.provider, hybrid.model, hybrid.latency_ms,
+                    hybrid.input_tokens, hybrid.output_tokens, hybrid.disagreement,
+                    hybrid.error or "none",
+                )
             metrics["scanned"] += 1
             if analysis.is_job_related:
                 metrics["job_related"] += 1

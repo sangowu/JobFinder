@@ -1,6 +1,7 @@
 """SQLite persistence for email-derived job application status."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import sqlite3
@@ -87,6 +88,29 @@ CREATE TABLE IF NOT EXISTS email_sync_state (
     lease_until TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS email_classification_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    provider_message_id TEXT NOT NULL,
+    application_id INTEGER,
+    body_hash TEXT NOT NULL DEFAULT '',
+    trigger_reason TEXT NOT NULL DEFAULT '',
+    decision TEXT NOT NULL DEFAULT 'rules',
+    llm_provider TEXT NOT NULL DEFAULT '',
+    llm_model TEXT NOT NULL DEFAULT '',
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    disagreement INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT NOT NULL DEFAULT '',
+    rule_json TEXT NOT NULL,
+    llm_json TEXT,
+    final_json TEXT NOT NULL,
+    human_label_json TEXT,
+    human_reviewed_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(provider, provider_message_id)
+);
 """
 
 _MIGRATION_COLUMNS = {
@@ -148,6 +172,8 @@ def _migrate(con: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_applications_thread ON applications(gmail_thread_id);"
         "CREATE INDEX IF NOT EXISTS idx_applications_identity "
         "ON applications(company_key, job_title_key);"
+        "CREATE INDEX IF NOT EXISTS idx_email_classification_application "
+        "ON email_classification_observations(application_id);"
     )
     rows = con.execute(
         "SELECT id, company, job_title FROM applications "
@@ -312,7 +338,105 @@ def update_application(application_id: int, *, status: str, company: str, job_ti
                 (application_id, f"manual:{application_id}:{now}", status, now, 1.0,
                  "Confirmed by user", now),
             )
+    record_classification_feedback(
+        application_id,
+        is_job_related=True,
+        status=status,
+        company=company,
+        job_title=job_title,
+        action="confirmed",
+    )
     return get_application(application_id)
+
+
+def record_classification_observation(
+    *, provider: str, message_id: str, application_id: int | None, body_hash: str,
+    trigger_reason: str, decision: str, llm_provider: str, llm_model: str,
+    latency_ms: int, input_tokens: int, output_tokens: int, disagreement: bool,
+    error_message: str, rule_analysis: ApplicationEmailAnalysis,
+    llm_analysis: ApplicationEmailAnalysis | None, final_analysis: ApplicationEmailAnalysis,
+) -> None:
+    with _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO email_classification_observations ("
+            "provider, provider_message_id, application_id, body_hash, trigger_reason, decision, "
+            "llm_provider, llm_model, latency_ms, input_tokens, output_tokens, disagreement, "
+            "error_message, rule_json, llm_json, final_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                provider, message_id, application_id, body_hash, trigger_reason, decision,
+                llm_provider, llm_model, latency_ms, input_tokens, output_tokens,
+                int(disagreement), error_message[:500], rule_analysis.model_dump_json(),
+                llm_analysis.model_dump_json() if llm_analysis else None,
+                final_analysis.model_dump_json(), datetime.utcnow().isoformat(),
+            ),
+        )
+
+
+def record_classification_feedback(
+    application_id: int,
+    *, is_job_related: bool, status: str = "unknown", company: str = "",
+    job_title: str = "", action: str,
+) -> None:
+    label = json.dumps({
+        "is_job_related": is_job_related,
+        "status": status,
+        "company": company.strip(),
+        "job_title": job_title.strip(),
+        "action": action,
+    }, ensure_ascii=False)
+    with _conn() as con:
+        con.execute(
+            "UPDATE email_classification_observations SET human_label_json=?, human_reviewed_at=? "
+            "WHERE application_id=?",
+            (label, datetime.utcnow().isoformat(), application_id),
+        )
+
+
+def get_classification_metrics() -> dict:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM email_classification_observations ORDER BY id"
+        ).fetchall()
+    observations = [dict(row) for row in rows]
+    llm_rows = [row for row in observations if row["trigger_reason"]]
+    reviewed = [row for row in observations if row["human_label_json"]]
+    related_correct = 0
+    status_evaluated = 0
+    status_correct = 0
+    confusion: dict[str, dict[str, int]] = {}
+    for row in reviewed:
+        final = json.loads(row["final_json"])
+        prediction = json.loads(row["llm_json"]) if row["llm_json"] else final
+        human = json.loads(row["human_label_json"])
+        if bool(prediction.get("is_job_related")) == bool(human.get("is_job_related")):
+            related_correct += 1
+        predicted_status = prediction.get("status", "unknown")
+        actual_status = human.get("status", "unknown")
+        if human.get("is_job_related") and predicted_status != "unknown":
+            status_evaluated += 1
+            status_correct += int(predicted_status == actual_status)
+            confusion.setdefault(predicted_status, {})[actual_status] = (
+                confusion.setdefault(predicted_status, {}).get(actual_status, 0) + 1
+            )
+    return {
+        "total_classified": len(observations),
+        "llm_calls": len(llm_rows),
+        "llm_failures": sum(bool(row["error_message"]) for row in llm_rows),
+        "llm_pending": sum(row["decision"] == "llm_pending" for row in llm_rows),
+        "llm_auto": sum(row["decision"] in {"llm_auto", "llm_unrelated"} for row in llm_rows),
+        "disagreements": sum(int(row["disagreement"]) for row in llm_rows),
+        "input_tokens": sum(int(row["input_tokens"]) for row in llm_rows),
+        "output_tokens": sum(int(row["output_tokens"]) for row in llm_rows),
+        "average_latency_ms": round(
+            sum(int(row["latency_ms"]) for row in llm_rows) / len(llm_rows)
+        ) if llm_rows else 0,
+        "reviewed": len(reviewed),
+        "related_accuracy": round(related_correct / len(reviewed), 3) if reviewed else None,
+        "status_evaluated": status_evaluated,
+        "status_accuracy": round(status_correct / status_evaluated, 3) if status_evaluated else None,
+        "confusion": confusion,
+    }
 
 def record_sync_run(
     *, trigger: str, status: str, started_at: datetime, completed_at: datetime,
@@ -421,6 +545,7 @@ def clear_email_data(*, reset_history: bool = True, pause: bool | None = None) -
         con.execute("DELETE FROM applications")
         con.execute("DELETE FROM processed_emails")
         con.execute("DELETE FROM email_sync_runs")
+        con.execute("DELETE FROM email_classification_observations")
         if reset_history:
             con.execute("UPDATE email_sync_state SET history_id='', updated_at=? WHERE provider='gmail'",
                         (datetime.utcnow().isoformat(),))
@@ -433,6 +558,12 @@ def delete_application(application_id: int) -> bool:
         row = con.execute("SELECT 1 FROM applications WHERE id=?", (application_id,)).fetchone()
         if not row:
             return False
+        con.execute(
+            "UPDATE email_classification_observations SET human_label_json=?, human_reviewed_at=? "
+            "WHERE application_id=?",
+            (json.dumps({"is_job_related": False, "status": "unknown", "action": "discarded"}),
+             datetime.utcnow().isoformat(), application_id),
+        )
         con.execute("DELETE FROM application_events WHERE application_id=?", (application_id,))
         con.execute("DELETE FROM applications WHERE id=?", (application_id,))
     return True

@@ -204,6 +204,7 @@ GOOGLE_OAUTH_CLIENT_ID=your_client_id
 GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
 EMAIL_SYNC_INTERVAL_SECONDS=900
 EMAIL_SYNC_MAX_MESSAGES=5000
+EMAIL_LLM_CLASSIFICATION_ENABLED=1
 ```
 
 启动 `jobradar serve` 后，在“投递追踪”页面点击“使用 Google 登录”完成授权。应用只申请 Gmail 只读权限，不需要 Gmail 密码。OAuth token 保存在本地 `data/google_gmail_token.json`，该目录不会提交到 Git。
@@ -212,7 +213,7 @@ EMAIL_SYNC_MAX_MESSAGES=5000
 
 投递追踪页面支持手动同步、暂停/恢复自动同步、清空数据并暂停，以及清空后重新分析最近 30 天。清空和同步共享数据库租约，多进程运行时不会并发写入同一批邮件。
 
-识别时优先保留明确的投递、测评、面试、Offer、拒绝和撤回通知，再过滤 Job Alert、职位推荐和带群发邮件头的 ATS 订阅。系统支持纯文本和 HTML-only 邮件，并记录分类规则、版本、订阅过滤数、失败数和同步模式。系统不会保存邮件正文，只保存正文哈希、邮件元数据和结构化分析结果。
+识别时先使用本地规则保留明确的投递、测评、面试、Offer、拒绝和撤回通知，并过滤 Job Alert、职位推荐和带群发邮件头的 ATS 订阅。只有状态不明确、关键信息缺失或规则信号冲突的邮件才会发送给当前默认 LLM 做结构化裁决；设置 `EMAIL_LLM_CLASSIFICATION_ENABLED=0` 可关闭此功能。系统支持纯文本和 HTML-only 邮件，不保存邮件正文，只保存正文哈希、结构化分析、模型/延迟/token 指标和人工确认标签。投递追踪页会显示 LLM 调用量、失败、待确认、规则分歧及基于人工确认的本地准确率。
 
 可以使用 `scripts/compare_title_gate.py` 做受控 A/B 对比，比较两种流程：
 

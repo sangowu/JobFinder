@@ -230,7 +230,7 @@ The generated `reports/compare_report.json` includes:
 ## Privacy & Security
 
 - **CV content** is sent to your configured LLM API (Anthropic / Google / OpenAI, etc.) for parsing and assessment. Please ensure you trust your chosen provider's data policy.
-- **All data is stored locally**: parsed CV profiles and job listings are stored in a local SQLite database (`data/jobradar_cache.db`) and are never uploaded to any third-party server.
+- **Local persistence**: parsed CV profiles, job listings, and email-classification observations are stored in a local SQLite database (`data/jobradar_cache.db`). Ambiguous application emails may be sent to the configured LLM provider for classification; email bodies are not persisted in the observations table.
 - **Log file** (`logs/jobradar.log`) records search terms and timestamps only — it does not contain CV personal data or API keys, and is excluded from git via `.gitignore`.
 - **PII in CV**: If you are concerned about sending personal information to an external LLM provider, remove it from your CV before uploading (name, email, phone, address). LinkedIn / GitHub links carry no additional risk.
 - **Prompt injection protection**: Job description content scraped from external sources is wrapped in `<jd_content>` boundary tags, and the system prompt explicitly instructs the LLM to treat tag contents as data only, ignoring any embedded instructions.

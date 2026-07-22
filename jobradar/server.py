@@ -424,6 +424,11 @@ async def reanalyse_email_data() -> dict:
 def get_email_sync_history(limit: int = 20) -> list[dict]:
     return application_store.list_sync_runs(limit)
 
+
+@app.get("/api/email/classification-metrics")
+def get_email_classification_metrics() -> dict:
+    return application_store.get_classification_metrics()
+
 @app.get("/api/applications")
 def get_applications(status: str | None = None) -> list[dict]:
     if status and status not in APPLICATION_STATUSES:

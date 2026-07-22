@@ -116,6 +116,7 @@
       <div>
         <h1 class="text-2xl font-bold text-white" data-i18n="apps.title"></h1>
         <p id="email-sync-status" class="text-xs text-gray-400 mt-1"></p>
+        <p class="text-xs text-gray-500 mt-1" data-i18n="apps.llm_privacy"></p>
       </div>
       <div class="flex w-full sm:w-auto flex-wrap items-center justify-start sm:justify-end gap-3">
         <button id="google-connect-btn" onclick="connectGoogleEmail()"
@@ -150,6 +151,10 @@
     <div id="email-sync-meta" class="hidden mb-5 border-y border-gray-700 py-4">
       <h2 class="text-sm font-bold uppercase tracking-wide text-gray-300 mb-[18px]" data-i18n="apps.sync_meta"></h2>
       <div id="email-sync-summary" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 mb-5"></div>
+      <div class="border-t border-gray-800 pt-4 mb-5">
+        <h3 class="text-sm font-bold uppercase tracking-wide text-gray-400 mb-[18px]" data-i18n="apps.llm_metrics"></h3>
+        <div id="email-classification-metrics" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4"></div>
+      </div>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="text-gray-500 uppercase"><tr>
@@ -854,6 +859,11 @@ const I18N = {
     'apps.pages': '页数', 'apps.subscriptions': '订阅过滤', 'apps.failed_messages': '失败', 'apps.sync_mode': '模式',
     'apps.full': '完整', 'apps.full_recovery': '完整恢复', 'apps.history': '增量', 'apps.reanalysis': '重新分析',
     'apps.control_done': '邮件同步设置已更新',
+    'apps.llm_metrics': '邮件分类评估', 'apps.llm_calls': 'LLM 调用', 'apps.llm_failures': 'LLM 失败',
+    'apps.llm_pending': 'LLM 待确认', 'apps.disagreements': '规则分歧', 'apps.avg_latency': '平均延迟',
+    'apps.llm_tokens': 'LLM Tokens', 'apps.reviewed': '人工样本', 'apps.related_accuracy': '相关性准确率',
+    'apps.status_accuracy': '状态准确率', 'apps.no_eval': '暂无',
+    'apps.llm_privacy': '仅模糊邮件会发送至当前配置的 LLM；本地观测不保存邮件正文。',
 
     'hist.benchmark_title': '漏斗 Benchmark',
     'hist.benchmark_empty': '暂无可对比的 benchmark 数据',
@@ -1029,6 +1039,11 @@ const I18N = {
     'apps.pages': 'Pages', 'apps.subscriptions': 'Subscriptions', 'apps.failed_messages': 'Failed', 'apps.sync_mode': 'Mode',
     'apps.full': 'Full', 'apps.full_recovery': 'Full recovery', 'apps.history': 'Incremental', 'apps.reanalysis': 'Reanalysis',
     'apps.control_done': 'Email sync settings updated',
+    'apps.llm_metrics': 'Email Classification Evaluation', 'apps.llm_calls': 'LLM Calls', 'apps.llm_failures': 'LLM Failures',
+    'apps.llm_pending': 'LLM Pending', 'apps.disagreements': 'Rule Disagreements', 'apps.avg_latency': 'Avg Latency',
+    'apps.llm_tokens': 'LLM Tokens', 'apps.reviewed': 'Human Samples', 'apps.related_accuracy': 'Relevance Accuracy',
+    'apps.status_accuracy': 'Status Accuracy', 'apps.no_eval': 'N/A',
+    'apps.llm_privacy': 'Only ambiguous emails are sent to the configured LLM; local observations do not store email bodies.',
 
     'hist.benchmark_empty': 'No benchmark comparison available yet',
     'hist.benchmark_current': 'Current Version',
@@ -1204,6 +1219,11 @@ const I18N = {
     'apps.pages': 'Páginas', 'apps.subscriptions': 'Suscripciones', 'apps.failed_messages': 'Fallidos', 'apps.sync_mode': 'Modo',
     'apps.full': 'Completa', 'apps.full_recovery': 'Recuperación', 'apps.history': 'Incremental', 'apps.reanalysis': 'Nuevo análisis',
     'apps.control_done': 'Configuración de correo actualizada',
+    'apps.llm_metrics': 'Evaluación de clasificación', 'apps.llm_calls': 'Llamadas LLM', 'apps.llm_failures': 'Fallos LLM',
+    'apps.llm_pending': 'LLM pendiente', 'apps.disagreements': 'Desacuerdos', 'apps.avg_latency': 'Latencia media',
+    'apps.llm_tokens': 'Tokens LLM', 'apps.reviewed': 'Muestras humanas', 'apps.related_accuracy': 'Precisión de relevancia',
+    'apps.status_accuracy': 'Precisión de estado', 'apps.no_eval': 'N/D',
+    'apps.llm_privacy': 'Solo los correos ambiguos se envían al LLM configurado; las observaciones locales no guardan el cuerpo.',
 
     'hist.benchmark_current': 'Versión actual',
     'hist.benchmark_previous': 'Versión anterior',
@@ -3760,9 +3780,24 @@ async function loadApplications() {
 }
 
 async function loadEmailSyncHistory() {
-  const runs = await api('GET', '/api/email/sync-history?limit=10');
+  const [runs, metrics] = await Promise.all([
+    api('GET', '/api/email/sync-history?limit=10'),
+    api('GET', '/api/email/classification-metrics'),
+  ]);
   const panel = document.getElementById('email-sync-meta');
   panel.classList.remove('hidden');
+  const percent = value => value == null ? t('apps.no_eval') : `${(value * 100).toFixed(1)}%`;
+  const metricItems = [
+    ['apps.llm_calls', metrics.llm_calls], ['apps.llm_failures', metrics.llm_failures],
+    ['apps.llm_pending', metrics.llm_pending], ['apps.disagreements', metrics.disagreements],
+    ['apps.avg_latency', `${metrics.average_latency_ms}ms`],
+    ['apps.llm_tokens', `${(metrics.input_tokens || 0).toLocaleString()} / ${(metrics.output_tokens || 0).toLocaleString()}`],
+    ['apps.reviewed', metrics.reviewed], ['apps.related_accuracy', percent(metrics.related_accuracy)],
+    ['apps.status_accuracy', percent(metrics.status_accuracy)],
+  ];
+  document.getElementById('email-classification-metrics').innerHTML = metricItems.map(([label, value]) =>
+    `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${_esc(String(value))}</p></div>`
+  ).join('');
   const latest = runs[0];
   const summary = document.getElementById('email-sync-summary');
   if (!latest) {
@@ -3842,7 +3877,7 @@ async function saveApplicationReview(id) {
   }
   await api('PATCH', `/api/applications/${id}`, { company, job_title: jobTitle, status });
   document.getElementById('application-events').classList.add('hidden');
-  await loadApplications();
+  await Promise.all([loadApplications(), loadEmailSyncHistory()]);
 }
 
 async function discardApplication(event, id) {
@@ -3850,7 +3885,7 @@ async function discardApplication(event, id) {
   if (!confirm(t('apps.discard_confirm'))) return;
   await api('DELETE', `/api/applications/${id}`);
   document.getElementById('application-events').classList.add('hidden');
-  await loadApplications();
+  await Promise.all([loadApplications(), loadEmailSyncHistory()]);
 }
 
 async function showApplicationEvents(id) {
