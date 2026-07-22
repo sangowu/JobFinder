@@ -175,7 +175,6 @@ def prefilter_jobs(
 
         title_candidates.append((job, title, company, url, source, source_stats))
 
-    profile_years = profile.years_of_experience or 0
     for job, title, company, url, source, source_stats in title_candidates:
         content = (job.get("description_snippet") or "").strip()
         if not content:
@@ -214,7 +213,8 @@ def prefilter_jobs(
             continue
 
         years_required = extract_max_years_requirement(content[:2000])
-        if years_required is not None and years_required - profile_years >= 4:
+        profile_years = profile.relevant_years_for(title)
+        if years_required is not None and profile_years is not None and years_required - profile_years >= 4:
             reason = f"requires {years_required}+ years; candidate has ~{profile_years:g} years"
             logger.debug("Skip (experience gap): %s | %s", title, reason)
             cb(f"Skip (experience gap): {title[:60]} — {reason}")

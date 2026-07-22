@@ -21,6 +21,11 @@ from jobradar.scraping import scrape_sources
 
 logger = get_logger(__name__)
 
+
+class SearchCancelled(Exception):
+    """Raised at a cooperative checkpoint when the user stops a search."""
+
+
 def run_search(
     profile: CVProfile,
     location: str,
@@ -33,6 +38,7 @@ def run_search(
     limit_per_role: int = 200,
     linkedin_limit_per_role: int = 30,
     hours_old: int | None = 72,
+    control_checkpoint: Callable[[], None] | None = None,
     # 兼容旧参数，优先使用 llm
     provider: Provider = "claude",
     model: str | None = None,
@@ -50,6 +56,8 @@ def run_search(
     setattr(pipeline_stats, "run_id", run_id)
 
     def _cb(msg: str) -> None:
+        if control_checkpoint:
+            control_checkpoint()
         if on_progress:
             on_progress(msg)
 
@@ -74,6 +82,8 @@ def run_search(
             _cb(f"Cached session hit — skipping scrape ({len(cached.job_dedup_keys)} jobs)")
             if on_job:
                 for k in cached.job_dedup_keys:
+                    if control_checkpoint:
+                        control_checkpoint()
                     on_job(k)
             pipeline_stats.saved = len(cached.job_dedup_keys)
             return cached.job_dedup_keys, pipeline_stats
@@ -111,11 +121,15 @@ def run_search(
         )
         collected_keys.extend(keys)
         logger.info("Scrape done: %d jobs", len(keys))
+    except SearchCancelled:
+        raise
     except Exception as e:
         logger.warning("Scrape error, skipping: %s", e)
         _cb(f"Scrape skipped due to error: {e}")
 
     # ── 去重 + 保存 Session ───────────────────────────────────────────────────
+    if control_checkpoint:
+        control_checkpoint()
     collected_keys = list(dict.fromkeys(collected_keys))
     session.job_dedup_keys = collected_keys
     cache.save_session(session)

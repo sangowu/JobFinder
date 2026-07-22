@@ -681,6 +681,20 @@
           <div id="progress-log"
             class="bg-gray-100 dark:bg-gray-800 rounded-xl p-4 text-xs text-gray-500 dark:text-gray-400 space-y-1 font-mono">
           </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="pause-search-btn" type="button" onclick="pauseSearch()"
+              class="flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+              <span aria-hidden="true">Ⅱ</span><span data-i18n="search.pause">暂停</span>
+            </button>
+            <button id="resume-search-btn" type="button" onclick="resumeSearch()"
+              class="hidden flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg border border-green-600/60 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
+              <span aria-hidden="true">▶</span><span data-i18n="search.resume">继续</span>
+            </button>
+            <button id="stop-search-btn" type="button" onclick="stopSearch()"
+              class="flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg border border-red-700/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              <span aria-hidden="true">■</span><span data-i18n="search.stop">终止</span>
+            </button>
+          </div>
         </div>
 
         <!-- Step 4: Done -->
@@ -960,6 +974,9 @@ const I18N = {
     'msg.parse_fail': 'CV 解析失败：', 'msg.no_api_key': '未配置任何 LLM API Key，请先前往「API 配置」页面设置。', 'msg.discover_done': '新增 {0} 个 role',
     'msg.discover_fail': '发现失败：', 'msg.discovering': '发现中…',
     'msg.search_require': '请先上传 CV 并确认 title', 'msg.searching': '搜索中…',
+    'search.pause': '暂停', 'search.resume': '继续', 'search.stop': '终止',
+    'search.paused': '搜索已暂停', 'search.stopping': '正在终止…', 'search.stopped': '搜索已终止，保留 {0} 个当前结果',
+    'search.control_fail': '搜索控制失败：',
     'msg.source_required': '请至少选择一个搜索来源', 'msg.search_fail_start': '搜索启动失败：', 'msg.search_done': '找到 {0} 个匹配职位',
     'msg.search_done_diff': '新增 {0} 个职位，复用缓存 {1} 个',
     'msg.search_fail': '搜索失败：',
@@ -1131,6 +1148,9 @@ const I18N = {
     'msg.parse_fail': 'CV parse failed: ', 'msg.no_api_key': 'No LLM API key configured. Go to API Configuration to set one up.', 'msg.discover_done': '{0} new role(s) added',
     'msg.discover_fail': 'Discovery failed: ', 'msg.discovering': 'Discovering…',
     'msg.search_require': 'Please upload CV and confirm titles first', 'msg.searching': 'Searching…',
+    'search.pause': 'Pause', 'search.resume': 'Resume', 'search.stop': 'Stop',
+    'search.paused': 'Search paused', 'search.stopping': 'Stopping…', 'search.stopped': 'Search stopped; kept {0} current results',
+    'search.control_fail': 'Search control failed: ',
     'msg.source_required': 'Please select at least one source', 'msg.search_fail_start': 'Search failed to start: ', 'msg.search_done': 'Found {0} matching jobs',
     'msg.search_done_diff': '{0} new jobs, {1} from cache',
     'msg.search_fail': 'Search failed: ',
@@ -1302,6 +1322,9 @@ const I18N = {
     'msg.parse_fail': 'Error al analizar CV: ', 'msg.no_api_key': 'No hay API Key configurada. Ve a Configuración API para añadir una.', 'msg.discover_done': '{0} rol(es) nuevo(s) añadido(s)',
     'msg.discover_fail': 'Error en descubrimiento: ', 'msg.discovering': 'Descubriendo…',
     'msg.search_require': 'Sube el CV y confirma los títulos primero', 'msg.searching': 'Buscando…',
+    'search.pause': 'Pausar', 'search.resume': 'Continuar', 'search.stop': 'Detener',
+    'search.paused': 'Búsqueda pausada', 'search.stopping': 'Deteniendo…', 'search.stopped': 'Búsqueda detenida; se conservaron {0} resultados',
+    'search.control_fail': 'Error al controlar la búsqueda: ',
     'msg.source_required': 'Selecciona al menos una fuente', 'msg.search_fail_start': 'Error al iniciar búsqueda: ', 'msg.search_done': 'Se encontraron {0} empleos',
     'msg.search_done_diff': '{0} nuevos empleos, {1} del caché',
     'msg.search_fail': 'Búsqueda fallida: ',
@@ -3002,6 +3025,7 @@ async function startSearch() {
   document.getElementById("done-dedup").classList.add("hidden");
   document.getElementById("progress-log").innerHTML = "";
   document.getElementById("progress-title").textContent = t('progress.title');
+  setSearchControlState("running");
   startSearchTimer();
   // 搜索前快照已有 key，用于后续区分新旧
   _prevSearchKeys = new Set(JOBS.map(j => j.dedup_key));
@@ -3023,13 +3047,15 @@ async function startSearch() {
 
 let _timerInterval = null;
 let _timerStart    = null;
+let _timerElapsedMs = 0;
 
-function startSearchTimer() {
+function startSearchTimer(reset = true) {
   stopSearchTimer();
+  if (reset) _timerElapsedMs = 0;
   _timerStart = Date.now();
   const el = document.getElementById("search-timer");
   _timerInterval = setInterval(() => {
-    const s = Math.floor((Date.now() - _timerStart) / 1000);
+    const s = Math.floor((_timerElapsedMs + Date.now() - _timerStart) / 1000);
     const m = Math.floor(s / 60);
     el.textContent = `${m}:${String(s % 60).padStart(2, "0")}`;
   }, 1000);
@@ -3037,6 +3063,48 @@ function startSearchTimer() {
 
 function stopSearchTimer() {
   if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+}
+
+function pauseSearchTimer() {
+  if (_timerInterval && _timerStart) _timerElapsedMs += Date.now() - _timerStart;
+  stopSearchTimer();
+}
+
+function setSearchControlState(state) {
+  const pauseBtn = document.getElementById("pause-search-btn");
+  const resumeBtn = document.getElementById("resume-search-btn");
+  const stopBtn = document.getElementById("stop-search-btn");
+  if (!pauseBtn || !resumeBtn || !stopBtn) return;
+  pauseBtn.classList.toggle("hidden", state !== "running");
+  resumeBtn.classList.toggle("hidden", state !== "paused");
+  stopBtn.disabled = state === "stopping";
+  stopBtn.classList.toggle("opacity-50", state === "stopping");
+  document.getElementById("progress-title").textContent =
+    state === "paused" ? t("search.paused") : state === "stopping" ? t("search.stopping") : t("progress.title");
+}
+
+async function pauseSearch() {
+  try {
+    await api("POST", "/api/search/pause");
+    setSearchControlState("paused");
+    pauseSearchTimer();
+  } catch (e) { showToast(`${t('search.control_fail')}${e.message}`, true); }
+}
+
+async function resumeSearch() {
+  try {
+    await api("POST", "/api/search/resume");
+    setSearchControlState("running");
+    startSearchTimer(false);
+  } catch (e) { showToast(`${t('search.control_fail')}${e.message}`, true); }
+}
+
+async function stopSearch() {
+  try {
+    await api("POST", "/api/search/stop");
+    setSearchControlState("stopping");
+    pauseSearchTimer();
+  } catch (e) { showToast(`${t('search.control_fail')}${e.message}`, true); }
 }
 
 function listenProgress() {
@@ -3066,6 +3134,11 @@ function listenProgress() {
       p.style.color = "#4ade80";
       log.appendChild(p);
       log.scrollTop = log.scrollHeight;
+
+    } else if (data.type === "state") {
+      setSearchControlState(data.state);
+      if (data.state === "paused") pauseSearchTimer();
+      if (data.state === "running" && !_timerInterval) startSearchTimer(false);
 
     } else if (data.type === "done") {
       finished = true;
@@ -3181,6 +3254,16 @@ function listenProgress() {
         }
       }
 
+      JOBS.sort((a, b) => ((b.score ?? -1) - (a.score ?? -1)));
+      renderList();
+
+    } else if (data.type === "stopped") {
+      finished = true;
+      stopSearchTimer();
+      es.close();
+      document.getElementById("step-progress").classList.remove("active");
+      document.getElementById("step-done").classList.remove("hidden");
+      document.getElementById("done-msg").textContent = t("search.stopped", JOBS.length);
       JOBS.sort((a, b) => ((b.score ?? -1) - (a.score ?? -1)));
       renderList();
 
@@ -3442,6 +3525,8 @@ async function init() {
           document.getElementById("step-done").classList.add("hidden");
           document.getElementById("progress-log").innerHTML = "";
           document.getElementById("progress-title").textContent = t("progress.title");
+          setSearchControlState(status.state || "running");
+          if (status.state !== "paused") startSearchTimer();
           listenProgress();
         }
       } catch(_) {}

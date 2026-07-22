@@ -43,8 +43,8 @@ def _direct_experience_reject(
     language: str,
 ) -> JDAssessment | None:
     years_required = _extract_years_required(content[:4000])
-    profile_years = profile.years_of_experience or 0
-    if years_required is None:
+    profile_years = profile.relevant_years_for(title)
+    if years_required is None or profile_years is None:
         return None
     gap = years_required - profile_years
     if gap <= 3:
@@ -207,7 +207,12 @@ def batch_assess_jds(
 
         jd_blocks = []
         for idx, (title, content) in enumerate(llm_batch, 1):
-            jd_blocks.append(f"[{idx}] 职位：{title}\n<jd_content>\n{content[:8000]}\n</jd_content>")
+            relevant_years = profile.relevant_years_for(title)
+            years_text = "unknown" if relevant_years is None else f"{relevant_years:g}"
+            jd_blocks.append(
+                f"[{idx}] 职位：{title}\n候选人对此职位的直接相关工作年限：{years_text}\n"
+                f"<jd_content>\n{content[:8000]}\n</jd_content>"
+            )
         jd_section = "\n\n---\n\n".join(jd_blocks)
 
         prompt = f"""【输出语言：{lang_name}，所有文字字段必须用 {lang_name} 撰写】
@@ -216,10 +221,12 @@ def batch_assess_jds(
 
 候选人摘要：{profile.summary}
 候选人技能：{skills_str}
-候选人资历：{seniority_text}，实际工作年限：{profile.years_of_experience} 年{leniency_note}
+候选人资历：{seniority_text}，所有行业总工作年限：{profile.years_of_experience} 年{leniency_note}
 
 判断标准：
-- 若 JD 明确要求的工作年限比候选人实际年限高出 3 年以上，则直接判定 relevant=false，并在 reason 中明确写出年限差距原因。
+- 年限比较必须使用每个职位旁的“直接相关工作年限”，禁止使用所有行业总工作年限。
+- 若直接相关工作年限为 unknown，不得仅凭年限拒绝、限分或生成确定的年限差距结论。
+- 若 JD 明确要求的工作年限比候选人直接相关年限高出 3 年以上，则直接判定 relevant=false，并在 reason 中明确写出年限差距原因。
 - 职位要求的核心技能与候选人技能有实质重叠
 - 职位要求的经验年限在候选人能力范围内
 - 职位类型与候选人目标方向吻合
@@ -232,7 +239,7 @@ def batch_assess_jds(
 - relevant：bool，职位是否值得投递
 - reason：一句话说明 relevant 判断的理由（用 {lang_name}）
 - score：整数 0~10，综合匹配分；
-  若 JD 明确要求的工作年限超过候选人实际年限，按以下规则限制上限：
+  若 JD 明确要求的工作年限超过候选人直接相关年限，按以下规则限制上限：
   差距 ≤ 2 年不限制；差距 3~5 年 score 上限为 5；差距 > 5 年 score 上限为 3。
 - strengths：list[str]，候选人申请该职位的真实优势，0~5 条；若无实质优势则返回空列表（用 {lang_name}）
 - weaknesses：list[str]，候选人申请该职位的真实劣势，0~5 条；若无实质劣势则返回空列表；

@@ -119,6 +119,11 @@ app.add_middleware(
 
 _progress_q: asyncio.Queue[str] = asyncio.Queue()
 _search_running = False
+_search_state = "idle"
+_search_state_lock = threading.Lock()
+_search_run_gate = threading.Event()
+_search_run_gate.set()
+_search_cancel = threading.Event()
 _main_loop: asyncio.AbstractEventLoop | None = None
 _email_sync_task: asyncio.Task | None = None
 _google_oauth_state: str | None = None
@@ -711,14 +716,72 @@ class SearchRequest(BaseModel):
     hours_old: int | None = 72
 
 
+def _set_search_state(state: str) -> None:
+    global _search_running, _search_state
+    with _search_state_lock:
+        _search_state = state
+        _search_running = state != "idle"
+
+
+def _transition_search_state(expected: set[str], state: str) -> bool:
+    global _search_running, _search_state
+    with _search_state_lock:
+        if _search_state not in expected:
+            return False
+        _search_state = state
+        _search_running = state != "idle"
+        return True
+
+
+def _search_checkpoint() -> None:
+    from jobradar.agent import SearchCancelled
+
+    while not _search_run_gate.wait(timeout=0.2):
+        if _search_cancel.is_set():
+            raise SearchCancelled()
+    if _search_cancel.is_set():
+        raise SearchCancelled()
+
+
 @app.post("/api/search")
 async def start_search(req: SearchRequest, background_tasks: BackgroundTasks) -> dict:
-    global _search_running
-    if _search_running:
+    if not _transition_search_state({"idle"}, "running"):
         raise HTTPException(status_code=409, detail="搜索正在进行中，请等待完成。")
-    _search_running = True
+    _search_cancel.clear()
+    _search_run_gate.set()
     background_tasks.add_task(_run_search_task, req)
     return {"status": "started"}
+
+
+@app.post("/api/search/pause")
+def pause_search() -> dict:
+    if not _transition_search_state({"running"}, "paused"):
+        raise HTTPException(status_code=409, detail="Only a running search can be paused.")
+    _search_run_gate.clear()
+    _emit("state", state="paused")
+    logger.info("Search paused by user")
+    return {"status": "paused"}
+
+
+@app.post("/api/search/resume")
+def resume_search() -> dict:
+    if not _transition_search_state({"paused"}, "running"):
+        raise HTTPException(status_code=409, detail="Only a paused search can be resumed.")
+    _search_run_gate.set()
+    _emit("state", state="running")
+    logger.info("Search resumed by user")
+    return {"status": "running"}
+
+
+@app.post("/api/search/stop")
+def stop_search() -> dict:
+    if not _transition_search_state({"running", "paused"}, "stopping"):
+        raise HTTPException(status_code=409, detail="No active search can be stopped.")
+    _search_cancel.set()
+    _search_run_gate.set()
+    _emit("state", state="stopping")
+    logger.info("Search stop requested by user")
+    return {"status": "stopping"}
 
 
 async def _run_search_task(req: SearchRequest) -> None:
@@ -729,11 +792,10 @@ async def _run_search_task(req: SearchRequest) -> None:
             _emit("job", job=_job_to_dict(job))
 
     def run() -> None:
-        global _search_running
         import time as _time
         from jobradar.telemetry import telemetry
         try:
-            from jobradar.agent import run_search
+            from jobradar.agent import SearchCancelled, run_search
 
             profile = cache.get_cv_profile(req.cv_hash)
             if profile is None:
@@ -768,6 +830,7 @@ async def _run_search_task(req: SearchRequest) -> None:
                 limit_per_role=req.limit_per_role,
                 linkedin_limit_per_role=req.linkedin_limit_per_role,
                 hours_old=req.hours_old,
+                control_checkpoint=_search_checkpoint,
             )
 
             elapsed = _time.monotonic() - _search_start
@@ -819,11 +882,16 @@ async def _run_search_task(req: SearchRequest) -> None:
                   pipeline_stats=funnel_data,
                   module_metrics=module_metrics,
                   dedup=dedup_report)
+        except SearchCancelled:
+            logger.info("Search stopped by user")
+            _emit("stopped")
         except Exception as e:
             logger.error("Search failed | error=%s", e, exc_info=True)
             _emit("error", msg=str(e))
         finally:
-            _search_running = False
+            _search_cancel.clear()
+            _search_run_gate.set()
+            _set_search_state("idle")
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -864,7 +932,7 @@ async def search_progress() -> StreamingResponse:
                 continue
             yield f"data: {msg}\n\n"
             data = json.loads(msg)
-            if data.get("type") in ("done", "error", "timeout"):
+            if data.get("type") in ("done", "error", "stopped", "timeout"):
                 break
 
     return StreamingResponse(
@@ -876,7 +944,9 @@ async def search_progress() -> StreamingResponse:
 
 @app.get("/api/search/status")
 def search_status() -> dict:
-    return {"running": _search_running, "mock_mode": MOCK_MODE}
+    with _search_state_lock:
+        state = _search_state
+    return {"running": state != "idle", "state": state, "mock_mode": MOCK_MODE}
 
 
 # ─── 统计 API ────────────────────────────────────────────────────────────────

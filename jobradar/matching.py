@@ -14,7 +14,7 @@ from jobradar.seniority import normalize_seniority_level
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "match_v9"
+PROMPT_VERSION = "match_v11"
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 
 
@@ -144,7 +144,7 @@ Dimension rules:
 
 Additional rules:
 - location_score and location_summary are computed programmatically outside the model. Do not return location-based scoring judgments.
-- Do not use onsite / hybrid / office-attendance requirements, visa assumptions, or work-authorization assumptions as risk_penalty inputs unless the candidate profile explicitly states a conflicting constraint.
+- Never mention or score relocation, visa, sponsorship, work authorization, or work permits in risks, weaknesses, summaries, or explanations.
 - Each score must be supported by strengths, weaknesses, missing_must_haves, or risks.
 - Do not count the same issue twice across dimensions.
 - matched_keywords must be concise skills/tools/domains already present in the candidate background, not copied JD sentences.
@@ -196,7 +196,7 @@ Reglas por dimensión:
 
 Reglas adicionales:
 - location_score y location_summary se calculan programáticamente fuera del modelo. No devuelvas juicios de puntuación basados en ubicación.
-- No uses requisitos onsite / hybrid / asistencia a oficina, ni supuestos sobre visado o autorización de trabajo, como entradas de risk_penalty salvo que el perfil del candidato indique explícitamente una restricción en conflicto.
+- Nunca menciones ni puntúes reubicación, visado, patrocinio, autorización de trabajo o permisos de trabajo en riesgos, debilidades, resúmenes o explicaciones.
 - Cada puntuación debe estar respaldada por strengths, weaknesses, missing_must_haves o risks.
 - No cuentes el mismo problema dos veces entre dimensiones.
 - matched_keywords debe contener habilidades/herramientas/dominios concisos ya presentes en el perfil del candidato, no frases copiadas del JD.
@@ -247,7 +247,7 @@ Reglas adicionales:
 
 附加规则：
 - location_score 和 location_summary 由程序在模型外计算；不要返回基于地理位置的评分判断。
-- 不要把 onsite / hybrid / 办公室到岗要求、签证推断或工作许可推断计入 risk_penalty，除非候选人资料中明确写出了相冲突的约束。
+- 禁止在 risks、weaknesses、任何评分结论或 explanation 中提及或分析搬迁、签证、雇主担保、工作许可，也禁止因此扣分。
 - 每个分数都必须能被 strengths、weaknesses、missing_must_haves 或 risks 支撑。
 - 同一个问题不要在多个维度重复计分。
 - matched_keywords 只能输出候选人已具备、且与 JD 明显匹配的技能/工具/领域关键词，禁止复述整句 JD 要求。
@@ -362,42 +362,6 @@ def _deterministic_location_summary(
     }.get(language, "职位位于候选人目标国家之外。")
 
 
-def _jd_text_blob(jd_profile: JDProfile) -> str:
-    parts = [
-        jd_profile.location or "",
-        jd_profile.work_mode or "",
-        jd_profile.summary or "",
-        " ".join(jd_profile.must_have_requirements),
-        " ".join(jd_profile.red_flags),
-        " ".join(jd_profile.responsibilities),
-    ]
-    return "\n".join(part for part in parts if part).lower()
-
-
-def _has_office_attendance_requirement(jd_profile: JDProfile) -> bool:
-    work_mode = (jd_profile.work_mode or "").strip().lower()
-    if work_mode in {"hybrid", "onsite", "on-site"}:
-        return True
-    text = _jd_text_blob(jd_profile)
-    patterns = (
-        r"\b\d+\s+days?\s+(?:per\s+week\s+)?(?:in|at)\s+office\b",
-        r"\bthree\s+days?\s+(?:per\s+week\s+)?(?:in|at)\s+office\b",
-        r"\bin-?office\b",
-        r"\bon-?site\b",
-        r"\bhybrid\b",
-    )
-    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
-
-
-def _has_cross_city_relocation_risk(profile: CVProfile, jd_profile: JDProfile) -> bool:
-    job_location = jd_profile.location or ""
-    if not job_location or not profile.preferred_locations:
-        return False
-    if _location_exactish_match(profile.preferred_locations, job_location):
-        return False
-    return _location_same_country(profile.preferred_locations, job_location)
-
-
 def _is_language_requirement_risk(text: str) -> bool:
     normalized = (text or "").strip().lower()
     markers = (
@@ -408,23 +372,21 @@ def _is_language_requirement_risk(text: str) -> bool:
     return any(marker in normalized for marker in markers)
 
 
-def _is_location_inference_risk(text: str) -> bool:
+def _is_excluded_mobility_or_visa_text(text: str) -> bool:
     normalized = (text or "").strip().lower()
     markers = (
-        "onsite",
-        "hybrid",
-        "office attendance",
-        "office-attendance",
-        "in-office",
-        "on-site",
+        "relocat",
+        "reubic",
         "visa",
         "sponsorship",
         "work authorization",
         "work permit",
         "工作许可",
         "签证",
-        "办公室到岗",
-        "到岗要求",
+        "雇主担保",
+        "工签",
+        "搬迁",
+        "迁居",
     )
     return any(marker in normalized for marker in markers)
 
@@ -472,8 +434,8 @@ def _normalize_experience_gap_language(
     language: str,
 ) -> MatchScore:
     years_required = jd_profile.years_required
-    profile_years = profile.years_of_experience or 0
-    if years_required is None or profile_years >= years_required:
+    profile_years = profile.relevant_years_for(jd_profile.title)
+    if years_required is None:
         return match
 
     filtered_weaknesses = [
@@ -484,6 +446,14 @@ def _normalize_experience_gap_language(
         item for item in match.risks
         if not _is_experience_gap_item(item)
     ]
+
+    if profile_years is None or profile_years >= years_required:
+        return match.model_copy(
+            update={
+                "weaknesses": _dedupe_text_items(filtered_weaknesses),
+                "risks": _dedupe_text_items(filtered_risks),
+            }
+        )
 
     generic_weakness = _generic_experience_gap_weakness(profile_years, years_required, language)
     generic_risk = _generic_experience_gap_risk(language)
@@ -522,11 +492,6 @@ def _recommendation(score: float, risks: list[str]) -> str:
     return "skip"
 
 
-def _has_risk_signal(risks: list[str], *signals: str) -> bool:
-    lowered = [risk.lower() for risk in risks]
-    return any(signal in risk for risk in lowered for signal in signals)
-
-
 def _apply_profile_guards(
     profile: CVProfile,
     jd_profile: JDProfile,
@@ -537,6 +502,8 @@ def _apply_profile_guards(
     years_required = jd_profile.years_required
     level = profile.seniority
     guard_risks: list[str] = []
+    original_risks = list(updated.risks)
+    had_excluded_risk = any(_is_excluded_mobility_or_visa_text(item) for item in original_risks)
 
     if years_required is not None:
         if level in {"intern", "new_grad"} and years_required >= 3:
@@ -558,23 +525,22 @@ def _apply_profile_guards(
     if jd_profile.seniority_conflict and jd_profile.seniority_conflict_reason:
         updated.risks = [*updated.risks, f"Title / Description 冲突: {jd_profile.seniority_conflict_reason}"]
 
-    if _has_cross_city_relocation_risk(profile, jd_profile):
-        updated.location_score = max(updated.location_score, 80)
-        if not _has_risk_signal(updated.risks, "relocation", "reubic", "搬迁"):
-            updated.risk_penalty = min(100, updated.risk_penalty + 10)
-        guard_risks.append(
-            {
-                "en": f"The role may require relocation to {jd_profile.location}, which adds practical friction.",
-                "es": f"El puesto puede requerir reubicación a {jd_profile.location}, lo que añade fricción práctica.",
-            }.get(language, f"该职位可能需要搬迁至 {jd_profile.location}，会带来现实执行层面的摩擦。")
-        )
-
     updated.risks = [
         risk for risk in updated.risks
-        if not _is_language_requirement_risk(risk) and not _is_location_inference_risk(risk)
+        if not _is_language_requirement_risk(risk) and not _is_excluded_mobility_or_visa_text(risk)
     ]
-    if _is_location_inference_risk(updated.risk_summary):
-        updated.risk_summary = ""
+    updated.weaknesses = [
+        item for item in updated.weaknesses
+        if not _is_excluded_mobility_or_visa_text(item)
+    ]
+    summary_fields = (
+        "title_summary", "seniority_summary", "must_have_summary", "nice_to_have_summary",
+        "domain_summary", "location_summary", "language_summary", "risk_summary", "explanation",
+    )
+    for field in summary_fields:
+        if _is_excluded_mobility_or_visa_text(getattr(updated, field)):
+            setattr(updated, field, "")
+    excluded_only_risk_evidence = had_excluded_risk and not updated.risks
 
     candidate_languages = _language_set(profile.languages)
     required_languages = _language_set(jd_profile.required_languages)
@@ -615,6 +581,8 @@ def _apply_profile_guards(
     updated.weaknesses = _dedupe_text_items(updated.weaknesses)
     updated.missing_must_haves = _dedupe_text_items(updated.missing_must_haves)
     updated.risks = _dedupe_text_items(updated.risks)
+    if excluded_only_risk_evidence and not updated.risks:
+        updated.risk_penalty = 0
     return updated
 
 
@@ -669,6 +637,7 @@ def adjust_match_for_profile(
             "location_summary": adjusted.location_summary,
             "language_summary": adjusted.language_summary,
             "risk_summary": adjusted.risk_summary,
+            "explanation": adjusted.explanation,
             "weaknesses": _dedupe_text_items(adjusted.weaknesses),
             "missing_must_haves": _dedupe_text_items(adjusted.missing_must_haves),
             "risks": adjusted.risks,
@@ -709,7 +678,7 @@ def match_job_to_cv(
 - matched_keywords 只输出 3-8 个“候选人已具备且与 JD 明显匹配”的技术栈/工具/领域关键词，禁止复述整句要求。
 - risk_penalty 只用于真实风险，不要把一般弱项重复计入 penalty。
 - 如果职位存在 security clearance、PhD、管理级别明显超出等阻断风险，必须写入 risks。
-- 不要根据 JD 的 onsite/hybrid 要求、签证描述或工作许可描述，去推断候选人一定不匹配；如果候选人资料没有明确冲突信息，这些因素不要计入 risk_penalty。
+- 禁止在 risks、weaknesses、任何评分结论或 explanation 中提及或分析搬迁、签证、雇主担保、工作许可，也禁止因此扣分。
 
 {_rubric_prompt(language)}
 
@@ -719,6 +688,8 @@ def match_job_to_cv(
 候选人可投级别：{", ".join(profile.eligible_seniority_levels)}
 候选人 stretch 级别：{", ".join(profile.stretch_seniority_levels)}
 目标职位：{", ".join(profile.preferred_roles[:10])}
+候选人对此职位的直接相关工作年限：{profile.relevant_years_for(jd_profile.title) if profile.relevant_years_for(jd_profile.title) is not None else "unknown"}
+所有行业总工作年限：{profile.years_of_experience}（仅作背景，禁止用于该职位的年限匹配结论）
 目标地点：{", ".join(profile.preferred_locations[:10])}
 
 JD Profile:

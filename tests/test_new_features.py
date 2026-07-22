@@ -41,6 +41,10 @@ def _make_profile() -> CVProfile:
         summary="Backend and data developer",
         skills=["Python", "SQL", "APIs"],
         years_of_experience=3,
+        role_experience_years=[
+            {"role": "AI Engineer", "years": 3},
+            {"role": "Staff Engineer", "years": 3},
+        ],
         seniority="mid",
         preferred_roles=["Backend Engineer", "Data Engineer"],
         preferred_locations=["Dublin"],

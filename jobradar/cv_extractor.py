@@ -9,7 +9,7 @@ from jobradar.logger import get_logger
 from jobradar.schemas import CVProfile
 
 logger = get_logger(__name__)
-PROMPT_VERSION = "cv_extract_v4"
+PROMPT_VERSION = "cv_extract_v5"
 
 _SYSTEM = """你是一名专业的简历解析助手。
 从用户提供的简历文本中提取关键信息，填入指定的 JSON 结构。
@@ -23,7 +23,12 @@ _SYSTEM = """你是一名专业的简历解析助手。
     - level：如 Fluent / Native / C1；未写则置空。
     - 不要臆测没写出的语言。
 - preferred_locations：提取候选人明确表达的工作地点偏好，统一为英文地名
-- years_of_experience：估算总工作年限，无法判断填 0
+- years_of_experience：估算所有行业经历合计的总工作年限，无法判断填 0
+- role_experience_years：为每个 preferred_roles 职位分别估算“直接相关工作年限”，格式为对象数组，如
+  [{"role": "AI Engineer", "years": 1.5}, {"role": "Software Engineer", "years": 2.0}]。
+  只累计与该职位职责、技术栈或领域直接相关的经历；
+  不得把餐饮、零售、行政等不相关经历计入技术岗位年限。项目或学历只有在 CV 明确表明属于实际受雇工作时才计入。
+  无法从 CV 可靠判断时不要猜测，省略该职位。
 - seniority 相关字段必须一起输出：
     - seniority_raw：只填写 CV 文本中明确出现过的 seniority 原始短语；如果没有明确写出就返回 []
     - seniority：兼容旧字段，填最终综合判断后的主级别，仅允许

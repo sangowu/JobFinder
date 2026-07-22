@@ -124,6 +124,10 @@ _ROLE_VARIANT_MODIFIERS = {
     "sr",
     "jr",
 }
+_GENERIC_ROLE_TOKENS = {
+    "architect", "consultant", "developer", "director", "engineer", "manager",
+    "scientist", "specialist",
+}
 
 
 def _role_tokens(title: str) -> list[str]:
@@ -184,11 +188,20 @@ def is_closed_posting(text: str) -> bool:
 # ─── CVProfile ────────────────────────────────────────────────────────────────
 
 
+class RoleExperience(BaseModel):
+    role: str = Field(description="目标职位名称，必须对应 preferred_roles 中的一项")
+    years: float = Field(ge=0, description="与该目标职位直接相关的受雇工作年限")
+
+
 class CVProfile(BaseModel):
     summary: str = Field(description="一句话专业定位")
     skills: list[str] = Field(default_factory=list)
     languages: list["LanguageProficiency"] = Field(default_factory=list)
     years_of_experience: float | None = Field(default=0, ge=0)
+    role_experience_years: list[RoleExperience] = Field(
+        default_factory=list,
+        description="按 preferred role 估算的直接相关工作年限；不包含不可迁移的其他行业经历",
+    )
     preferred_locations: list[str] = Field(default_factory=list)
     preferred_roles: list[str] = Field(default_factory=list)
     seniority_raw: list[str] = Field(default_factory=list, description="CV 中直接出现的 seniority 原始表达")
@@ -244,6 +257,23 @@ class CVProfile(BaseModel):
         if self.declared_seniority == self.evidence_seniority:
             return self.effective_seniority
         return f"{self.declared_seniority} -> {self.evidence_seniority}"
+
+    def relevant_years_for(self, job_title: str) -> float | None:
+        """Return years directly relevant to a job title, or None when unknown."""
+        target_tokens = set(_role_tokens(job_title)) - _ROLE_VARIANT_MODIFIERS - _GENERIC_ROLE_TOKENS
+        best_score = 0.0
+        best_years: float | None = None
+        for item in self.role_experience_years:
+            role, raw_years = item.role, item.years
+            role_tokens = set(_role_tokens(role)) - _ROLE_VARIANT_MODIFIERS - _GENERIC_ROLE_TOKENS
+            if not target_tokens or not role_tokens:
+                score = 1.0 if normalize_title(role) == normalize_title(job_title) else 0.0
+            else:
+                score = len(target_tokens & role_tokens) / max(len(target_tokens), len(role_tokens))
+            if score >= 0.5 and score > best_score:
+                best_score = score
+                best_years = max(0.0, float(raw_years))
+        return best_years
 
 
 # ─── JobResult ────────────────────────────────────────────────────────────────

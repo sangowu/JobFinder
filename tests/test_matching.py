@@ -90,6 +90,7 @@ def test_experience_gap_text_uses_generic_wording():
         skills=["Python"],
         seniority="junior",
         years_of_experience=1,
+        role_experience_years=[{"role": "Software Engineer", "years": 1}],
     )
     summary = JobSummary(
         job_id="job-2",
@@ -118,6 +119,43 @@ def test_experience_gap_text_uses_generic_wording():
     assert adjusted.weaknesses[0] == "工作年限低于 JD 要求（候选人约 1 年，JD 要求 3+ 年）"
     assert adjusted.risks[0] == "岗位资历要求高于候选人当前工作年限，可能影响面试竞争力"
     assert all("Junior向Mid" not in item for item in adjusted.weaknesses)
+
+
+def test_unknown_role_years_remove_unsupported_experience_conclusions():
+    profile = CVProfile(
+        summary="Career changer into AI engineering",
+        skills=["Python"],
+        seniority="junior",
+        years_of_experience=10,
+        role_experience_years=[],
+    )
+    summary = JobSummary(
+        job_id="job-unknown-years",
+        title="AI Engineer",
+        company="Acme",
+        years_required=3,
+    )
+    match = MatchScore(
+        job_id="job-unknown-years",
+        cv_hash="cv-unknown-years",
+        overall_score=65,
+        title_score=80,
+        seniority_score=60,
+        must_have_score=70,
+        nice_to_have_score=60,
+        domain_score=70,
+        location_score=90,
+        language_score=100,
+        risk_penalty=15,
+        recommendation="stretch_apply",
+        weaknesses=["工作年限低于 JD 要求（候选人约 10 年，JD 要求 3+ 年）"],
+        risks=["岗位资历要求高于候选人当前工作年限，可能影响面试竞争力"],
+    )
+
+    adjusted = adjust_match_for_profile(profile, summary, match, language="zh")
+
+    assert adjusted.weaknesses == []
+    assert adjusted.risks == []
 
 
 def test_office_attendance_risk_is_not_double_penalized():
@@ -192,10 +230,53 @@ def test_office_attendance_guard_does_not_add_risk_when_absent():
 
     adjusted = adjust_match_for_profile(profile, summary, match, language="zh")
 
-    assert adjusted.risk_penalty == 10
+    assert adjusted.risk_penalty == 0
     assert all("办公室到岗" not in risk for risk in adjusted.risks)
-    assert any("搬迁" in risk for risk in adjusted.risks)
+    assert adjusted.risks == []
     assert adjusted.location_score == 80
+
+
+def test_relocation_and_visa_are_removed_from_risks_and_score_summaries():
+    profile = CVProfile(
+        summary="AI engineer",
+        skills=["Python"],
+        seniority="new_grad",
+        preferred_locations=["Dublin, Ireland"],
+    )
+    summary = JobSummary(
+        job_id="job-mobility",
+        title="AI Engineer",
+        company="Acme",
+        location="Cork, Ireland",
+    )
+    match = MatchScore(
+        job_id="job-mobility",
+        cv_hash="cv-mobility",
+        overall_score=60,
+        title_score=90,
+        seniority_score=80,
+        must_have_score=75,
+        nice_to_have_score=60,
+        domain_score=70,
+        location_score=80,
+        language_score=100,
+        risk_penalty=25,
+        recommendation="stretch_apply",
+        risk_summary="Visa sponsorship and relocation are uncertain.",
+        domain_summary="Strong technical alignment; relocation may be needed.",
+        weaknesses=["工作许可状态未知"],
+        risks=["The candidate may need visa sponsorship and relocation."],
+        explanation="Good match, but relocation to Cork creates friction.",
+    )
+
+    adjusted = adjust_match_for_profile(profile, summary, match, language="zh")
+
+    assert adjusted.risks == []
+    assert adjusted.weaknesses == []
+    assert adjusted.risk_summary == ""
+    assert adjusted.domain_summary == ""
+    assert adjusted.explanation == ""
+    assert adjusted.risk_penalty == 0
 
 
 def test_match_job_to_cv_uses_tool_wrapper():

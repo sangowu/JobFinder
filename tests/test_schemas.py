@@ -1,4 +1,5 @@
 """测试 Schema 的核心逻辑：归一化和过期判断。"""
+import json
 from datetime import datetime, timedelta
 
 
@@ -83,6 +84,26 @@ class TestJobResultExpiry:
 
 
 class TestCVProfileSeniority:
+    def test_cv_tool_schema_is_compatible_with_gemini(self):
+        schema_text = json.dumps(CVProfile.model_json_schema())
+
+        assert "additionalProperties" not in schema_text
+
+    def test_relevant_years_match_target_role_not_total_experience(self):
+        profile = CVProfile(
+            summary="Career changer into AI engineering",
+            years_of_experience=10,
+            preferred_roles=["AI Engineer", "Software Engineer"],
+            role_experience_years=[
+                {"role": "AI Engineer", "years": 1},
+                {"role": "Software Engineer", "years": 2},
+            ],
+        )
+
+        assert profile.relevant_years_for("Senior AI Engineer") == 1
+        assert profile.relevant_years_for("Backend Software Engineer") == 2
+        assert profile.relevant_years_for("Retail Manager") is None
+
     def test_legacy_seniority_backfilled(self):
         profile = CVProfile(
             summary="ML engineer",
