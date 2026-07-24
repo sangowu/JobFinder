@@ -6,7 +6,7 @@ from datetime import datetime
 
 from jobradar.schemas import ApplicationEmailAnalysis
 
-CLASSIFIER_VERSION = "rules-v2"
+CLASSIFIER_VERSION = "rules-v3"
 
 _STATUS_PATTERNS = {
     "offer": (r"\b(job offer|offer letter|pleased to offer)\b",),
@@ -14,7 +14,13 @@ _STATUS_PATTERNS = {
     "assessment": (r"\b(assessment|coding challenge|online test|take.home)\b",),
     "rejected": (r"\b(unfortunately|not moving forward|other candidates|not selected|unsuccessful)\b",),
     "withdrawn": (r"\b(application withdrawn|withdrawal confirmed)\b",),
-    "submitted": (r"\b(application (?:has been )?(?:received|submitted)|thank you for applying)\b",),
+    "submitted": (
+        r"\b("
+        r"application (?:has been )?(?:received|submitted)|"
+        r"thank you for applying|thank you for your application|"
+        r"we(?:'ve| have) received your application|application confirmation"
+        r")\b",
+    ),
 }
 _SUBSCRIPTION_SIGNAL = re.compile(
     r"\b("
@@ -63,7 +69,7 @@ def classify_application_email(
         or header_values.get("precedence", "").lower() in {"bulk", "list"}
     )
     subscription_match = subject_subscription or _SUBSCRIPTION_SIGNAL.search(text)
-    is_subscription = status == "unknown" and (bool(subscription_match) or is_bulk)
+    is_subscription = status == "unknown" and bool(subscription_match)
     is_related = not is_subscription and (
         status != "unknown" or bool(_JOB_SIGNAL.search(text))
     )
@@ -76,7 +82,7 @@ def classify_application_email(
     elif subscription_match:
         reason = f"subscription:content:{subscription_match.group(0).lower()}"
     elif is_bulk:
-        reason = f"subscription:header:{bulk_header or 'precedence'}"
+        reason = f"bulk_header_uncertain:{bulk_header or 'precedence'}"
     elif is_related:
         reason = "job_signal"
     else:

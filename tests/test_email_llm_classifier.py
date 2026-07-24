@@ -49,6 +49,16 @@ def test_subscription_does_not_trigger_llm():
     assert llm_trigger_reason(rule) == ""
 
 
+def test_bulk_header_without_subscription_content_triggers_llm():
+    rule = _analysis(
+        is_job_related=False,
+        classification_reason="bulk_header_uncertain:list-unsubscribe",
+        confidence=0.05,
+    )
+
+    assert llm_trigger_reason(rule) == "bulk_header_uncertain"
+
+
 def test_high_confidence_llm_result_is_accepted(monkeypatch):
     monkeypatch.setenv("DEFAULT_PROVIDER", "gemini")
     monkeypatch.setenv("DEFAULT_MODEL", "gemini-test")

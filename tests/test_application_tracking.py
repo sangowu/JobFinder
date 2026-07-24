@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import os
 from datetime import datetime
@@ -79,6 +80,35 @@ def test_classifier_keeps_transactional_email_with_unsubscribe_header():
     )
     assert result.is_job_related is True
     assert result.status == "submitted"
+
+
+def test_classifier_keeps_icims_application_receipt_with_unsubscribe_header():
+    result = classify_application_email(
+        subject="Thank You for Your Application with Docusign",
+        body="Thank you for your interest in Docusign.",
+        sender='"Docusign @ icims" <docusign+autoreply@talent.icims.com>',
+        received_at=datetime(2026, 7, 21),
+        headers={"List-Unsubscribe": "<https://talent.icims.com/unsubscribe>"},
+    )
+
+    assert result.is_job_related is True
+    assert result.status == "submitted"
+    assert result.company == "Docusign"
+    assert result.classification_reason == "transactional:submitted"
+    assert result.classifier_version == "rules-v3"
+
+
+def test_classifier_marks_bulk_header_without_subscription_content_as_uncertain():
+    result = classify_application_email(
+        subject="An update from the hiring team",
+        body="There is an update regarding your application.",
+        received_at=datetime(2026, 7, 21),
+        headers={"List-Unsubscribe": "<https://example.test/unsubscribe>"},
+    )
+
+    assert result.is_job_related is True
+    assert result.status == "unknown"
+    assert result.classification_reason == "bulk_header_uncertain:list-unsubscribe"
 
 
 @pytest.mark.parametrize(
@@ -299,6 +329,54 @@ def test_sync_run_history_roundtrip(store):
     assert store.list_sync_runs(10) == [run]
 
 
+def test_reanalysis_history_reports_unique_applications(store):
+    from datetime import timedelta
+
+    started = datetime.utcnow() - timedelta(seconds=1)
+    analysis = ApplicationEmailAnalysis(
+        is_job_related=True,
+        status="submitted",
+        company="Acme",
+        job_title="AI Engineer",
+        event_at=started,
+        confidence=0.9,
+    )
+    store.record_email(
+        provider="gmail",
+        message_id="receipt-1",
+        received_at=started,
+        sender="jobs@acme.test",
+        subject="Application received",
+        body_hash="hash-1",
+        analysis=analysis,
+        thread_id="thread-1",
+    )
+    store.record_email(
+        provider="gmail",
+        message_id="receipt-2",
+        received_at=started,
+        sender="jobs@acme.test",
+        subject="Application confirmed",
+        body_hash="hash-2",
+        analysis=analysis,
+        thread_id="thread-1",
+    )
+    completed = datetime.utcnow() + timedelta(seconds=1)
+    store.record_sync_run(
+        trigger="reanalysis",
+        status="success",
+        started_at=started,
+        completed_at=completed,
+        duration_ms=100,
+        job_related=2,
+        matched=2,
+    )
+
+    run = store.list_sync_runs(1)[0]
+    assert run["job_related"] == 2
+    assert run["matched"] == 1
+
+
 def test_application_tracker_loads_sync_history():
     from pathlib import Path
 
@@ -307,6 +385,9 @@ def test_application_tracker_loads_sync_history():
     )
     assert 'id="email-sync-meta"' in html
     assert "/api/email/sync-history?limit=10" in html
+    assert 'id="email-sync-history" class="space-y-2"' in html
+    assert "toggleEmailSyncRun(runId)" in html
+    assert "<tbody id=\"email-sync-history\"" not in html
     sync_start = html.index("async function syncApplicationEmail()")
     sync_end = html.index("async function loadApplications()", sync_start)
     assert "loadEmailSyncHistory()" in html[sync_start:sync_end]
@@ -425,7 +506,7 @@ def test_classifier_reports_reason_version_and_reference():
         received_at=datetime(2026, 7, 18),
     )
     assert result.classification_reason == "transactional:submitted"
-    assert result.classifier_version == "rules-v2"
+    assert result.classifier_version == "rules-v3"
     assert result.application_reference == "REQ-789"
 
 
@@ -513,9 +594,53 @@ def test_full_sync_processes_messages_chronologically_and_saves_cursor(store, mo
     monkeypatch.setattr(email_sync, "_gmail_get", fake_get)
     result = email_sync.sync_email(limit=10, force_full=True)
     assert result["sync_mode"] == "full"
-    assert result["matched"] == 2
-    assert store.list_applications()[0].current_status == "rejected"
+    assert result["job_related"] == 2
+    assert result["matched"] == 1
+    application = store.list_applications()[0]
+    assert len(store.get_application(application.id).events) == 2
+    assert application.current_status == "rejected"
     assert store.get_sync_state()["history_id"] == "300"
+
+
+def test_full_sync_reports_incremental_progress(store, monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    monkeypatch.setattr(email_sync, "email_sync_configured", lambda: True)
+    monkeypatch.setattr(email_sync, "_load_credentials", lambda: object())
+    monkeypatch.setattr(
+        email_sync,
+        "_list_recent_message_ids",
+        lambda credentials, limit: (["message-1"], 1),
+    )
+    monkeypatch.setattr(email_sync, "_gmail_get", lambda *args, **kwargs: {"historyId": "300"})
+    monkeypatch.setattr(
+        email_sync,
+        "_fetch_message",
+        lambda *args, **kwargs: {
+            "message_id": "message-1",
+            "thread_id": "thread-1",
+            "history_id": "299",
+            "headers": {},
+            "subject": "Thank you for applying",
+            "sender": "Acme",
+            "received_at": datetime(2026, 7, 24),
+            "body": "Position: AI Engineer\nCompany: Acme",
+        },
+    )
+    updates = []
+
+    result = email_sync.sync_email(
+        limit=10,
+        force_full=True,
+        progress_callback=lambda progress: updates.append(progress.copy()),
+    )
+
+    assert result["matched"] == 1
+    assert [update["stage"] for update in updates] == [
+        "starting", "listing", "fetching", "fetching", "analysing", "analysing", "finalising",
+    ]
+    assert updates[-2]["scanned"] == 1
+    assert updates[-2]["matched"] == 1
 
 
 def test_sync_state_pause_history_and_lease(store):
@@ -576,3 +701,32 @@ def test_application_tracker_has_email_data_controls():
     assert "/api/email/resume" in html
     assert "/api/email/data?pause=true" in html
     assert "/api/email/reanalyse" in html
+    assert "/api/email/reanalyse/progress" in html
+
+
+def test_email_reanalysis_background_state_completes(monkeypatch):
+    import jobradar.server as server
+
+    def fake_reanalyse(progress_callback):
+        progress_callback({
+            "stage": "analysing",
+            "candidates": 3,
+            "scanned": 2,
+            "matched": 1,
+        })
+        return {
+            "ok": True,
+            "message": "Email sync complete",
+            "scanned": 3,
+            "matched": 2,
+        }
+
+    monkeypatch.setattr(server, "reanalyse_email", fake_reanalyse)
+    server._email_reanalysis_state = {"status": "running", "stage": "starting"}
+
+    asyncio.run(server._run_email_reanalysis())
+
+    assert server._email_reanalysis_state["status"] == "completed"
+    assert server._email_reanalysis_state["stage"] == "completed"
+    assert server._email_reanalysis_state["scanned"] == 3
+    assert server._email_reanalysis_state["matched"] == 2

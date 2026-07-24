@@ -137,7 +137,7 @@
           class="px-4 py-2 border border-gray-600 hover:border-blue-500 text-gray-200 text-sm rounded-lg transition-colors">
           <span id="email-auto-label" data-i18n="apps.pause_auto"></span>
         </button>
-        <button onclick="reanalyseApplicationEmail()"
+        <button id="email-reanalyse-btn" onclick="reanalyseApplicationEmail()"
           class="px-4 py-2 border border-gray-600 hover:border-blue-500 text-gray-200 text-sm rounded-lg transition-colors"
           data-i18n="apps.reanalyse"></button>
         <button onclick="clearApplicationEmailData()"
@@ -148,6 +148,16 @@
         </button>
       </div>
     </div>
+    <div id="email-reanalysis-progress" class="hidden mb-5 border border-gray-700 bg-gray-800 p-4 rounded-lg">
+      <div class="flex items-center justify-between gap-4 mb-3">
+        <p id="email-reanalysis-stage" class="text-xs text-gray-300"></p>
+        <p id="email-reanalysis-count" class="text-xs font-mono text-gray-400"></p>
+      </div>
+      <div class="h-2 bg-gray-700 rounded overflow-hidden">
+        <div id="email-reanalysis-bar" class="h-full bg-blue-500 transition-all duration-200" style="width:0%"></div>
+      </div>
+      <div id="email-reanalysis-stats" class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4"></div>
+    </div>
     <div id="email-sync-meta" class="hidden mb-5 border-y border-gray-700 py-4">
       <h2 class="text-sm font-bold uppercase tracking-wide text-gray-300 mb-[18px]" data-i18n="apps.sync_meta"></h2>
       <div id="email-sync-summary" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 mb-5"></div>
@@ -155,19 +165,7 @@
         <h3 class="text-sm font-bold uppercase tracking-wide text-gray-400 mb-[18px]" data-i18n="apps.llm_metrics"></h3>
         <div id="email-classification-metrics" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4"></div>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs">
-          <thead class="text-gray-500 uppercase"><tr>
-            <th class="py-2 pr-4" data-i18n="apps.sync_time"></th><th class="py-2 pr-4" data-i18n="apps.trigger"></th>
-            <th class="py-2 pr-4" data-i18n="apps.sync_mode"></th><th class="py-2 pr-4" data-i18n="apps.pages"></th>
-            <th class="py-2 pr-4" data-i18n="apps.candidates"></th><th class="py-2 pr-4" data-i18n="apps.skipped"></th>
-            <th class="py-2 pr-4" data-i18n="apps.scanned"></th><th class="py-2 pr-4" data-i18n="apps.matched"></th>
-            <th class="py-2 pr-4" data-i18n="apps.subscriptions"></th><th class="py-2 pr-4" data-i18n="apps.failed_messages"></th>
-            <th class="py-2 pr-4" data-i18n="apps.duration"></th><th class="py-2" data-i18n="apps.result"></th>
-          </tr></thead>
-          <tbody id="email-sync-history" class="divide-y divide-gray-800 text-gray-300"></tbody>
-        </table>
-      </div>
+      <div id="email-sync-history" class="space-y-2"></div>
     </div>    <div id="application-filters" class="flex flex-wrap gap-2 mb-5">
       <button data-status="" class="app-filter px-3 py-1.5 rounded-md text-xs bg-blue-600 text-white" data-i18n="apps.all"></button>
       <button data-status="submitted" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.submitted"></button>
@@ -844,10 +842,11 @@ const I18N = {
     'apps.interview': '面试中', 'apps.offer': 'Offer', 'apps.rejected': '已拒绝', 'apps.withdrawn': '已撤回', 'apps.unknown': '待确认',
     'apps.company': '公司', 'apps.role': '职位', 'apps.status': '状态', 'apps.updated': '最近更新',
     'apps.empty': '暂无投递记录', 'apps.not_configured': '邮箱尚未配置',
-    'apps.configured': '自动同步已启用，每 {0} 分钟检查一次', 'apps.sync_done': '同步完成：扫描 {0} 封，识别 {1} 封',
+    'apps.configured': '自动同步已启用，每 {0} 分钟检查一次', 'apps.sync_done': '同步完成：扫描 {0} 封，识别邮件 {1} 封，更新投递 {2} 条',
     'apps.timeline': '状态时间线',
     'apps.sync_meta': '同步历史', 'apps.sync_time': '时间', 'apps.trigger': '触发', 'apps.candidates': '候选',
-    'apps.skipped': '已处理', 'apps.scanned': '新扫描', 'apps.matched': '识别', 'apps.duration': '耗时', 'apps.result': '结果',
+    'apps.skipped': '已处理', 'apps.scanned': '新扫描', 'apps.job_related': '识别邮件', 'apps.matched': '投递记录', 'apps.duration': '耗时', 'apps.result': '结果',
+    'apps.unrelated': '无关邮件', 'apps.pending_review': '待确认',
     'apps.manual': '手动', 'apps.scheduled': '定时', 'apps.success': '成功', 'apps.failed': '失败', 'apps.sync_skipped': '跳过', 'apps.never_synced': '尚无同步记录',
     'apps.actions': '操作', 'apps.confirm': '确认', 'apps.discard': '舍弃', 'apps.discard_confirm': '确定舍弃这条待确认记录吗？',
     'apps.review_title': '确认投递信息', 'apps.save_review': '保存确认', 'apps.choose_status': '请选择状态',
@@ -856,6 +855,12 @@ const I18N = {
     'apps.pause_auto': '暂停自动同步', 'apps.resume_auto': '恢复自动同步', 'apps.paused': '自动同步已暂停',
     'apps.reanalyse': '重新分析', 'apps.clear_data': '清空邮件数据',
     'apps.clear_confirm': '清空全部邮件追踪数据并暂停自动同步？', 'apps.reanalyse_confirm': '清空现有结果并重新分析最近 30 天邮件？',
+    'apps.reanalyse_starting': '正在准备重新分析', 'apps.reanalyse_listing': '正在读取最近 30 天邮件',
+    'apps.reanalyse_fetching': '正在获取邮件内容', 'apps.reanalyse_analysing': '正在分析邮件',
+    'apps.reanalyse_finalising': '正在保存同步结果', 'apps.reanalyse_completed': '重新分析完成',
+    'apps.reanalyse_failed': '重新分析失败', 'apps.progress_scanned': '已扫描',
+    'apps.progress_matched': '已识别', 'apps.progress_filtered': '已过滤',
+    'apps.progress_pending': '待确认', 'apps.progress_failed': '失败',
     'apps.pages': '页数', 'apps.subscriptions': '订阅过滤', 'apps.failed_messages': '失败', 'apps.sync_mode': '模式',
     'apps.full': '完整', 'apps.full_recovery': '完整恢复', 'apps.history': '增量', 'apps.reanalysis': '重新分析',
     'apps.control_done': '邮件同步设置已更新',
@@ -1024,10 +1029,11 @@ const I18N = {
     'apps.interview': 'Interview', 'apps.offer': 'Offer', 'apps.rejected': 'Rejected', 'apps.withdrawn': 'Withdrawn', 'apps.unknown': 'Review',
     'apps.company': 'Company', 'apps.role': 'Role', 'apps.status': 'Status', 'apps.updated': 'Updated',
     'apps.empty': 'No applications yet', 'apps.not_configured': 'Email is not configured',
-    'apps.configured': 'Automatic sync enabled; checking every {0} minutes', 'apps.sync_done': 'Sync complete: scanned {0}, matched {1}',
+    'apps.configured': 'Automatic sync enabled; checking every {0} minutes', 'apps.sync_done': 'Sync complete: scanned {0}, recognized {1} emails, updated {2} applications',
     'apps.timeline': 'Status timeline',
     'apps.sync_meta': 'Sync history', 'apps.sync_time': 'Time', 'apps.trigger': 'Trigger', 'apps.candidates': 'Candidates',
-    'apps.skipped': 'Processed', 'apps.scanned': 'New scanned', 'apps.matched': 'Matched', 'apps.duration': 'Duration', 'apps.result': 'Result',
+    'apps.skipped': 'Processed', 'apps.scanned': 'New scanned', 'apps.job_related': 'Recognized emails', 'apps.matched': 'Applications', 'apps.duration': 'Duration', 'apps.result': 'Result',
+    'apps.unrelated': 'Unrelated', 'apps.pending_review': 'Pending review',
     'apps.manual': 'Manual', 'apps.scheduled': 'Scheduled', 'apps.success': 'Success', 'apps.failed': 'Failed', 'apps.sync_skipped': 'Skipped', 'apps.never_synced': 'No sync history yet',
     'apps.actions': 'Actions', 'apps.confirm': 'Confirm', 'apps.discard': 'Discard', 'apps.discard_confirm': 'Discard this review item?',
     'apps.review_title': 'Confirm application', 'apps.save_review': 'Save confirmation', 'apps.choose_status': 'Choose a status',
@@ -1036,6 +1042,12 @@ const I18N = {
     'apps.pause_auto': 'Pause auto sync', 'apps.resume_auto': 'Resume auto sync', 'apps.paused': 'Automatic sync is paused',
     'apps.reanalyse': 'Reanalyse', 'apps.clear_data': 'Clear email data',
     'apps.clear_confirm': 'Clear all email tracking data and pause automatic sync?', 'apps.reanalyse_confirm': 'Clear current results and reanalyse the last 30 days?',
+    'apps.reanalyse_starting': 'Preparing reanalysis', 'apps.reanalyse_listing': 'Reading email from the last 30 days',
+    'apps.reanalyse_fetching': 'Fetching email content', 'apps.reanalyse_analysing': 'Analysing email',
+    'apps.reanalyse_finalising': 'Saving sync results', 'apps.reanalyse_completed': 'Reanalysis completed',
+    'apps.reanalyse_failed': 'Reanalysis failed', 'apps.progress_scanned': 'Scanned',
+    'apps.progress_matched': 'Matched', 'apps.progress_filtered': 'Filtered',
+    'apps.progress_pending': 'Pending', 'apps.progress_failed': 'Failed',
     'apps.pages': 'Pages', 'apps.subscriptions': 'Subscriptions', 'apps.failed_messages': 'Failed', 'apps.sync_mode': 'Mode',
     'apps.full': 'Full', 'apps.full_recovery': 'Full recovery', 'apps.history': 'Incremental', 'apps.reanalysis': 'Reanalysis',
     'apps.control_done': 'Email sync settings updated',
@@ -1204,10 +1216,11 @@ const I18N = {
     'apps.interview': 'Entrevista', 'apps.offer': 'Oferta', 'apps.rejected': 'Rechazada', 'apps.withdrawn': 'Retirada', 'apps.unknown': 'Revisar',
     'apps.company': 'Empresa', 'apps.role': 'Puesto', 'apps.status': 'Estado', 'apps.updated': 'Actualizado',
     'apps.empty': 'Todavía no hay candidaturas', 'apps.not_configured': 'El correo no está configurado',
-    'apps.configured': 'Sincronización automática cada {0} minutos', 'apps.sync_done': 'Sincronización: {0} revisados, {1} detectados',
+    'apps.configured': 'Sincronización automática cada {0} minutos', 'apps.sync_done': 'Sincronización: {0} revisados, {1} correos reconocidos, {2} candidaturas actualizadas',
     'apps.timeline': 'Cronología de estados',
     'apps.sync_meta': 'Historial de sincronización', 'apps.sync_time': 'Hora', 'apps.trigger': 'Inicio', 'apps.candidates': 'Candidatos',
-    'apps.skipped': 'Procesados', 'apps.scanned': 'Nuevos', 'apps.matched': 'Detectados', 'apps.duration': 'Duración', 'apps.result': 'Resultado',
+    'apps.skipped': 'Procesados', 'apps.scanned': 'Nuevos', 'apps.job_related': 'Correos reconocidos', 'apps.matched': 'Candidaturas', 'apps.duration': 'Duración', 'apps.result': 'Resultado',
+    'apps.unrelated': 'No relacionados', 'apps.pending_review': 'Pendientes',
     'apps.manual': 'Manual', 'apps.scheduled': 'Programada', 'apps.success': 'Correcta', 'apps.failed': 'Fallida', 'apps.sync_skipped': 'Omitida', 'apps.never_synced': 'Sin historial todavía',
     'apps.actions': 'Acciones', 'apps.confirm': 'Confirmar', 'apps.discard': 'Descartar', 'apps.discard_confirm': '¿Descartar este elemento?',
     'apps.review_title': 'Confirmar candidatura', 'apps.save_review': 'Guardar', 'apps.choose_status': 'Elige un estado',
@@ -1216,6 +1229,12 @@ const I18N = {
     'apps.pause_auto': 'Pausar sincronización', 'apps.resume_auto': 'Reanudar sincronización', 'apps.paused': 'Sincronización automática pausada',
     'apps.reanalyse': 'Volver a analizar', 'apps.clear_data': 'Borrar datos de correo',
     'apps.clear_confirm': '¿Borrar todos los datos y pausar la sincronización automática?', 'apps.reanalyse_confirm': '¿Borrar los resultados y volver a analizar los últimos 30 días?',
+    'apps.reanalyse_starting': 'Preparando el nuevo análisis', 'apps.reanalyse_listing': 'Leyendo correos de los últimos 30 días',
+    'apps.reanalyse_fetching': 'Obteniendo correos', 'apps.reanalyse_analysing': 'Analizando correos',
+    'apps.reanalyse_finalising': 'Guardando resultados', 'apps.reanalyse_completed': 'Análisis completado',
+    'apps.reanalyse_failed': 'Error en el análisis', 'apps.progress_scanned': 'Analizados',
+    'apps.progress_matched': 'Detectados', 'apps.progress_filtered': 'Filtrados',
+    'apps.progress_pending': 'Pendientes', 'apps.progress_failed': 'Fallidos',
     'apps.pages': 'Páginas', 'apps.subscriptions': 'Suscripciones', 'apps.failed_messages': 'Fallidos', 'apps.sync_mode': 'Modo',
     'apps.full': 'Completa', 'apps.full_recovery': 'Recuperación', 'apps.history': 'Incremental', 'apps.reanalysis': 'Nuevo análisis',
     'apps.control_done': 'Configuración de correo actualizada',
@@ -3673,10 +3692,13 @@ function toggleLogAuto() {
 })();
 let APPLICATIONS = [];
 let applicationStatus = '';
+let emailReanalysisTimer = null;
+let emailReanalysisWasRunning = false;
 
 async function openApplicationsPage() {
   document.getElementById('applications-page').classList.remove('hidden');
   await Promise.all([loadApplicationEmailStatus(), loadApplications(), loadEmailSyncHistory()]);
+  await pollEmailReanalysisProgress();
 }
 
 function closeApplicationsPage() {
@@ -3731,10 +3753,75 @@ async function clearApplicationEmailData() {
 async function reanalyseApplicationEmail() {
   if (!confirm(t('apps.reanalyse_confirm'))) return;
   try {
-    const result = await api('POST', '/api/email/reanalyse');
-    showToast(t('apps.sync_done', result.scanned, result.matched), !result.ok);
-    await Promise.all([loadApplicationEmailStatus(), loadApplications(), loadEmailSyncHistory()]);
+    await api('POST', '/api/email/reanalyse');
+    await pollEmailReanalysisProgress();
   } catch (e) {
+    showToast(e.message, true);
+  }
+}
+
+function setEmailReanalysisControls(running) {
+  const reanalyseButton = document.getElementById('email-reanalyse-btn');
+  const syncButton = document.getElementById('email-sync-btn');
+  reanalyseButton.disabled = running;
+  syncButton.disabled = running;
+  reanalyseButton.classList.toggle('opacity-50', running);
+  syncButton.classList.toggle('opacity-50', running);
+}
+
+function renderEmailReanalysisProgress(progress) {
+  const panel = document.getElementById('email-reanalysis-progress');
+  const visible = progress.status !== 'idle';
+  panel.classList.toggle('hidden', !visible);
+  if (!visible) return;
+  const total = progress.candidates || 0;
+  const processed = progress.stage === 'fetching'
+    ? (progress.fetched || 0) + (progress.already_processed || 0) + (progress.failed_messages || 0)
+    : (progress.scanned || 0) + (progress.already_processed || 0) + (progress.failed_messages || 0);
+  const percent = progress.status === 'completed'
+    ? 100
+    : total > 0 ? Math.min(99, Math.round(processed / total * 100)) : 0;
+  const stageKey = `apps.reanalyse_${progress.stage || progress.status}`;
+  document.getElementById('email-reanalysis-stage').textContent =
+    t(stageKey) + (progress.error ? `: ${progress.error}` : '');
+  document.getElementById('email-reanalysis-count').textContent = total > 0 ? `${processed} / ${total}` : '';
+  document.getElementById('email-reanalysis-bar').style.width = `${percent}%`;
+  const stats = [
+    ['apps.progress_scanned', progress.scanned || 0],
+    ['apps.progress_matched', progress.matched || 0],
+    ['apps.progress_filtered', (progress.subscription_filtered || 0) + (progress.unrelated || 0)],
+    ['apps.progress_pending', progress.unknown || 0],
+    ['apps.progress_failed', progress.failed_messages || 0],
+  ];
+  document.getElementById('email-reanalysis-stats').innerHTML = stats.map(([label, value]) =>
+    `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${value}</p></div>`
+  ).join('');
+}
+
+async function pollEmailReanalysisProgress() {
+  if (emailReanalysisTimer) {
+    clearTimeout(emailReanalysisTimer);
+    emailReanalysisTimer = null;
+  }
+  try {
+    const progress = await api('GET', '/api/email/reanalyse/progress');
+    renderEmailReanalysisProgress(progress);
+    const running = progress.status === 'running';
+    setEmailReanalysisControls(running);
+    if (running) {
+      emailReanalysisWasRunning = true;
+      emailReanalysisTimer = setTimeout(pollEmailReanalysisProgress, 750);
+    } else if (emailReanalysisWasRunning && (progress.status === 'completed' || progress.status === 'failed')) {
+      emailReanalysisWasRunning = false;
+      if (progress.status === 'completed') {
+        showToast(t('apps.sync_done', progress.scanned, progress.job_related, progress.matched));
+      } else {
+        showToast(progress.error || t('apps.reanalyse_failed'), true);
+      }
+      await Promise.all([loadApplicationEmailStatus(), loadApplications(), loadEmailSyncHistory()]);
+    }
+  } catch (e) {
+    setEmailReanalysisControls(false);
     showToast(e.message, true);
   }
 }
@@ -3764,7 +3851,7 @@ async function syncApplicationEmail() {
   button.disabled = true;
   try {
     const result = await api('POST', '/api/email/sync');
-    showToast(t('apps.sync_done', result.scanned, result.matched), !result.ok);
+    showToast(t('apps.sync_done', result.scanned, result.job_related, result.matched), !result.ok);
     await Promise.all([loadApplications(), loadEmailSyncHistory()]);
   } catch (e) {
     showToast(e.message, true);
@@ -3810,24 +3897,74 @@ async function loadEmailSyncHistory() {
     ['apps.trigger', t(`apps.${latest.trigger}`)],
     ['apps.sync_mode', t(`apps.${latest.sync_mode || 'full'}`)], ['apps.pages', latest.pages || 0],
     ['apps.candidates', latest.candidates], ['apps.skipped', latest.already_processed],
-    ['apps.scanned', latest.scanned], ['apps.matched', latest.matched],
+    ['apps.scanned', latest.scanned], ['apps.job_related', latest.job_related || 0],
+    ['apps.matched', latest.matched],
     ['apps.subscriptions', latest.subscription_filtered || 0], ['apps.failed_messages', latest.failed_messages || 0],
     ['apps.duration', `${(latest.duration_ms / 1000).toFixed(2)}s`],
   ];
   summary.innerHTML = items.map(([label, value]) => `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${_esc(String(value))}</p></div>`).join('');
   document.getElementById('email-sync-history').innerHTML = runs.map(run => {
     const resultKey = run.status === 'skipped' ? 'sync_skipped' : run.status;
-    const resultClass = run.status === 'success' ? 'text-green-400' : run.status === 'failed' ? 'text-red-400' : 'text-yellow-400';
-    return `<tr title="${_esc(run.error_message || '')}">
-      <td class="py-2 pr-4 font-mono">${new Date(run.completed_at).toLocaleString()}</td>
-      <td class="py-2 pr-4">${t(`apps.${run.trigger}`)}</td>
-      <td class="py-2 pr-4">${t(`apps.${run.sync_mode || 'full'}`)}</td><td class="py-2 pr-4 font-mono">${run.pages || 0}</td>
-      <td class="py-2 pr-4 font-mono">${run.candidates}</td>
-      <td class="py-2 pr-4 font-mono">${run.already_processed}</td><td class="py-2 pr-4 font-mono">${run.scanned}</td>
-      <td class="py-2 pr-4 font-mono">${run.matched}</td><td class="py-2 pr-4 font-mono">${run.subscription_filtered || 0}</td>
-      <td class="py-2 pr-4 font-mono">${run.failed_messages || 0}</td><td class="py-2 pr-4 font-mono">${(run.duration_ms / 1000).toFixed(2)}s</td>
-      <td class="py-2 ${resultClass}">${t(`apps.${resultKey}`)}</td></tr>`;
+    const resultClass = run.status === 'success'
+      ? 'bg-green-900/30 text-green-400'
+      : run.status === 'failed' ? 'bg-red-900/30 text-red-400' : 'bg-yellow-900/30 text-yellow-400';
+    const details = [
+      ['apps.sync_mode', t(`apps.${run.sync_mode || 'full'}`)],
+      ['apps.pages', run.pages || 0],
+      ['apps.candidates', run.candidates || 0],
+      ['apps.skipped', run.already_processed || 0],
+      ['apps.scanned', run.scanned || 0],
+      ['apps.job_related', run.job_related || 0],
+      ['apps.matched', run.matched || 0],
+      ['apps.subscriptions', run.subscription_filtered || 0],
+      ['apps.unrelated', run.unrelated || 0],
+      ['apps.pending_review', run.unknown || 0],
+      ['apps.failed_messages', run.failed_messages || 0],
+      ['apps.duration', `${(run.duration_ms / 1000).toFixed(2)}s`],
+    ];
+    const error = run.error_message
+      ? `<p class="mt-4 text-xs text-red-400">${_esc(run.error_message)}</p>` : '';
+    return `<div class="border border-gray-700 bg-gray-800 rounded-lg overflow-hidden">
+      <button type="button" onclick="toggleEmailSyncRun(${run.id})" aria-expanded="false"
+        class="w-full px-4 py-3 text-left hover:bg-gray-700/50 transition-colors">
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2 mb-1">
+              <span class="text-xs font-medium text-gray-200">${t(`apps.${run.trigger}`)}</span>
+              <span class="text-[11px] text-gray-500">${t(`apps.${run.sync_mode || 'full'}`)}</span>
+              <span class="px-2 py-0.5 rounded text-[11px] ${resultClass}">${t(`apps.${resultKey}`)}</span>
+            </div>
+            <p class="text-xs font-mono text-gray-400">${new Date(run.completed_at).toLocaleString()}</p>
+          </div>
+          <div class="flex items-center gap-5 shrink-0">
+            <div class="hidden sm:block text-right">
+              <p class="text-[11px] text-gray-500">${t('apps.job_related')} / ${t('apps.matched')}</p>
+              <p class="text-xs font-mono text-gray-200">${run.job_related || 0} / ${run.matched || 0}</p>
+            </div>
+            <svg id="email-sync-chevron-${run.id}" class="w-4 h-4 text-gray-500 transition-transform duration-200"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 18 6-6-6-6"/>
+            </svg>
+          </div>
+        </div>
+      </button>
+      <div id="email-sync-run-${run.id}" class="hidden border-t border-gray-700 px-4 py-4">
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
+          ${details.map(([label, value]) => `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${_esc(String(value))}</p></div>`).join('')}
+        </div>
+        ${error}
+      </div>
+    </div>`;
   }).join('');
+}
+
+function toggleEmailSyncRun(runId) {
+  const details = document.getElementById(`email-sync-run-${runId}`);
+  const chevron = document.getElementById(`email-sync-chevron-${runId}`);
+  const button = details.previousElementSibling;
+  const expanded = details.classList.toggle('hidden') === false;
+  button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  chevron.classList.toggle('rotate-90', expanded);
 }
 
 function renderApplications() {

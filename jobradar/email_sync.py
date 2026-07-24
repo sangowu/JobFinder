@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
@@ -107,8 +108,18 @@ def clear_email_tracking_data(*, pause: bool = True) -> None:
         _sync_lock.release()
 
 
-def reanalyse_email() -> dict[str, int | str | bool]:
-    return sync_email(trigger="reanalysis", force_full=True, reset_data=True)
+EmailSyncProgressCallback = Callable[[dict[str, int | str]], None]
+
+
+def reanalyse_email(
+    progress_callback: EmailSyncProgressCallback | None = None,
+) -> dict[str, int | str | bool]:
+    return sync_email(
+        trigger="reanalysis",
+        force_full=True,
+        reset_data=True,
+        progress_callback=progress_callback,
+    )
 
 def sync_email(
     limit: int | None = None,
@@ -116,6 +127,7 @@ def sync_email(
     *,
     force_full: bool = False,
     reset_data: bool = False,
+    progress_callback: EmailSyncProgressCallback | None = None,
 ) -> dict[str, int | str | bool]:
     started_at = datetime.utcnow()
     started_perf = time.perf_counter()
@@ -126,7 +138,14 @@ def sync_email(
     }
     sync_mode = "full"
     history_id = ""
+    fetched = 0
+    matched_application_ids: set[int] = set()
 
+    def emit_progress(stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback({"stage": stage, "fetched": fetched, **metrics})
+
+    emit_progress("starting")
     if not email_sync_configured():
         return _record_sync_result(
             trigger=trigger, status="failed", started_at=started_at, started_perf=started_perf,
@@ -152,6 +171,7 @@ def sync_email(
             )
         if reset_data:
             application_store.clear_email_data(reset_history=True)
+        emit_progress("listing")
         credentials = _load_credentials()
         max_messages = limit or int(os.getenv("EMAIL_SYNC_MAX_MESSAGES", str(_DEFAULT_MAX_MESSAGES)))
         state = application_store.get_sync_state()
@@ -172,6 +192,7 @@ def sync_email(
             history_id = _gmail_get(credentials, "/profile").get("historyId", "")
         metrics["pages"] = pages
         metrics["candidates"] = len(message_ids)
+        emit_progress("fetching")
         pending: list[dict] = []
         for message_id in message_ids:
             if application_store.email_was_processed("gmail", message_id):
@@ -179,9 +200,12 @@ def sync_email(
                 continue
             try:
                 pending.append(_fetch_message(credentials, message_id))
+                fetched += 1
             except Exception as exc:
                 metrics["failed_messages"] += 1
                 logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
+            emit_progress("fetching")
+        emit_progress("analysing")
         for item in sorted(pending, key=lambda value: value["received_at"]):
             rule_analysis = classify_application_email(
                 subject=item["subject"], body=item["body"], received_at=item["received_at"],
@@ -238,9 +262,12 @@ def sync_email(
             else:
                 metrics["unrelated"] += 1
             if result is not None:
-                metrics["matched"] += 1
+                matched_application_ids.add(result.id)
+                metrics["matched"] = len(matched_application_ids)
+            emit_progress("analysing")
         if not metrics["failed_messages"] and history_id:
             application_store.set_history_id(history_id)
+        emit_progress("finalising")
         return _record_sync_result(
             trigger=trigger, status="success", started_at=started_at, started_perf=started_perf,
             metrics=metrics, message="Email sync complete", sync_mode=sync_mode,

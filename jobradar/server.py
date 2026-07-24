@@ -126,6 +126,23 @@ _search_run_gate.set()
 _search_cancel = threading.Event()
 _main_loop: asyncio.AbstractEventLoop | None = None
 _email_sync_task: asyncio.Task | None = None
+_email_reanalysis_task: asyncio.Task | None = None
+_email_reanalysis_state: dict = {
+    "status": "idle",
+    "stage": "idle",
+    "fetched": 0,
+    "candidates": 0,
+    "already_processed": 0,
+    "scanned": 0,
+    "matched": 0,
+    "pages": 0,
+    "job_related": 0,
+    "subscription_filtered": 0,
+    "unrelated": 0,
+    "unknown": 0,
+    "failed_messages": 0,
+    "error": "",
+}
 _google_oauth_state: str | None = None
 _google_oauth_code_verifier: str | None = None
 
@@ -410,14 +427,64 @@ def clear_email_data(pause: bool = True) -> dict:
     return {"ok": True, "paused": pause}
 
 
-@app.post("/api/email/reanalyse")
-async def reanalyse_email_data() -> dict:
+async def _run_email_reanalysis() -> None:
+    global _email_reanalysis_state
+
+    def update_progress(progress: dict) -> None:
+        global _email_reanalysis_state
+        _email_reanalysis_state = {
+            **_email_reanalysis_state,
+            **progress,
+            "status": "running",
+        }
+
     try:
-        return await asyncio.to_thread(reanalyse_email)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        result = await asyncio.to_thread(reanalyse_email, update_progress)
+        _email_reanalysis_state = {
+            **_email_reanalysis_state,
+            **result,
+            "status": "completed" if result["ok"] else "failed",
+            "stage": "completed" if result["ok"] else "failed",
+            "error": "" if result["ok"] else str(result["message"]),
+        }
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.exception("Email reanalysis failed")
+        _email_reanalysis_state = {
+            **_email_reanalysis_state,
+            "status": "failed",
+            "stage": "failed",
+            "error": str(exc),
+        }
+
+
+@app.post("/api/email/reanalyse", status_code=202)
+async def reanalyse_email_data() -> dict:
+    global _email_reanalysis_task, _email_reanalysis_state
+    if _email_reanalysis_task is not None and not _email_reanalysis_task.done():
+        raise HTTPException(status_code=409, detail="Email reanalysis is already running")
+    _email_reanalysis_state = {
+        "status": "running",
+        "stage": "starting",
+        "fetched": 0,
+        "candidates": 0,
+        "already_processed": 0,
+        "scanned": 0,
+        "matched": 0,
+        "pages": 0,
+        "job_related": 0,
+        "subscription_filtered": 0,
+        "unrelated": 0,
+        "unknown": 0,
+        "failed_messages": 0,
+        "error": "",
+    }
+    _email_reanalysis_task = asyncio.create_task(_run_email_reanalysis())
+    return dict(_email_reanalysis_state)
+
+
+@app.get("/api/email/reanalyse/progress")
+def get_email_reanalysis_progress() -> dict:
+    return dict(_email_reanalysis_state)
 
 
 @app.get("/api/email/sync-history")

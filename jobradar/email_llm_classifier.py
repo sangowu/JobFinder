@@ -55,6 +55,8 @@ def llm_trigger_reason(
         return ""
     if analysis.classification_reason.startswith("subscription:"):
         return ""
+    if analysis.classification_reason.startswith("bulk_header_uncertain:"):
+        return "bulk_header_uncertain"
     if analysis.is_job_related and analysis.status == "unknown":
         return "ambiguous_status"
     if analysis.is_job_related and (not analysis.company or not analysis.job_title):

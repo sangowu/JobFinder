@@ -472,7 +472,17 @@ def list_sync_runs(limit: int = 20) -> list[dict]:
         rows = con.execute(
             "SELECT * FROM email_sync_runs ORDER BY id DESC LIMIT ?", (max(1, min(limit, 100)),)
         ).fetchall()
-    return [dict(row) for row in rows]
+        runs = [dict(row) for row in rows]
+        for run in runs:
+            if run["trigger"] != "reanalysis":
+                continue
+            row = con.execute(
+                "SELECT COUNT(*) AS count FROM applications "
+                "WHERE created_at>=? AND created_at<=?",
+                (run["started_at"], run["completed_at"]),
+            ).fetchone()
+            run["matched"] = int(row["count"])
+    return runs
 
 
 def latest_sync_run() -> dict | None:
