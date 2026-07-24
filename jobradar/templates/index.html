@@ -160,12 +160,11 @@
     </div>
     <div id="email-sync-meta" class="hidden mb-5 border-y border-gray-700 py-4">
       <h2 class="text-sm font-bold uppercase tracking-wide text-gray-300 mb-[18px]" data-i18n="apps.sync_meta"></h2>
-      <div id="email-sync-summary" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 mb-5"></div>
-      <div class="border-t border-gray-800 pt-4 mb-5">
+      <div id="email-sync-history" class="space-y-2 mb-5"></div>
+      <div class="border-t border-gray-800 pt-4">
         <h3 class="text-sm font-bold uppercase tracking-wide text-gray-400 mb-[18px]" data-i18n="apps.llm_metrics"></h3>
         <div id="email-classification-metrics" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4"></div>
       </div>
-      <div id="email-sync-history" class="space-y-2"></div>
     </div>    <div id="application-filters" class="flex flex-wrap gap-2 mb-5">
       <button data-status="" class="app-filter px-3 py-1.5 rounded-md text-xs bg-blue-600 text-white" data-i18n="apps.all"></button>
       <button data-status="submitted" class="app-filter px-3 py-1.5 rounded-md text-xs bg-gray-800 text-gray-300" data-i18n="apps.submitted"></button>
@@ -3886,23 +3885,11 @@ async function loadEmailSyncHistory() {
     `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${_esc(String(value))}</p></div>`
   ).join('');
   const latest = runs[0];
-  const summary = document.getElementById('email-sync-summary');
   if (!latest) {
-    summary.innerHTML = `<p class="text-xs text-gray-500 col-span-full">${t('apps.never_synced')}</p>`;
-    document.getElementById('email-sync-history').innerHTML = '';
+    document.getElementById('email-sync-history').innerHTML =
+      `<p class="text-xs text-gray-500">${t('apps.never_synced')}</p>`;
     return;
   }
-  const items = [
-    ['apps.sync_time', new Date(latest.completed_at).toLocaleString()],
-    ['apps.trigger', t(`apps.${latest.trigger}`)],
-    ['apps.sync_mode', t(`apps.${latest.sync_mode || 'full'}`)], ['apps.pages', latest.pages || 0],
-    ['apps.candidates', latest.candidates], ['apps.skipped', latest.already_processed],
-    ['apps.scanned', latest.scanned], ['apps.job_related', latest.job_related || 0],
-    ['apps.matched', latest.matched],
-    ['apps.subscriptions', latest.subscription_filtered || 0], ['apps.failed_messages', latest.failed_messages || 0],
-    ['apps.duration', `${(latest.duration_ms / 1000).toFixed(2)}s`],
-  ];
-  summary.innerHTML = items.map(([label, value]) => `<div><p class="text-[11px] uppercase text-gray-500 mb-1">${t(label)}</p><p class="text-xs font-mono text-gray-200">${_esc(String(value))}</p></div>`).join('');
   document.getElementById('email-sync-history').innerHTML = runs.map(run => {
     const resultKey = run.status === 'skipped' ? 'sync_skipped' : run.status;
     const resultClass = run.status === 'success'

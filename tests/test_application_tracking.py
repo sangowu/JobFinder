@@ -386,9 +386,11 @@ def test_application_tracker_loads_sync_history():
     )
     assert 'id="email-sync-meta"' in html
     assert "/api/email/sync-history?limit=10" in html
-    assert 'id="email-sync-history" class="space-y-2"' in html
+    assert 'id="email-sync-history" class="space-y-2 mb-5"' in html
     assert "toggleEmailSyncRun(runId)" in html
     assert "<tbody id=\"email-sync-history\"" not in html
+    assert 'id="email-sync-summary"' not in html
+    assert html.index('id="email-sync-history"') < html.index('data-i18n="apps.llm_metrics"')
     sync_start = html.index("async function syncApplicationEmail()")
     sync_end = html.index("async function loadApplications()", sync_start)
     assert "loadEmailSyncHistory()" in html[sync_start:sync_end]
