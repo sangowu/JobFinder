@@ -221,6 +221,33 @@ The generated `reports/compare_report.json` includes:
 - `diff.improved_only_jobs`: jobs kept only by the title-gate version
 - `diff.title_gate_rejections`: titles explicitly rejected by the title gate
 
+## Email Application Tracking
+
+The **Application Tracker** page connects to Gmail through Google OAuth and classifies recruiting emails as submitted, assessment, interview, offer, rejected, withdrawn, or pending review. The resulting application timeline is stored in the same local SQLite database.
+
+1. Create an OAuth 2.0 Web application client in Google Cloud Console.
+2. Enable the Gmail API.
+3. Add `http://127.0.0.1:8765/api/email/google/callback` as an authorised redirect URI.
+4. Configure `.env`:
+
+```env
+GOOGLE_OAUTH_CLIENT_ID=your_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
+EMAIL_SYNC_INTERVAL_SECONDS=900
+EMAIL_SYNC_MAX_MESSAGES=5000
+EMAIL_SYNC_FETCH_WORKERS=8
+EMAIL_SYNC_ANALYSIS_WORKERS=3
+EMAIL_LLM_CLASSIFICATION_ENABLED=1
+```
+
+Start `jobradar serve`, open **Application Tracker**, and select **Sign in with Google**. JobRadar requests read-only Gmail access. The OAuth token is stored locally at `data/google_gmail_token.json` and is excluded from Git.
+
+The first sync reads the last 30 days of email and stores a Gmail History cursor; later syncs process only new messages. Message bodies are fetched with 8 workers by default (`EMAIL_SYNC_FETCH_WORKERS`, range 1-16). Rule and selective LLM classification use 3 workers by default (`EMAIL_SYNC_ANALYSIS_WORKERS`, range 1-8). Database merges remain chronological and single-threaded.
+
+Clear rejections, job alerts, recommendation digests, and ATS subscriptions are handled by local rules. Only ambiguous status, missing identity, or conflicting bulk-header cases are sent to the configured default LLM. Placeholder identity values such as `unknown`, `N/A`, and `not specified` are normalised as missing so a later email can enrich the company or job title. Email bodies are not persisted; JobRadar stores hashes, structured decisions, model/latency/token metrics, and human feedback.
+
+The UI supports manual sync, pausing scheduled sync, clearing email data, background reanalysis with live progress, expandable sync-history cards, direct Gmail links, and confirm/discard actions for pending records.
+
 ## Matching Semantics
 
 - `location_score` now represents broad geographic compatibility only.

@@ -4,6 +4,10 @@
 
 ### New Features
 
+- **Gmail application tracking with selective LLM classification** (`email_sync.py` / `email_classifier.py` / `email_llm_classifier.py` / `application_store.py` / `server.py` / `index.html`)
+  Added Google OAuth read-only Gmail sync, local rule classification, selective LLM adjudication for ambiguous messages, application timelines, pending-review actions, direct Gmail links, scheduled sync controls, background reanalysis progress, expandable sync history, and local classification metrics.
+  Gmail message fetches use bounded concurrency and rule/LLM analysis runs in a separate bounded worker pool, while SQLite application merging remains chronological and single-threaded.
+
 - **Persisted filter-event audit trail** (`cache.py` / `server.py` / `agent.py` / `scraping.py`)
   Added `run_id` to each search and a new `filter_events` table that stores per-title rejections with `stage / title / reason / details`.
   New API endpoint `/api/filter-events` lets you inspect where a title was filtered out, and mock-cache clearing now wipes both `search_stats` and `filter_events` in the mock database.
@@ -25,6 +29,10 @@
   The History UI adds a funnel benchmark summary with derived efficiency metrics such as post-filter rate, new-job yield, tokens per filtered job, tokens per new job, assessment efficiency, and seniority rejection rate.
 
 ### Improvements
+
+- **Email identity enrichment and placeholder normalisation** (`email_llm_classifier.py` / `application_store.py`)
+  Missing identity values such as `unknown`, `N/A`, and `not specified` are normalised before persistence.
+  Later messages for the same application reference or Gmail thread can enrich placeholder company and job-title fields without overwriting an existing real value.
 
 - **Artifact cache persistence extracted from `cache.py`** (`cache.py` / `artifact_store.py`)
   Moved interview prep, cover letter, CV optimization, and artifact aggregation persistence into a dedicated internal module while keeping the public cache API unchanged.
@@ -66,6 +74,13 @@
   Updated `README.md` / `README.zh.md` / `README.es.md` to reflect the current LLM pipeline: title gate before coarse filter, persisted filter events, compare / inspection scripts, experience-gap rejection, and risk-only relocation / office-attendance handling.
 
 ### Bug Fixes
+
+- **Merged application kept an unknown job title** (`application_store.py`)
+  A first application email could create an `Unknown role` record while a later confirmation correctly identified the position.
+  Merge handling now fills placeholder identity fields and keeps the normalised identity keys in sync.
+
+- **Sync-history cards rendered under classification metrics** (`index.html`)
+  Removed the legacy text summary and placed expandable sync-history cards directly below the sync-history heading, before the independent email-classification metrics section.
 
 - **`matching.py` missing `import re` aborted searches** (`matching.py`)
   After adding relocation / office-attendance helper functions using regex, the module forgot to import `re`.

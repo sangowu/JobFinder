@@ -155,10 +155,37 @@ Opciones útiles:
 - Solo `Indeed`
 - Ubicación fija: `Ireland`
 
+## Seguimiento de Solicitudes por Correo
+
+La página **Seguimiento de solicitudes** se conecta a Gmail mediante Google OAuth y clasifica los correos de contratación como solicitud enviada, evaluación, entrevista, oferta, rechazo, retirada o pendiente de revisión. La cronología resultante se guarda en la misma base de datos SQLite local.
+
+1. Crea un cliente OAuth 2.0 de tipo aplicación web en Google Cloud Console.
+2. Habilita la API de Gmail.
+3. Añade `http://127.0.0.1:8765/api/email/google/callback` como URI de redirección autorizada.
+4. Configura `.env`:
+
+```env
+GOOGLE_OAUTH_CLIENT_ID=your_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
+EMAIL_SYNC_INTERVAL_SECONDS=900
+EMAIL_SYNC_MAX_MESSAGES=5000
+EMAIL_SYNC_FETCH_WORKERS=8
+EMAIL_SYNC_ANALYSIS_WORKERS=3
+EMAIL_LLM_CLASSIFICATION_ENABLED=1
+```
+
+Inicia `jobradar serve`, abre **Seguimiento de solicitudes** y selecciona **Iniciar sesión con Google**. JobRadar solicita acceso de solo lectura a Gmail. El token OAuth se guarda localmente en `data/google_gmail_token.json` y está excluido de Git.
+
+La primera sincronización lee los últimos 30 días y guarda un cursor de Gmail History; las siguientes procesan solo mensajes nuevos. Los cuerpos se descargan con 8 workers por defecto (`EMAIL_SYNC_FETCH_WORKERS`, rango 1-16). Las reglas y la clasificación selectiva con LLM usan 3 workers (`EMAIL_SYNC_ANALYSIS_WORKERS`, rango 1-8). La fusión y escritura en SQLite siguen siendo cronológicas y de un solo hilo.
+
+Las reglas locales procesan los rechazos claros, alertas, recomendaciones y suscripciones ATS. Solo los estados ambiguos, identidades incompletas o conflictos con cabeceras de envío masivo se envían al LLM configurado. Valores como `unknown`, `N/A` y `not specified` se normalizan como ausentes para que un correo posterior pueda completar la empresa o el puesto. Los cuerpos de los correos no se guardan.
+
+La UI permite sincronización manual, pausa de la sincronización programada, borrado de datos, nuevo análisis en segundo plano con progreso, historial expandible, enlaces directos a Gmail y acciones de confirmar/descartar.
+
 ## Privacidad
 
 - **El contenido del CV** se envía a la API LLM que hayas configurado (Anthropic / Google / OpenAI, etc.) para su análisis y evaluación. Asegúrate de confiar en la política de datos de tu proveedor elegido.
-- **Todos los datos se almacenan localmente**: los perfiles de CV analizados y las ofertas de trabajo se guardan en una base de datos SQLite local (`data/jobradar_cache.db`) y nunca se suben a ningún servidor externo.
+- **Persistencia local**: los perfiles de CV, ofertas de trabajo y observaciones de clasificación de correo se guardan en una base de datos SQLite local (`data/jobradar_cache.db`). Los correos ambiguos pueden enviarse al proveedor LLM configurado para su clasificación, pero sus cuerpos no se guardan en la tabla de observaciones.
 - **El archivo de log** (`logs/jobradar.log`) solo registra términos de búsqueda y marcas de tiempo — no contiene datos personales del CV ni API Keys, y está excluido de git mediante `.gitignore`.
 
 ## Limitaciones Conocidas

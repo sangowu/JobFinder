@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 .env
 .env.bak
-.env.example
 *.db
 *.egg-info/
 dist/
