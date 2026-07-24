@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
@@ -30,6 +31,8 @@ _GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 _TOKEN_PATH = DATA_DIR / "google_gmail_token.json"
 _sync_lock = threading.Lock()
 _DEFAULT_MAX_MESSAGES = 5000
+_DEFAULT_FETCH_WORKERS = 8
+_MAX_FETCH_WORKERS = 16
 logger = get_logger("email_sync")
 
 
@@ -194,17 +197,30 @@ def sync_email(
         metrics["candidates"] = len(message_ids)
         emit_progress("fetching")
         pending: list[dict] = []
-        for message_id in message_ids:
-            if application_store.email_was_processed("gmail", message_id):
-                metrics["already_processed"] += 1
-                continue
-            try:
-                pending.append(_fetch_message(credentials, message_id))
-                fetched += 1
-            except Exception as exc:
-                metrics["failed_messages"] += 1
-                logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
-            emit_progress("fetching")
+        pending_ids = [
+            message_id for message_id in message_ids
+            if not application_store.email_was_processed("gmail", message_id)
+        ]
+        metrics["already_processed"] = len(message_ids) - len(pending_ids)
+        fetch_workers = _fetch_worker_count()
+        logger.info(
+            "Gmail message fetch | messages=%d workers=%d",
+            len(pending_ids), fetch_workers,
+        )
+        with ThreadPoolExecutor(max_workers=fetch_workers) as executor:
+            futures = {
+                executor.submit(_fetch_message, credentials, message_id): message_id
+                for message_id in pending_ids
+            }
+            for future in as_completed(futures):
+                message_id = futures[future]
+                try:
+                    pending.append(future.result())
+                    fetched += 1
+                except Exception as exc:
+                    metrics["failed_messages"] += 1
+                    logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
+                emit_progress("fetching")
         emit_progress("analysing")
         for item in sorted(pending, key=lambda value: value["received_at"]):
             rule_analysis = classify_application_email(
@@ -382,6 +398,20 @@ def _fetch_message(credentials: Credentials, message_id: str) -> dict:
         "received_at": _message_datetime(headers.get("date", ""), message.get("internalDate")),
         "body": _payload_text(payload),
     }
+
+
+def _fetch_worker_count() -> int:
+    raw_value = os.getenv("EMAIL_SYNC_FETCH_WORKERS", str(_DEFAULT_FETCH_WORKERS))
+    try:
+        configured = int(raw_value)
+    except ValueError:
+        logger.warning(
+            "Invalid EMAIL_SYNC_FETCH_WORKERS=%r; using default %d",
+            raw_value, _DEFAULT_FETCH_WORKERS,
+        )
+        configured = _DEFAULT_FETCH_WORKERS
+    return max(1, min(configured, _MAX_FETCH_WORKERS))
+
 
 def _oauth_flow(redirect_uri: str, state: str | None = None, code_verifier: str | None = None) -> Flow:
     if not google_oauth_configured():

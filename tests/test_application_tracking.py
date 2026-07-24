@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import threading
 from datetime import datetime
 
 import pytest
@@ -551,6 +552,52 @@ def test_gmail_history_collects_added_messages(monkeypatch):
     assert ids == ["message-2"]
     assert history_id == "102"
     assert pages == 1
+
+
+def test_gmail_fetch_worker_count_defaults_and_clamps(monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    monkeypatch.delenv("EMAIL_SYNC_FETCH_WORKERS", raising=False)
+    assert email_sync._fetch_worker_count() == 8
+    monkeypatch.setenv("EMAIL_SYNC_FETCH_WORKERS", "0")
+    assert email_sync._fetch_worker_count() == 1
+    monkeypatch.setenv("EMAIL_SYNC_FETCH_WORKERS", "100")
+    assert email_sync._fetch_worker_count() == 16
+    monkeypatch.setenv("EMAIL_SYNC_FETCH_WORKERS", "invalid")
+    assert email_sync._fetch_worker_count() == 8
+
+
+def test_full_sync_fetches_messages_concurrently(store, monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    monkeypatch.setattr(email_sync, "email_sync_configured", lambda: True)
+    monkeypatch.setattr(email_sync, "_load_credentials", lambda: object())
+    monkeypatch.setattr(
+        email_sync, "_list_recent_message_ids",
+        lambda credentials, limit: (["message-1", "message-2"], 1),
+    )
+    monkeypatch.setattr(email_sync, "_gmail_get", lambda *args, **kwargs: {"historyId": "300"})
+    monkeypatch.setenv("EMAIL_SYNC_FETCH_WORKERS", "2")
+    barrier = threading.Barrier(2)
+
+    def fetch_message(credentials, message_id):
+        barrier.wait(timeout=1)
+        return {
+            "message_id": message_id,
+            "thread_id": message_id,
+            "history_id": "299",
+            "headers": {},
+            "subject": "Newsletter",
+            "sender": "ATS",
+            "received_at": datetime(2026, 7, 24),
+            "body": "Weekly jobs digest",
+        }
+
+    monkeypatch.setattr(email_sync, "_fetch_message", fetch_message)
+    result = email_sync.sync_email(limit=10, force_full=True)
+
+    assert result["scanned"] == 2
+    assert result["failed_messages"] == 0
 
 
 def test_full_sync_processes_messages_chronologically_and_saves_cursor(store, monkeypatch):
