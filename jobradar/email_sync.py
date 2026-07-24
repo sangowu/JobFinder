@@ -33,6 +33,8 @@ _sync_lock = threading.Lock()
 _DEFAULT_MAX_MESSAGES = 5000
 _DEFAULT_FETCH_WORKERS = 8
 _MAX_FETCH_WORKERS = 16
+_DEFAULT_ANALYSIS_WORKERS = 3
+_MAX_ANALYSIS_WORKERS = 8
 logger = get_logger("email_sync")
 
 
@@ -142,11 +144,14 @@ def sync_email(
     sync_mode = "full"
     history_id = ""
     fetched = 0
+    analysed = 0
     matched_application_ids: set[int] = set()
 
     def emit_progress(stage: str) -> None:
         if progress_callback is not None:
-            progress_callback({"stage": stage, "fetched": fetched, **metrics})
+            progress_callback({
+                "stage": stage, "fetched": fetched, "analysed": analysed, **metrics,
+            })
 
     emit_progress("starting")
     if not email_sync_configured():
@@ -221,21 +226,25 @@ def sync_email(
                     metrics["failed_messages"] += 1
                     logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
                 emit_progress("fetching")
+        ordered_pending = sorted(pending, key=lambda value: value["received_at"])
+        analysis_workers = _analysis_worker_count()
+        logger.info(
+            "Email classification | messages=%d workers=%d",
+            len(ordered_pending), analysis_workers,
+        )
         emit_progress("analysing")
-        for item in sorted(pending, key=lambda value: value["received_at"]):
-            rule_analysis = classify_application_email(
-                subject=item["subject"], body=item["body"], received_at=item["received_at"],
-                sender=item["sender"], headers=item["headers"],
-            )
-            hybrid = classify_ambiguous_email(
-                rule_analysis=rule_analysis,
-                subject=item["subject"], body=item["body"], received_at=item["received_at"],
-                sender=item["sender"], headers=item["headers"],
-            )
-            analysis = hybrid.final_analysis
-            body_hash = hashlib.sha256(
-                item["body"].encode("utf-8", errors="ignore")
-            ).hexdigest()
+        analysed_messages: dict[int, tuple] = {}
+        with ThreadPoolExecutor(max_workers=analysis_workers) as executor:
+            futures = {
+                executor.submit(_analyse_message, item): index
+                for index, item in enumerate(ordered_pending)
+            }
+            for future in as_completed(futures):
+                analysed_messages[futures[future]] = future.result()
+                analysed += 1
+                emit_progress("analysing")
+        for index in range(len(ordered_pending)):
+            item, rule_analysis, hybrid, analysis, body_hash = analysed_messages[index]
             result = application_store.record_email(
                 provider="gmail", message_id=item["message_id"],
                 received_at=item["received_at"], sender=item["sender"],
@@ -411,6 +420,38 @@ def _fetch_worker_count() -> int:
         )
         configured = _DEFAULT_FETCH_WORKERS
     return max(1, min(configured, _MAX_FETCH_WORKERS))
+
+
+def _analysis_worker_count() -> int:
+    raw_value = os.getenv(
+        "EMAIL_SYNC_ANALYSIS_WORKERS", str(_DEFAULT_ANALYSIS_WORKERS)
+    )
+    try:
+        configured = int(raw_value)
+    except ValueError:
+        logger.warning(
+            "Invalid EMAIL_SYNC_ANALYSIS_WORKERS=%r; using default %d",
+            raw_value, _DEFAULT_ANALYSIS_WORKERS,
+        )
+        configured = _DEFAULT_ANALYSIS_WORKERS
+    return max(1, min(configured, _MAX_ANALYSIS_WORKERS))
+
+
+def _analyse_message(item: dict) -> tuple:
+    rule_analysis = classify_application_email(
+        subject=item["subject"], body=item["body"], received_at=item["received_at"],
+        sender=item["sender"], headers=item["headers"],
+    )
+    hybrid = classify_ambiguous_email(
+        rule_analysis=rule_analysis,
+        subject=item["subject"], body=item["body"], received_at=item["received_at"],
+        sender=item["sender"], headers=item["headers"],
+    )
+    analysis = hybrid.final_analysis
+    body_hash = hashlib.sha256(
+        item["body"].encode("utf-8", errors="ignore")
+    ).hexdigest()
+    return item, rule_analysis, hybrid, analysis, body_hash
 
 
 def _oauth_flow(redirect_uri: str, state: str | None = None, code_verifier: str | None = None) -> Flow:

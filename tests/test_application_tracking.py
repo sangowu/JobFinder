@@ -600,6 +600,19 @@ def test_gmail_fetch_worker_count_defaults_and_clamps(monkeypatch):
     assert email_sync._fetch_worker_count() == 8
 
 
+def test_email_analysis_worker_count_defaults_and_clamps(monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    monkeypatch.delenv("EMAIL_SYNC_ANALYSIS_WORKERS", raising=False)
+    assert email_sync._analysis_worker_count() == 3
+    monkeypatch.setenv("EMAIL_SYNC_ANALYSIS_WORKERS", "0")
+    assert email_sync._analysis_worker_count() == 1
+    monkeypatch.setenv("EMAIL_SYNC_ANALYSIS_WORKERS", "100")
+    assert email_sync._analysis_worker_count() == 8
+    monkeypatch.setenv("EMAIL_SYNC_ANALYSIS_WORKERS", "invalid")
+    assert email_sync._analysis_worker_count() == 3
+
+
 def test_full_sync_fetches_messages_concurrently(store, monkeypatch):
     import jobradar.email_sync as email_sync
 
@@ -631,6 +644,45 @@ def test_full_sync_fetches_messages_concurrently(store, monkeypatch):
 
     assert result["scanned"] == 2
     assert result["failed_messages"] == 0
+
+
+def test_full_sync_analyses_messages_concurrently(store, monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    monkeypatch.setattr(email_sync, "email_sync_configured", lambda: True)
+    monkeypatch.setattr(email_sync, "_load_credentials", lambda: object())
+    monkeypatch.setattr(
+        email_sync, "_list_recent_message_ids",
+        lambda credentials, limit: (["message-1", "message-2"], 1),
+    )
+    monkeypatch.setattr(email_sync, "_gmail_get", lambda *args, **kwargs: {"historyId": "300"})
+    monkeypatch.setenv("EMAIL_SYNC_ANALYSIS_WORKERS", "2")
+    monkeypatch.setattr(
+        email_sync,
+        "_fetch_message",
+        lambda credentials, message_id: {
+            "message_id": message_id,
+            "thread_id": message_id,
+            "history_id": "299",
+            "headers": {},
+            "subject": "Newsletter",
+            "sender": "ATS",
+            "received_at": datetime(2026, 7, 24),
+            "body": "Weekly jobs digest",
+        },
+    )
+    original_classifier = email_sync.classify_ambiguous_email
+    barrier = threading.Barrier(2)
+
+    def classify_concurrently(**kwargs):
+        barrier.wait(timeout=1)
+        return original_classifier(**kwargs)
+
+    monkeypatch.setattr(email_sync, "classify_ambiguous_email", classify_concurrently)
+    result = email_sync.sync_email(limit=10, force_full=True)
+
+    assert result["scanned"] == 2
+    assert result["subscription_filtered"] == 2
 
 
 def test_full_sync_processes_messages_chronologically_and_saves_cursor(store, monkeypatch):
@@ -717,8 +769,10 @@ def test_full_sync_reports_incremental_progress(store, monkeypatch):
 
     assert result["matched"] == 1
     assert [update["stage"] for update in updates] == [
-        "starting", "listing", "fetching", "fetching", "analysing", "analysing", "finalising",
+        "starting", "listing", "fetching", "fetching",
+        "analysing", "analysing", "analysing", "finalising",
     ]
+    assert updates[-3]["analysed"] == 1
     assert updates[-2]["scanned"] == 1
     assert updates[-2]["matched"] == 1
 

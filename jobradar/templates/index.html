@@ -3776,7 +3776,8 @@ function renderEmailReanalysisProgress(progress) {
   const total = progress.candidates || 0;
   const processed = progress.stage === 'fetching'
     ? (progress.fetched || 0) + (progress.already_processed || 0) + (progress.failed_messages || 0)
-    : (progress.scanned || 0) + (progress.already_processed || 0) + (progress.failed_messages || 0);
+    : Math.max(progress.analysed || 0, progress.scanned || 0)
+      + (progress.already_processed || 0) + (progress.failed_messages || 0);
   const percent = progress.status === 'completed'
     ? 100
     : total > 0 ? Math.min(99, Math.round(processed / total * 100)) : 0;
