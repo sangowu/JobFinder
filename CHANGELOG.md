@@ -78,6 +78,9 @@
 
 ### Bug Fixes
 
+- **Re-search cleared the existing job list** (`index.html`)
+  Starting another search no longer empties cached jobs or closes the selected job. SSE results update matching jobs in place and append newly found jobs; explicit cache clearing still removes the list.
+
 - **Merged application kept an unknown job title** (`application_store.py`)
   A first application email could create an `Unknown role` record while a later confirmation correctly identified the position.
   Merge handling now fills placeholder identity fields and keeps the normalised identity keys in sync.

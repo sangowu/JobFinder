@@ -80,3 +80,17 @@ def test_search_controls_exist_and_pause_resume_visibility_is_mutually_exclusive
     assert 'id="stop-search-btn"' in html
     assert 'pauseBtn.classList.toggle("hidden", state !== "running")' in html
     assert 'resumeBtn.classList.toggle("hidden", state !== "paused")' in html
+
+
+def test_start_search_keeps_existing_jobs_until_sse_updates_them():
+    html = (Path(__file__).parents[1] / "jobradar" / "templates" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    start_search = html.split("async function startSearch()", 1)[1].split(
+        "function startSearchTimer", 1
+    )[0]
+
+    assert "_prevSearchKeys = new Set(JOBS.map" in start_search
+    assert "JOBS = []" not in start_search
+    assert "activeKey = null" not in start_search
+    assert "if (existing >= 0) JOBS[existing] = job;" in html
