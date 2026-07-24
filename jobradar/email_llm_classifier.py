@@ -15,6 +15,10 @@ from jobradar.schemas import ApplicationEmailAnalysis
 PROMPT_VERSION = "email_hybrid_v1"
 AUTO_ACCEPT_THRESHOLD = 0.85
 PENDING_THRESHOLD = 0.60
+_MISSING_IDENTITY_VALUES = {
+    "", "unknown", "unknown role", "unknown company", "n/a", "none",
+    "not available", "not provided", "not specified", "unspecified",
+}
 
 
 class EmailLLMDecision(BaseModel):
@@ -45,6 +49,11 @@ class HybridEmailClassification:
     error: str = ""
     disagreement: bool = False
     metrics: dict = field(default_factory=dict)
+
+
+def _normalize_identity(value: str) -> str:
+    normalized = value.strip()
+    return "" if normalized.casefold() in _MISSING_IDENTITY_VALUES else normalized
 
 
 def llm_trigger_reason(
@@ -132,8 +141,8 @@ Body:
         llm_analysis = ApplicationEmailAnalysis(
             is_job_related=decision.is_job_related,
             status=decision.status,
-            company=decision.company.strip(),
-            job_title=decision.job_title.strip(),
+            company=_normalize_identity(decision.company),
+            job_title=_normalize_identity(decision.job_title),
             application_reference=decision.application_reference,
             event_at=received_at,
             confidence=decision.confidence,

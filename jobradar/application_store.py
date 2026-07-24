@@ -14,6 +14,10 @@ from jobradar.paths import DATA_DIR, ensure_parent
 from jobradar.schemas import ApplicationEmailAnalysis, ApplicationEvent, JobApplication
 
 _DEFAULT_DB_PATH = str(DATA_DIR / "jobradar_cache.db")
+_MISSING_IDENTITY_VALUES = {
+    "", "unknown", "unknown role", "unknown company", "n/a", "none",
+    "not available", "not provided", "not specified", "unspecified",
+}
 _INIT_SQL = """
 CREATE TABLE IF NOT EXISTS processed_emails (
     provider TEXT NOT NULL,
@@ -196,6 +200,10 @@ def _identity_key(value: str, *, company: bool = False) -> str:
     return re.sub(r"\s+", " ", normalized)
 
 
+def _is_missing_identity(value: str) -> bool:
+    return value.strip().casefold() in _MISSING_IDENTITY_VALUES
+
+
 def email_was_processed(provider: str, message_id: str) -> bool:
     with _conn() as con:
         return con.execute(
@@ -228,8 +236,10 @@ def record_email(
         if not analysis.is_job_related:
             return None
         event_at = analysis.event_at or received_at
-        company = analysis.company.strip() or "Unknown company"
-        title = analysis.job_title.strip() or "Unknown role"
+        raw_company = analysis.company.strip()
+        raw_title = analysis.job_title.strip()
+        company = "Unknown company" if _is_missing_identity(raw_company) else raw_company
+        title = "Unknown role" if _is_missing_identity(raw_title) else raw_title
         company_key = _identity_key(company, company=True)
         title_key = _identity_key(title)
         row = None
@@ -258,12 +268,12 @@ def record_email(
             application_id = int(row["id"])
             merged_company = (
                 company
-                if row["company"] in {"", "Unknown company"} and company != "Unknown company"
+                if _is_missing_identity(row["company"]) and not _is_missing_identity(company)
                 else row["company"]
             )
             merged_title = (
                 title
-                if row["job_title"] in {"", "Unknown role"} and title != "Unknown role"
+                if _is_missing_identity(row["job_title"]) and not _is_missing_identity(title)
                 else row["job_title"]
             )
             merged_company_key = _identity_key(merged_company, company=True)

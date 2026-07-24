@@ -477,7 +477,7 @@ def test_application_merges_by_reference_before_company_title(store):
 def test_application_merge_enriches_unknown_title_from_later_email(store):
     first = ApplicationEmailAnalysis(
         is_job_related=True, status="submitted", company="JPMorgan Chase & Co.",
-        job_title="", application_reference="210730765", confidence=0.95,
+        job_title="unknown", application_reference="210730765", confidence=0.95,
     )
     second = first.model_copy(update={
         "job_title": "AI/ML Associate Engineer",
@@ -501,6 +501,18 @@ def test_application_merge_enriches_unknown_title_from_later_email(store):
             "SELECT job_title_key FROM applications WHERE id=?", (application.id,)
         ).fetchone()
     assert row["job_title_key"] == "ai ml associate engineer"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", " unknown ", "Unknown role", "UNKNOWN COMPANY", "N/A", "None", "not specified"],
+)
+def test_application_identity_placeholder_detection(store, value):
+    assert store._is_missing_identity(value) is True
+
+
+def test_application_identity_placeholder_detection_keeps_real_values(store):
+    assert store._is_missing_identity("AI/ML Associate Engineer") is False
 
 
 def test_application_merges_unknown_messages_by_gmail_thread(store):

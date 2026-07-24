@@ -84,6 +84,28 @@ def test_high_confidence_llm_result_is_accepted(monkeypatch):
     assert result.final_analysis.company == "Acme"
 
 
+def test_llm_identity_placeholders_are_normalized_to_empty():
+    decision = EmailLLMDecision(
+        is_job_related=True,
+        status="submitted",
+        company="N/A",
+        job_title=" not specified ",
+        confidence=0.95,
+        summary="Application received",
+        reasoning="Identity is absent",
+    )
+
+    with patch("jobradar.email_llm_classifier.complete_structured", return_value=decision):
+        result = classify_ambiguous_email(
+            rule_analysis=_analysis(), subject="Application received",
+            body="Your application was received.", sender="ATS",
+            received_at=datetime(2026, 7, 22),
+        )
+
+    assert result.final_analysis.company == ""
+    assert result.final_analysis.job_title == ""
+
+
 def test_medium_confidence_llm_result_goes_to_pending():
     decision = EmailLLMDecision(
         is_job_related=True,
