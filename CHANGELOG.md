@@ -4,6 +4,9 @@
 
 ### New Features
 
+- **Bounded concurrent JobSpy searches** (`scraping.py`)
+  Indeed and LinkedIn source pipelines now run concurrently. Indeed searches up to two titles at once while preserving one shared 2–4 second request-start interval; LinkedIn title searches remain serial to reduce rate-limit risk.
+
 - **Gmail application tracking with selective LLM classification** (`email_sync.py` / `email_classifier.py` / `email_llm_classifier.py` / `application_store.py` / `server.py` / `index.html`)
   Added Google OAuth read-only Gmail sync, local rule classification, selective LLM adjudication for ambiguous messages, application timelines, pending-review actions, direct Gmail links, scheduled sync controls, background reanalysis progress, expandable sync history, and local classification metrics.
   Gmail message fetches use bounded concurrency and rule/LLM analysis runs in a separate bounded worker pool, while SQLite application merging remains chronological and single-threaded.
