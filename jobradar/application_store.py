@@ -236,40 +236,56 @@ def record_email(
         reference = (analysis.application_reference or "").strip()
         if reference:
             row = con.execute(
-                "SELECT id, last_event_at FROM applications "
+                "SELECT id, company, job_title, last_event_at FROM applications "
                 "WHERE lower(external_reference)=lower(?) ORDER BY updated_at DESC LIMIT 1",
                 (reference,),
             ).fetchone()
         if not row and thread_id:
             row = con.execute(
-                "SELECT id, last_event_at FROM applications WHERE gmail_thread_id=? "
+                "SELECT id, company, job_title, last_event_at FROM applications "
+                "WHERE gmail_thread_id=? "
                 "ORDER BY updated_at DESC LIMIT 1",
                 (thread_id,),
             ).fetchone()
         if not row and company != "Unknown company" and title != "Unknown role":
             row = con.execute(
-                "SELECT id, last_event_at FROM applications "
+                "SELECT id, company, job_title, last_event_at FROM applications "
                 "WHERE company_key=? AND job_title_key=? "
                 "ORDER BY updated_at DESC LIMIT 1",
                 (company_key, title_key),
             ).fetchone()
         if row:
             application_id = int(row["id"])
+            merged_company = (
+                company
+                if row["company"] in {"", "Unknown company"} and company != "Unknown company"
+                else row["company"]
+            )
+            merged_title = (
+                title
+                if row["job_title"] in {"", "Unknown role"} and title != "Unknown role"
+                else row["job_title"]
+            )
+            merged_company_key = _identity_key(merged_company, company=True)
+            merged_title_key = _identity_key(merged_title)
             if event_at.isoformat() >= row["last_event_at"]:
                 con.execute(
-                    "UPDATE applications SET current_status=?, last_event_at=?, updated_at=?, "
+                    "UPDATE applications SET current_status=?, company=?, job_title=?, "
+                    "company_key=?, job_title_key=?, last_event_at=?, updated_at=?, "
                     "external_reference=COALESCE(NULLIF(external_reference, ''), ?), "
                     "gmail_thread_id=COALESCE(NULLIF(gmail_thread_id, ''), ?) WHERE id=?",
-                    (analysis.status, event_at.isoformat(), now, reference or None,
+                    (analysis.status, merged_company, merged_title, merged_company_key,
+                     merged_title_key, event_at.isoformat(), now, reference or None,
                      thread_id or None, application_id),
                 )
             else:
                 con.execute(
-                    "UPDATE applications SET "
+                    "UPDATE applications SET company=?, job_title=?, company_key=?, job_title_key=?, "
                     "external_reference=COALESCE(NULLIF(external_reference, ''), ?), "
                     "gmail_thread_id=COALESCE(NULLIF(gmail_thread_id, ''), ?), "
                     "updated_at=? WHERE id=?",
-                    (reference or None, thread_id or None, now, application_id),
+                    (merged_company, merged_title, merged_company_key, merged_title_key,
+                     reference or None, thread_id or None, now, application_id),
                 )
         else:
             applied_at = event_at.isoformat() if analysis.status == "submitted" else None

@@ -469,7 +469,38 @@ def test_application_merges_by_reference_before_company_title(store):
         sender="", subject="Interview", body_hash="2", analysis=second,
     )
     assert len(store.list_applications()) == 1
-    assert store.list_applications()[0].current_status == "interview"
+    application = store.list_applications()[0]
+    assert application.current_status == "interview"
+    assert application.job_title == "Engineer"
+
+
+def test_application_merge_enriches_unknown_title_from_later_email(store):
+    first = ApplicationEmailAnalysis(
+        is_job_related=True, status="submitted", company="JPMorgan Chase & Co.",
+        job_title="", application_reference="210730765", confidence=0.95,
+    )
+    second = first.model_copy(update={
+        "job_title": "AI/ML Associate Engineer",
+        "event_at": datetime(2026, 7, 21, 23, 19, 42),
+    })
+    store.record_email(
+        provider="gmail", message_id="jpmorgan-identity",
+        received_at=datetime(2026, 7, 21, 23, 19, 10),
+        sender="", subject="Final step", body_hash="1", analysis=first,
+    )
+    store.record_email(
+        provider="gmail", message_id="jpmorgan-received",
+        received_at=datetime(2026, 7, 21, 23, 19, 42),
+        sender="", subject="Application received", body_hash="2", analysis=second,
+    )
+
+    application = store.list_applications()[0]
+    assert application.job_title == "AI/ML Associate Engineer"
+    with store._conn() as con:
+        row = con.execute(
+            "SELECT job_title_key FROM applications WHERE id=?", (application.id,)
+        ).fetchone()
+    assert row["job_title_key"] == "ai ml associate engineer"
 
 
 def test_application_merges_unknown_messages_by_gmail_thread(store):
