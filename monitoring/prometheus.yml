@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s        # how often to scrape every target
+
+scrape_configs:
+  - job_name: jobradar
+    # Prometheus scrapes the /metrics path by default, which matches the
+    # endpoint JobRadar exposes — no metrics_path override needed.
+    static_configs:
+      # JobRadar runs on the host; from inside the container the host is
+      # reachable as host.docker.internal. 8765 is JobRadar's default port.
+      - targets: ["host.docker.internal:8765"]

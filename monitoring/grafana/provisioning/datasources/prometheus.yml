@@ -1,0 +1,11 @@
+# Auto-connects Grafana to Prometheus on startup, so there is no manual
+# "Add data source" step. Provisioning files are read once at boot.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Prometheus is reachable by its compose service name on the shared network.
+    # (Container-to-container uses the service name, NOT host.docker.internal.)
+    url: http://prometheus:9090
+    isDefault: true

@@ -1,0 +1,34 @@
+# Local observability stack for JobRadar.
+# Prometheus scrapes JobRadar's /metrics endpoint; Grafana visualises it.
+# JobRadar itself runs on the host (uv run jobradar serve), NOT in a container.
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: jobradar-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # Lets the container reach a service running on the host (Linux needs this
+      # explicitly; Docker Desktop for Windows/Mac resolves it either way).
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: jobradar-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      # Local-only credentials. Do not reuse this anywhere exposed.
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  grafana-data:
