@@ -19,7 +19,7 @@ from typing import AsyncIterator, Callable
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
 from dotenv import load_dotenv
@@ -1046,6 +1046,36 @@ def delete_stats() -> dict:
     """清空全部搜索历史记录。"""
     cache.clear_search_stats()
     return {"ok": True}
+
+
+# ─── Prometheus 指标 ─────────────────────────────────────────────────────────
+
+@app.get("/metrics")
+def metrics() -> PlainTextResponse:
+    """以 Prometheus 文本格式暴露累计运行指标，供 Prometheus 抓取。
+
+    复用 cache.get_stats_summary() 已算好的累计数据，仅做格式转换，不额外采集。
+    """
+    s = cache.get_stats_summary()
+    lines = [
+        "# HELP jobradar_searches_total Total searches run",
+        "# TYPE jobradar_searches_total counter",
+        f"jobradar_searches_total {s['total_searches']}",
+
+        "# HELP jobradar_jobs_found_total Total jobs found across all searches",
+        "# TYPE jobradar_jobs_found_total counter",
+        f"jobradar_jobs_found_total {s['total_jobs']}",
+
+        "# HELP jobradar_llm_tokens_total Total LLM tokens consumed",
+        "# TYPE jobradar_llm_tokens_total counter",
+        f'jobradar_llm_tokens_total{{direction="in"}} {s["total_tokens_in"]}',
+        f'jobradar_llm_tokens_total{{direction="out"}} {s["total_tokens_out"]}',
+
+        "# HELP jobradar_search_seconds_total Cumulative time spent searching",
+        "# TYPE jobradar_search_seconds_total counter",
+        f"jobradar_search_seconds_total {s['total_elapsed']}",
+    ]
+    return PlainTextResponse("\n".join(lines) + "\n")
 
 
 # ─── 日志 API ────────────────────────────────────────────────────────────────
