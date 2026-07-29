@@ -3068,9 +3068,7 @@ async function startSearch() {
   // 搜索前快照已有 key，用于后续区分新旧
   _prevSearchKeys = new Set(JOBS.map(j => j.dedup_key));
   _newThisSearch  = new Set();
-  // 清空旧列表，本次搜索结果会通过 SSE job 事件逐条填入
-  JOBS = [];
-  activeKey = null;
+  // 保留已有缓存结果；本次搜索通过 SSE 原位更新或追加职位
   renderList();
 
   try {

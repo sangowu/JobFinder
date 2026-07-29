@@ -4,7 +4,9 @@ from __future__ import annotations
 import os
 import random
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable
 
@@ -437,26 +439,44 @@ def scrape_indeed_jobspy_multi(
     hours_old: int = 72,
     cb: Callable[[str], None] | None = None,
 ) -> list[dict]:
-    """多 role 串行抓取 Indeed（含限速），URL 去重后返回。"""
+    """多 role 有界并发抓取 Indeed（全局限速），URL 去重后返回。"""
     if cb:
         cb(f"JobSpy scraping (indeed.ie): {roles}")
 
     seen: set[str] = set()
     jobs: list[dict] = []
+    start_lock = threading.Lock()
+    next_start_at = 0.0
 
-    for i, role in enumerate(roles):
-        if i > 0:
-            delay = random.uniform(_INDEED_DELAY_MIN, _INDEED_DELAY_MAX)
-            logger.debug("Indeed inter-role delay: %.1fs", delay)
-            time.sleep(delay)
-        batch = scrape_indeed_jobspy(role, limit_per_role, country, hours_old)
-        for job in batch:
-            url = job.get("url", "")
-            if url and url not in seen:
-                seen.add(url)
-                jobs.append(job)
-        if cb:
-            cb(f"  [{i+1}/{len(roles)}] {role!r} → {len(batch)} results")
+    def _scrape_role(role: str) -> tuple[str, list[dict]]:
+        nonlocal next_start_at
+        with start_lock:
+            now = time.monotonic()
+            if next_start_at > now:
+                delay = next_start_at - now
+                logger.debug("Indeed inter-role delay: %.1fs", delay)
+                time.sleep(delay)
+            next_start_at = time.monotonic() + random.uniform(
+                _INDEED_DELAY_MIN,
+                _INDEED_DELAY_MAX,
+            )
+        return role, scrape_indeed_jobspy(role, limit_per_role, country, hours_old)
+
+    worker_count = min(2, len(roles))
+    if worker_count == 0:
+        return jobs
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        batches = executor.map(_scrape_role, roles)
+
+        for i, (role, batch) in enumerate(batches):
+            for job in batch:
+                url = job.get("url", "")
+                if url and url not in seen:
+                    seen.add(url)
+                    jobs.append(job)
+            if cb:
+                cb(f"  [{i+1}/{len(roles)}] {role!r} → {len(batch)} results")
 
     logger.info("JobSpy indeed 全部 role 完成：%d 条（URL 去重后）", len(jobs))
     if cb:
@@ -579,9 +599,12 @@ def scrape_sources(
     run_id: str = "",
 ) -> list[dict]:
     """抓取 Indeed + LinkedIn，LLM 保守粗筛后合并返回。"""
+    cb_lock = threading.Lock()
+
     def _cb(msg: str) -> None:
         if cb:
-            cb(msg)
+            with cb_lock:
+                cb(msg)
 
     _provider = llm.provider if llm is not None else provider
     _model    = llm.model    if llm is not None else model
@@ -589,25 +612,41 @@ def scrape_sources(
     country = location.strip().split()[0].lower() if location else "ireland"
     linkedin_location = _LINKEDIN_LOCATION.get(country, f"{location.title()}")
 
-    # Indeed
     raw_indeed: list[dict] = []
+    raw_linkedin: list[dict] = []
+    source_tasks: dict[str, Callable[[], list[dict]]] = {}
+
     if limit_per_query > 0:
-        raw_indeed = scrape_indeed_jobspy_multi(
-            roles=roles, limit_per_role=limit_per_query,
-            country=country, hours_old=hours_old, cb=cb,
+        source_tasks["indeed"] = lambda: scrape_indeed_jobspy_multi(
+            roles=roles,
+            limit_per_role=limit_per_query,
+            country=country,
+            hours_old=hours_old,
+            cb=_cb,
         )
     else:
         _cb("Indeed scraping skipped (limit=0)")
 
-    # LinkedIn
-    raw_linkedin: list[dict] = []
     if linkedin_limit_per_role > 0 and linkedin_location:
-        raw_linkedin = scrape_linkedin_jobspy_multi(
-            roles=roles, limit_per_role=linkedin_limit_per_role,
-            location=linkedin_location, hours_old=hours_old, cb=cb,
+        source_tasks["linkedin"] = lambda: scrape_linkedin_jobspy_multi(
+            roles=roles,
+            limit_per_role=linkedin_limit_per_role,
+            location=linkedin_location,
+            hours_old=hours_old,
+            cb=_cb,
         )
     elif linkedin_limit_per_role > 0:
         _cb("LinkedIn scraping skipped: no location mapping for remote")
+
+    with ThreadPoolExecutor(max_workers=max(1, len(source_tasks))) as executor:
+        futures = {
+            source: executor.submit(task)
+            for source, task in source_tasks.items()
+        }
+        if "indeed" in futures:
+            raw_indeed = futures["indeed"].result()
+        if "linkedin" in futures:
+            raw_linkedin = futures["linkedin"].result()
 
     # URL 级合并去重
     seen: set[str] = {j["url"] for j in raw_indeed}

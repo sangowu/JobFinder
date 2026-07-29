@@ -4,6 +4,9 @@
 
 ### New Features
 
+- **Bounded concurrent JobSpy searches** (`scraping.py`)
+  Indeed and LinkedIn source pipelines now run concurrently. Indeed searches up to two titles at once while preserving one shared 2–4 second request-start interval; LinkedIn title searches remain serial to reduce rate-limit risk.
+
 - **Gmail application tracking with selective LLM classification** (`email_sync.py` / `email_classifier.py` / `email_llm_classifier.py` / `application_store.py` / `server.py` / `index.html`)
   Added Google OAuth read-only Gmail sync, local rule classification, selective LLM adjudication for ambiguous messages, application timelines, pending-review actions, direct Gmail links, scheduled sync controls, background reanalysis progress, expandable sync history, and local classification metrics.
   Gmail message fetches use bounded concurrency and rule/LLM analysis runs in a separate bounded worker pool, while SQLite application merging remains chronological and single-threaded.
@@ -74,6 +77,9 @@
   Updated `README.md` / `README.zh.md` / `README.es.md` to reflect the current LLM pipeline: title gate before coarse filter, persisted filter events, compare / inspection scripts, experience-gap rejection, and risk-only relocation / office-attendance handling.
 
 ### Bug Fixes
+
+- **Re-search cleared the existing job list** (`index.html`)
+  Starting another search no longer empties cached jobs or closes the selected job. SSE results update matching jobs in place and append newly found jobs; explicit cache clearing still removes the list.
 
 - **Merged application kept an unknown job title** (`application_store.py`)
   A first application email could create an `Unknown role` record while a later confirmation correctly identified the position.
