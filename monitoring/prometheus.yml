@@ -1,6 +1,9 @@
 global:
   scrape_interval: 15s        # how often to scrape every target
 
+rule_files:
+  - /etc/prometheus/alerts.yml
+
 scrape_configs:
   - job_name: jobradar
     # Prometheus scrapes the /metrics path by default, which matches the

@@ -24,6 +24,11 @@ from jobradar import application_store
 from jobradar.email_classifier import classify_application_email
 from jobradar.email_llm_classifier import classify_ambiguous_email
 from jobradar.logger import get_logger
+from jobradar.metrics import (
+    EMAIL_SYNC_DURATION_SECONDS,
+    EMAIL_SYNC_LAST_SUCCESS_TIMESTAMP_SECONDS,
+    EMAIL_SYNC_RUNS,
+)
 from jobradar.paths import DATA_DIR, ensure_parent
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
@@ -314,12 +319,33 @@ def _record_sync_result(
     metrics: dict[str, int], message: str, sync_mode: str, history_id: str = "",
 ) -> dict[str, int | str | bool]:
     completed_at = datetime.utcnow()
-    duration_ms = round((time.perf_counter() - started_perf) * 1000)
+    duration_seconds = time.perf_counter() - started_perf
+    duration_ms = round(duration_seconds * 1000)
     run = application_store.record_sync_run(
-        trigger=trigger, status=status, started_at=started_at, completed_at=completed_at,
-        duration_ms=duration_ms, error_message=message if status == "failed" else "",
-        sync_mode=sync_mode, history_id=history_id, **metrics,
+        trigger=trigger,
+        status=status,
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_ms=duration_ms,
+        error_message=message if status == "failed" else "",
+        sync_mode=sync_mode,
+        history_id=history_id,
+        **metrics,
     )
+
+    EMAIL_SYNC_RUNS.labels(
+        trigger=trigger,
+        status=status,
+    ).inc()
+
+    EMAIL_SYNC_DURATION_SECONDS.labels(
+        trigger=trigger,
+        status=status,
+    ).observe(duration_seconds)
+
+    if status == "success":
+        EMAIL_SYNC_LAST_SUCCESS_TIMESTAMP_SECONDS.set(time.time())
+
     return {
         "ok": status == "success",
         "message": message,
