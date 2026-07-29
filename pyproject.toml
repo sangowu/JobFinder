@@ -42,3 +42,6 @@ dev = [
 [tool.ruff]
 # scripts/ 是一次性排查/分析脚本，不属于打包/测试范围，导入顺序不做约束
 extend-exclude = ["scripts"]
+
+[tool.pytest.ini_options]
+addopts = ["--basetemp=.pytest_tmp"]
