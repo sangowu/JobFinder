@@ -49,3 +49,13 @@ groups:
           summary: "EmailSync 任务超过 1 小时未成功"
           description: "EmailSync 任务最后一次成功时间距现在超过 1 小时。"
           runbook: "docs/RUNBOOK.md#emailsyncstale"
+
+      - alert: EmailSyncAuthFailure
+        expr: increase(jobradar_email_sync_runs_total{status="failed",reason="auth"}[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gmail 授权失效，需人工重新授权"
+          description: "过去 1 小时内检测到 Gmail 认证失败（约 {{ $value | humanize }} 次）。"
+          runbook: "docs/RUNBOOK.md#emailsyncauthfailure"

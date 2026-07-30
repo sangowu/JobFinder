@@ -17,7 +17,7 @@ _EMAIL_SYNC_DURATION_BUCKETS = (
 EMAIL_SYNC_RUNS = Counter(
     "jobradar_email_sync_runs",
     "Total Gmail synchronization runs.",
-    ("trigger", "status"),
+    ("trigger", "status", "reason"),
 )
 
 EMAIL_SYNC_DURATION_SECONDS = Histogram(
@@ -30,11 +30,5 @@ EMAIL_SYNC_DURATION_SECONDS = Histogram(
 EMAIL_SYNC_LAST_SUCCESS_TIMESTAMP_SECONDS = Gauge(
     "jobradar_email_sync_last_success_timestamp_seconds",
     "Unix timestamp of the last successful Gmail synchronization.",
-)
-
-EMAIL_SYNC_AUTH_FAILURES = Counter(
-    "jobradar_email_sync_auth_failures",
-    "Total Gmail OAuth authentication failures.",
-    ("trigger",),
 )
 
