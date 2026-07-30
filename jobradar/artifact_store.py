@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable
 
-from jobradar.schemas import CVOptimization, CoverLetter, InterviewPrep
+from jobradar.schemas import CoverLetter, CVOptimization, InterviewPrep
 
 
 def get_interview_prep(

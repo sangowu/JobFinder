@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 from jobradar.schemas import CVProfile
-from jobradar.seniority import infer_title_seniority, normalize_seniority_level, seniority_rank
+from jobradar.seniority import (
+    infer_title_seniority,
+    normalize_seniority_level,
+    seniority_rank,
+)
 
 TITLE_GATE_VERSION = "title_gate_v1"
 

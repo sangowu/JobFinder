@@ -291,6 +291,7 @@ def test_google_oauth_accepts_scope_superset_and_cleans_environment(tmp_path, mo
 
 def test_google_connect_endpoint_preserves_pkce_verifier(monkeypatch):
     from fastapi.testclient import TestClient
+
     import jobradar.server as server
 
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id.apps.googleusercontent.com")
@@ -558,6 +559,7 @@ def test_classifier_reports_reason_version_and_reference():
 
 def test_gmail_html_only_payload_is_converted_to_text():
     import base64
+
     from jobradar.email_sync import _payload_text
 
     html = "<html><style>.x{}</style><body><p>Interview invitation</p><script>x()</script></body></html>"
@@ -699,6 +701,7 @@ def test_full_sync_analyses_messages_concurrently(store, monkeypatch):
 
 def test_full_sync_processes_messages_chronologically_and_saves_cursor(store, monkeypatch):
     import base64
+
     import jobradar.email_sync as email_sync
 
     monkeypatch.setattr(email_sync, "email_sync_configured", lambda: True)
@@ -802,6 +805,7 @@ def test_sync_state_pause_history_and_lease(store):
 
 def test_existing_email_database_is_migrated(tmp_path, monkeypatch):
     import sqlite3
+
     import jobradar.application_store as store_mod
 
     path = tmp_path / "legacy.db"

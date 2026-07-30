@@ -7,17 +7,17 @@
 from __future__ import annotations
 
 import re
-from uuid import uuid4
 from typing import Callable
+from uuid import uuid4
 
 from jobradar import cache
-from jobradar.logger import get_logger
 from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
+from jobradar.logger import get_logger
 from jobradar.pipeline_stats import PipelineStats
 from jobradar.schemas import CVProfile, SearchSession
+from jobradar.scraping import scrape_sources
 from jobradar.search_assessment_stage import flush_assessments
 from jobradar.search_prefilter import collect_all_sources, prefilter_jobs
-from jobradar.scraping import scrape_sources
 
 logger = get_logger(__name__)
 

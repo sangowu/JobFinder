@@ -9,7 +9,13 @@ from pydantic import BaseModel, Field
 from jobradar import cache
 from jobradar.llm_backend import LLMConfig, complete_via_tool
 from jobradar.logger import get_logger
-from jobradar.schemas import CVProfile, JDProfile, MatchScore, LanguageProficiency, normalize_language_code
+from jobradar.schemas import (
+    CVProfile,
+    JDProfile,
+    LanguageProficiency,
+    MatchScore,
+    normalize_language_code,
+)
 from jobradar.seniority import normalize_seniority_level
 
 logger = get_logger(__name__)

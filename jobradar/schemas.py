@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
+
 from jobradar.seniority import (
     LEGACY_SENIORITY_LEVEL,
     default_blocked_levels,

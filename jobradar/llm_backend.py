@@ -19,14 +19,14 @@ from typing import Any
 
 import requests
 from pydantic import BaseModel
+
 from jobradar.llm_registry import (
+    _COMPAT_PROVIDERS,
     AVAILABLE_MODELS,
     DEFAULT_MODELS,
     LLMConfig,  # noqa: F401 — 供其他模块从 llm_backend 重导出使用
     Provider,  # noqa: F401 — 同上
-    _COMPAT_PROVIDERS,
 )
-
 
 # ─── 统一响应格式 ─────────────────────────────────────────────────────────────
 
@@ -65,6 +65,7 @@ def complete_structured(
 ) -> BaseModel:
     """调用 LLM，返回符合 response_schema 的 Pydantic 对象。"""
     import time
+
     from jobradar.telemetry import telemetry
 
     m = model or DEFAULT_MODELS.get(provider, "")
@@ -127,6 +128,7 @@ def complete_via_tool(
 ) -> BaseModel:
     """通过单工具调用返回结构化参数；若 provider 未返回 tool_use，则回退到 complete_structured。"""
     import time
+
     from jobradar.telemetry import telemetry
 
     m = model or DEFAULT_MODELS.get(provider, "")

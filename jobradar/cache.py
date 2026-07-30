@@ -1,17 +1,29 @@
 """SQLite 缓存层：JobResult / SearchSession / FailedURL 三张表。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
-import hashlib
 from pathlib import Path
 
 from jobradar import artifact_store
-from jobradar.schemas import CVOptimization, CoarseFilterResult, CoverLetter, CVProfile, InterviewPrep, JDProfile, JobAssessment, JobResult, JobSummary, MatchScore, SearchSession
 from jobradar.paths import DATA_DIR, ensure_parent
+from jobradar.schemas import (
+    CoarseFilterResult,
+    CoverLetter,
+    CVOptimization,
+    CVProfile,
+    InterviewPrep,
+    JDProfile,
+    JobAssessment,
+    JobResult,
+    JobSummary,
+    MatchScore,
+    SearchSession,
+)
 
 _DEFAULT_DB_PATH = str(DATA_DIR / "jobradar_cache.db")
 

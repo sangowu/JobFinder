@@ -10,9 +10,9 @@ from unittest.mock import patch
 import pytest
 
 from jobradar.assessment import (
-    _BatchAssessmentResult,
     JDAssessment,
     TitleAssessment,
+    _BatchAssessmentResult,
     _direct_experience_reject,
     batch_assess_jds,
     batch_assess_titles,
@@ -27,6 +27,7 @@ from jobradar.schemas import CVProfile, JDProfile, JobAssessment, JobResult, Mat
 @pytest.fixture()
 def db(monkeypatch):
     import importlib
+
     import jobradar.cache as cache_mod
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
@@ -370,7 +371,10 @@ class TestCoverLetterToolCalling:
 
 class TestInterviewPrepToolCalling:
     def test_generate_interview_prep_uses_tool_wrapper(self, db):
-        from jobradar.interview_prep import _InterviewPrepPayload, generate_interview_prep
+        from jobradar.interview_prep import (
+            _InterviewPrepPayload,
+            generate_interview_prep,
+        )
         from jobradar.llm_backend import LLMConfig
 
         profile = CVProfile(
@@ -434,7 +438,10 @@ class TestInterviewPrepToolCalling:
 
 class TestCVOptimizationToolCalling:
     def test_generate_cv_optimization_uses_tool_wrapper(self, db):
-        from jobradar.cv_optimization import _CVOptimizationPayload, generate_cv_optimization
+        from jobradar.cv_optimization import (
+            _CVOptimizationPayload,
+            generate_cv_optimization,
+        )
         from jobradar.llm_backend import LLMConfig
 
         profile = CVProfile(

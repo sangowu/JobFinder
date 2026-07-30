@@ -17,11 +17,6 @@ from jobradar.agent import run_search
 from jobradar.assessment import batch_assess_jds
 from jobradar.cv_extractor import extract_cv_profile
 from jobradar.cv_reader import read_cv
-from jobradar.llm_backend import LLMConfig
-from jobradar.runtime_config import PROVIDER_KEY_MAP, get_effective_model, get_saved_defaults, save_env_key
-from jobradar.telemetry import telemetry
-from jobradar.tools import verify_job_active
-from jobradar.paths import DATA_DIR
 from jobradar.display import (
     console,
     open_job_in_editor,
@@ -34,12 +29,22 @@ from jobradar.display import (
 from jobradar.llm_backend import (
     AVAILABLE_MODELS,
     DEFAULT_MODELS,
+    LLMConfig,
     Provider,
     check_llamacpp_connection,
     get_gemini_models,
     get_llamacpp_models,
     get_openai_models,
 )
+from jobradar.paths import DATA_DIR
+from jobradar.runtime_config import (
+    PROVIDER_KEY_MAP,
+    get_effective_model,
+    get_saved_defaults,
+    save_env_key,
+)
+from jobradar.telemetry import telemetry
+from jobradar.tools import verify_job_active
 
 load_dotenv()
 
@@ -554,6 +559,7 @@ def serve(
     """启动 Web UI（FastAPI + uvicorn），在浏览器中使用 JobRadar。"""
     import threading
     import time
+
     import uvicorn
 
     if mock:
