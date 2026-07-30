@@ -9,6 +9,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
     extra_hosts:
       # Lets the container reach a service running on the host (Linux needs this
       # explicitly; Docker Desktop for Windows/Mac resolves it either way).

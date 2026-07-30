@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from urllib.parse import quote
 
 import requests
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -24,6 +25,11 @@ from jobradar import application_store
 from jobradar.email_classifier import classify_application_email
 from jobradar.email_llm_classifier import classify_ambiguous_email
 from jobradar.logger import get_logger
+from jobradar.metrics import (
+    EMAIL_SYNC_DURATION_SECONDS,
+    EMAIL_SYNC_LAST_SUCCESS_TIMESTAMP_SECONDS,
+    EMAIL_SYNC_RUNS,
+)
 from jobradar.paths import DATA_DIR, ensure_parent
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
@@ -36,6 +42,10 @@ _MAX_FETCH_WORKERS = 16
 _DEFAULT_ANALYSIS_WORKERS = 3
 _MAX_ANALYSIS_WORKERS = 8
 logger = get_logger("email_sync")
+
+
+class EmailAuthError(RuntimeError):
+    """Raised when Google OAuth authorization is invalid or expired."""
 
 
 def google_oauth_configured() -> bool:
@@ -157,7 +167,7 @@ def sync_email(
     if not email_sync_configured():
         return _record_sync_result(
             trigger=trigger, status="failed", started_at=started_at, started_perf=started_perf,
-            metrics=metrics, message="Google email is not connected", sync_mode=sync_mode,
+            metrics=metrics, message="Google email is not connected", reason="auth", sync_mode=sync_mode,
         )
     if trigger == "scheduled" and application_store.get_sync_state()["paused"]:
         return _record_sync_result(
@@ -301,7 +311,8 @@ def sync_email(
     except Exception as exc:
         _record_sync_result(
             trigger=trigger, status="failed", started_at=started_at, started_perf=started_perf,
-            metrics=metrics, message=str(exc), sync_mode=sync_mode, history_id=history_id,
+            metrics=metrics, message=str(exc), reason=_failure_reason(exc),
+            sync_mode=sync_mode, history_id=history_id,
         )
         raise
     finally:
@@ -309,17 +320,51 @@ def sync_email(
         _sync_lock.release()
 
 
+def _failure_reason(exc: Exception) -> str:
+    if isinstance(exc, EmailAuthError):
+        return "auth"
+    if isinstance(exc, requests.HTTPError):
+        if exc.response is not None and exc.response.status_code == 429:
+            return "rate_limit"
+        return "other"
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return "rate_limit"
+    return "other"
+
+
 def _record_sync_result(
-    *, trigger: str, status: str, started_at: datetime, started_perf: float,
+    *, trigger: str, status: str, reason: str = "none", started_at: datetime, started_perf: float,
     metrics: dict[str, int], message: str, sync_mode: str, history_id: str = "",
 ) -> dict[str, int | str | bool]:
     completed_at = datetime.utcnow()
-    duration_ms = round((time.perf_counter() - started_perf) * 1000)
+    duration_seconds = time.perf_counter() - started_perf
+    duration_ms = round(duration_seconds * 1000)
     run = application_store.record_sync_run(
-        trigger=trigger, status=status, started_at=started_at, completed_at=completed_at,
-        duration_ms=duration_ms, error_message=message if status == "failed" else "",
-        sync_mode=sync_mode, history_id=history_id, **metrics,
+        trigger=trigger,
+        status=status,
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_ms=duration_ms,
+        error_message=message if status == "failed" else "",
+        sync_mode=sync_mode,
+        history_id=history_id,
+        **metrics,
     )
+
+    EMAIL_SYNC_RUNS.labels(
+        trigger=trigger,
+        status=status,
+        reason=reason,
+    ).inc()
+
+    EMAIL_SYNC_DURATION_SECONDS.labels(
+        trigger=trigger,
+        status=status,
+    ).observe(duration_seconds)
+
+    if status == "success":
+        EMAIL_SYNC_LAST_SUCCESS_TIMESTAMP_SECONDS.set(time.time())
+
     return {
         "ok": status == "success",
         "message": message,
@@ -478,10 +523,13 @@ def _oauth_flow(redirect_uri: str, state: str | None = None, code_verifier: str 
 def _load_credentials() -> Credentials:
     credentials = Credentials.from_authorized_user_file(str(_TOKEN_PATH), [GMAIL_READONLY_SCOPE])
     if credentials.expired and credentials.refresh_token:
-        credentials.refresh(GoogleAuthRequest())
+        try:
+            credentials.refresh(GoogleAuthRequest())
+        except RefreshError as exc:
+            raise EmailAuthError(f"Google token refresh failed: {exc}") from exc
         _TOKEN_PATH.write_text(credentials.to_json(), encoding="utf-8")
     if not credentials.valid:
-        raise RuntimeError("Google authorization is invalid; reconnect the account")
+        raise EmailAuthError("Google authorization is invalid; reconnect the account")
     return credentials
 
 
@@ -490,6 +538,10 @@ def _gmail_get(credentials: Credentials, path: str, params: dict | None = None) 
         f"{_GMAIL_API}{path}", params=params,
         headers={"Authorization": f"Bearer {credentials.token}"}, timeout=30,
     )
+    if response.status_code in (401, 403):
+        raise EmailAuthError(
+            f"Gmail API rejected the request: HTTP {response.status_code} {response.reason}"
+        )
     response.raise_for_status()
     return response.json()
 

@@ -1,0 +1,61 @@
+groups:
+  - name: jobradar-service-health
+    rules:
+      - alert: JobRadarDown
+        expr: up{job="jobradar"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "JobRadar 无法抓取"
+          description: "Prometheus 已连续 1 分钟抓不到 {{ $labels.instance }}。"
+          runbook: "docs/RUNBOOK.md#jobradardown"
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "5xx 错误率超过 5%"
+          description: "过去 5 分钟错误率 {{ $value | humanizePercentage }}。"
+          runbook: "docs/RUNBOOK.md#higherrorrate"
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_highr_seconds_bucket[5m])))
+          > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 延迟超过 2 秒"
+          description: "当前 p95 = {{ $value }}s。"
+          runbook: "docs/RUNBOOK.md#highlatencyp95"
+
+      - alert: EmailSyncStale
+        expr: |
+          jobradar_email_sync_last_success_timestamp_seconds > 0
+            and
+          time() - jobradar_email_sync_last_success_timestamp_seconds > 3600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EmailSync 任务超过 1 小时未成功"
+          description: "EmailSync 任务最后一次成功时间距现在超过 1 小时。"
+          runbook: "docs/RUNBOOK.md#emailsyncstale"
+
+      - alert: EmailSyncAuthFailure
+        expr: increase(jobradar_email_sync_runs_total{status="failed",reason="auth"}[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gmail 授权失效，需人工重新授权"
+          description: "过去 1 小时内检测到 Gmail 认证失败（约 {{ $value | humanize }} 次）。"
+          runbook: "docs/RUNBOOK.md#emailsyncauthfailure"

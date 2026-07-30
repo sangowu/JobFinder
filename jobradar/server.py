@@ -21,10 +21,16 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from dotenv import load_dotenv
 
 from jobradar import __version__, cache
+# 仅为副作用导入：metrics.py 顶层的 Counter/Histogram/Gauge 在模块被 import 时
+# 才注册进 prometheus_client 全局注册表。email_sync 已经间接 import 了它，这里
+# 再显式 import 一次，避免日后 email_sync 重构掉该 import 时指标静默消失。
+from jobradar import metrics as _metrics  # noqa: F401
 from jobradar import application_store
 from jobradar.email_sync import (
     clear_email_tracking_data,
@@ -114,6 +120,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+Instrumentator(excluded_handlers=["/metrics"]).instrument(app)
 
 # ─── SSE 进度队列 ─────────────────────────────────────────────────────────────
 
@@ -1052,12 +1060,21 @@ def delete_stats() -> dict:
 
 @app.get("/metrics")
 def metrics() -> PlainTextResponse:
-    """以 Prometheus 文本格式暴露累计运行指标，供 Prometheus 抓取。
+    """以 Prometheus 文本格式暴露指标，供 Prometheus 抓取。
 
-    复用 cache.get_stats_summary() 已算好的累计数据，仅做格式转换，不额外采集。
+    输出由两个来源拼接而成，两者语义不同，刻意不统一：
+
+    1. prometheus_client 全局注册表（generate_latest）——进程内实时采集，
+       包含 email sync 埋点与默认的 python_gc_* / process_*（后者仅 Linux）。
+       进程重启即归零，这是 counter 的正常语义，PromQL 的 rate() 能识别
+       counter reset 并正确计算。
+
+    2. cache.get_stats_summary()——SQLite 中跨进程持久化的历史累计值，
+       重启后依然存在，故手工拼接文本而非改用 Counter：Counter 是进程内的，
+       用它承载持久化累计值属于语义错配。
     """
     s = cache.get_stats_summary()
-    lines = [
+    business_lines = [
         "# HELP jobradar_searches_total Total searches run",
         "# TYPE jobradar_searches_total counter",
         f"jobradar_searches_total {s['total_searches']}",
@@ -1075,7 +1092,9 @@ def metrics() -> PlainTextResponse:
         "# TYPE jobradar_search_seconds_total counter",
         f"jobradar_search_seconds_total {s['total_elapsed']}",
     ]
-    return PlainTextResponse("\n".join(lines) + "\n")
+    registry_text = generate_latest().decode("utf-8")
+    body = registry_text + "\n" + "\n".join(business_lines) + "\n"
+    return PlainTextResponse(body, media_type=CONTENT_TYPE_LATEST)
 
 
 # ─── 日志 API ────────────────────────────────────────────────────────────────
