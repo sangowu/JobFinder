@@ -16,8 +16,8 @@ class TestReadCV:
         assert "London" in text
 
     def test_unsupported_format(self):
-        import tempfile
         import os
+        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
             f.write(b"dummy")
             path = f.name

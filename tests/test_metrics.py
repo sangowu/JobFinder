@@ -1,7 +1,7 @@
 import time
 from datetime import datetime, timezone
-import requests
 
+import requests
 from prometheus_client import generate_latest
 
 from jobradar import email_sync

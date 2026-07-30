@@ -6,7 +6,16 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from jobradar.schemas import CVOptimization, CoarseFilterResult, CoverLetter, InterviewPrep, JobResult, JobSummary, MatchScore, SearchSession
+from jobradar.schemas import (
+    CoarseFilterResult,
+    CoverLetter,
+    CVOptimization,
+    InterviewPrep,
+    JobResult,
+    JobSummary,
+    MatchScore,
+    SearchSession,
+)
 
 
 # 用临时文件隔离测试数据库

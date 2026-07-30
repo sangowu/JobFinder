@@ -8,7 +8,7 @@ from jobradar.jd_profile import extract_jd_profile
 from jobradar.logger import get_logger
 from jobradar.matching import match_job_to_cv
 from jobradar.schemas import CVProfile, make_dedup_key
-from jobradar.search_prefilter import PrefilterResult, SOURCE_STATS_KEYS
+from jobradar.search_prefilter import SOURCE_STATS_KEYS, PrefilterResult
 from jobradar.tools import write_cache
 
 logger = get_logger(__name__)

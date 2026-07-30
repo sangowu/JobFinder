@@ -13,62 +13,73 @@ import os
 import tempfile
 import threading
 from contextlib import asynccontextmanager, suppress
-
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from dotenv import load_dotenv
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import BaseModel
 
-from dotenv import load_dotenv
+from jobradar import __version__, application_store, cache
 
-from jobradar import __version__, cache
 # 仅为副作用导入：metrics.py 顶层的 Counter/Histogram/Gauge 在模块被 import 时
 # 才注册进 prometheus_client 全局注册表。email_sync 已经间接 import 了它，这里
 # 再显式 import 一次，避免日后 email_sync 重构掉该 import 时指标静默消失。
 from jobradar import metrics as _metrics  # noqa: F401
-from jobradar import application_store
+from jobradar.assessment import TITLE_RELEVANCE_PROMPT_VERSION
+from jobradar.cover_letter import generate_cover_letter
+from jobradar.cv_extractor import PROMPT_VERSION as CV_PROMPT_VERSION
+from jobradar.cv_extractor import extract_cv_profile
+from jobradar.cv_optimization import generate_cv_optimization
+from jobradar.cv_reader import read_cv
+from jobradar.dedup_check import run_dedup_check
 from jobradar.email_sync import (
     clear_email_tracking_data,
     complete_google_oauth,
     disconnect_google_email,
     email_sync_configured,
+    gmail_message_url,
+    gmail_thread_url,
     google_oauth_authorization_url,
     google_oauth_configured,
-    gmail_thread_url,
-    gmail_message_url,
     reanalyse_email,
     set_automatic_sync_paused,
     sync_email,
 )
-from jobradar.schemas import APPLICATION_STATUSES
-from jobradar.cover_letter import generate_cover_letter
-from jobradar.assessment import TITLE_RELEVANCE_PROMPT_VERSION
-from jobradar.cv_extractor import PROMPT_VERSION as CV_PROMPT_VERSION
-from jobradar.cv_optimization import generate_cv_optimization
-from jobradar.dedup_check import run_dedup_check
-from jobradar.cv_extractor import extract_cv_profile
-from jobradar.cv_reader import read_cv
 from jobradar.filters import TITLE_GATE_VERSION
 from jobradar.interview_prep import generate_interview_prep
 from jobradar.jd_profile import PROMPT_VERSION as JD_PROFILE_PROMPT_VERSION
-from jobradar.logger import get_logger
+from jobradar.jd_profile import extract_jd_profile
 from jobradar.llm_backend import (
     AVAILABLE_MODELS,
     DEFAULT_MODELS,
     LLMConfig,
     check_provider_connection,
 )
-from jobradar.jd_profile import extract_jd_profile
+from jobradar.logger import get_logger
 from jobradar.matching import PROMPT_VERSION as MATCH_PROMPT_VERSION
-from jobradar.scraping import COARSE_FILTER_VERSION
 from jobradar.matching import match_job_to_cv
 from jobradar.paths import DATA_DIR
 from jobradar.runtime_config import PROVIDER_KEY_MAP, get_effective_model, save_env_key
+from jobradar.schemas import APPLICATION_STATUSES
+from jobradar.scraping import COARSE_FILTER_VERSION
 
 # Snapshot of the original model list taken at server start (for mock-mode reset)
 _ORIGINAL_AVAILABLE_MODELS: dict[str, list[str]] = {
@@ -873,6 +884,7 @@ async def _run_search_task(req: SearchRequest) -> None:
 
     def run() -> None:
         import time as _time
+
         from jobradar.telemetry import telemetry
         try:
             from jobradar.agent import SearchCancelled, run_search

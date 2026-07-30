@@ -42,8 +42,16 @@ dev = [
 ]
 
 [tool.ruff]
-# scripts/ 是一次性排查/分析脚本，不属于打包/测试范围，导入顺序不做约束
+# scripts/ 是一次性排查/分析脚本，不属于打包/测试范围，不做检查
 extend-exclude = ["scripts"]
+
+[tool.ruff.lint]
+# E4/E7/E9 + F 是 ruff 默认集；额外启用：
+#   I —— 导入顺序（此前完全未检查，新增 import 全靠肉眼排）
+#   W —— 行尾空格等空白问题（W291/W293，改动时极易带入且 diff 里看不见）
+# 刻意不启用 E501：现有代码有 613 行超过默认的 88 字符，一次性重排属于
+# 大范围无关改动。行宽约束交给 review，不由 linter 强制。
+select = ["E4", "E7", "E9", "F", "I", "W"]
 
 [tool.pytest.ini_options]
 addopts = ["--basetemp=.pytest_tmp"]

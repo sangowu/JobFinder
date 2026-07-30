@@ -2,10 +2,9 @@
 import json
 from datetime import datetime, timedelta
 
-
 from jobradar.schemas import (
-    CVProfile,
     CoarseFilterResult,
+    CVProfile,
     JobResult,
     SearchSession,
     make_dedup_key,

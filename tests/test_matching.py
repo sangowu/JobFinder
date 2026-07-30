@@ -1,14 +1,20 @@
 from unittest.mock import patch
 
 from jobradar.matching import (
-    _MatchEvidence,
     _deterministic_location_score,
+    _MatchEvidence,
     _overall_score,
     _recommendation,
     adjust_match_for_profile,
     match_job_to_cv,
 )
-from jobradar.schemas import CVProfile, JDProfile, JobSummary, LanguageProficiency, MatchScore
+from jobradar.schemas import (
+    CVProfile,
+    JDProfile,
+    JobSummary,
+    LanguageProficiency,
+    MatchScore,
+)
 
 
 class DummyEvidence:
