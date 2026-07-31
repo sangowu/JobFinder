@@ -16,6 +16,7 @@ dist/
 jobfinder/scrapers.py
 jobradar/scrapers.py
 CLAUDE.md
+AGENTS.md
 
 # ── 面试 / Demo 相关（本地使用，不发布）─────────────────────────────────────────
 INTERVIEW_DEMO.md
