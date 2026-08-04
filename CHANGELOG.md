@@ -78,6 +78,10 @@
 
 ### Bug Fixes
 
+- **Cached search results now receive explainable scores for the current CV** (`search_assessment_stage.py`)
+  A cache hit with a legacy `assessment` previously skipped JD profiling and modern CV matching, so the job detail page could only show a total score without the dimension breakdown.
+  Cached visible jobs now reuse or generate the current CV's `match_score` before being emitted; score display remains integer-based.
+
 - **Re-search cleared the existing job list** (`index.html`)
   Starting another search no longer empties cached jobs or closes the selected job. SSE results update matching jobs in place and append newly found jobs; explicit cache clearing still removes the list.
 

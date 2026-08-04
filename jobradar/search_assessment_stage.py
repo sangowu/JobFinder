@@ -33,8 +33,25 @@ def flush_assessments(
     llm_rejected = 0
     new_saved = 0
 
+    if pf.immediate_keys and has_cv and llm:
+        cb(f"Checking explainable scores for {len(pf.immediate_keys)} cached jobs...")
+
     for key in pf.immediate_keys:
         job_obj = cache.get_job(key, language=language)
+        if job_obj is not None and has_cv and llm:
+            try:
+                jd_profile = extract_jd_profile(job_obj, llm, language=language)
+                job_obj.jd_profile = jd_profile
+                job_obj.match_score = match_job_to_cv(
+                    profile,
+                    jd_profile,
+                    job_obj.description_snippet,
+                    llm,
+                    cv_hash=cv_hash,
+                    language=language,
+                )
+            except Exception as exc:
+                logger.warning("JD profile extraction/matching failed for cached job %s: %s", key, exc)
         if not _is_visible_job(job_obj):
             logger.debug("Skip cached result after final relevance check: %s", key)
             continue

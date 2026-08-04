@@ -640,6 +640,67 @@ class TestJobResultCompatibility:
         assert job.is_effectively_relevant is True
 
 
+class TestCachedJobModernMatchBackfill:
+    def test_immediate_cache_hit_gets_match_for_current_cv(self, monkeypatch: pytest.MonkeyPatch):
+        import jobradar.search_assessment_stage as stage
+        from jobradar.search_prefilter import PrefilterResult
+
+        profile = _make_profile()
+        cached_job = JobResult(
+            title="Backend Engineer",
+            company="Acme",
+            url="https://example.com/backend",
+            description_snippet="Build Python APIs.",
+            assessment=JobAssessment(score=8, is_relevant=True),
+        )
+        jd_profile = JDProfile(
+            job_id=cached_job.dedup_key,
+            title=cached_job.title,
+            company=cached_job.company,
+        )
+        match = MatchScore(
+            job_id=cached_job.dedup_key,
+            cv_hash="current-cv",
+            overall_score=78,
+            title_score=80,
+            seniority_score=80,
+            must_have_score=75,
+            nice_to_have_score=70,
+            domain_score=75,
+            location_score=100,
+            language_score=100,
+            risk_penalty=5,
+            recommendation="apply",
+        )
+        calls: list[str] = []
+
+        monkeypatch.setattr(stage.cache, "get_job", lambda key, language="zh": cached_job)
+        monkeypatch.setattr(stage, "extract_jd_profile", lambda job, llm, language="zh": jd_profile)
+
+        def fake_match_job_to_cv(profile_arg, jd_profile_arg, full_jd, llm, cv_hash="", language="zh"):
+            calls.append(cv_hash)
+            return match
+
+        monkeypatch.setattr(stage, "match_job_to_cv", fake_match_job_to_cv)
+
+        keys, rejected, saved = stage.flush_assessments(
+            PrefilterResult(immediate_keys=[cached_job.dedup_key]),
+            job_all_sources={},
+            profile=profile,
+            llm=_make_llm(),
+            cv_hash="current-cv",
+            cb=lambda msg: None,
+            on_job=None,
+            language="zh",
+        )
+
+        assert calls == ["current-cv"]
+        assert cached_job.match_score is match
+        assert keys == [cached_job.dedup_key]
+        assert rejected == 0
+        assert saved == 0
+
+
 class TestPipelineStats:
     def test_write_report_accepts_explicit_directory(self, tmp_path: Path):
         stats = PipelineStats(scraped_total=3, saved=1)
