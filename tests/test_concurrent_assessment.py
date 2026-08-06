@@ -10,7 +10,7 @@ from jobradar import search_assessment_stage as stage
 from jobradar.agent import _resolve_assessment_workers
 from jobradar.assessment import JDAssessment
 from jobradar.llm_backend import LLMConfig
-from jobradar.schemas import CVProfile, JDProfile, JobResult, MatchScore, make_dedup_key
+from jobradar.schemas import CVProfile, JDProfile, MatchScore, make_dedup_key
 from jobradar.search_prefilter import PrefilterResult
 
 
@@ -66,23 +66,18 @@ def test_three_workers_evaluate_persisted_jobs_concurrently_and_emit_after_commi
         persisted.add(key)
         return key
 
-    def fake_extract(job: JobResult, llm, language="zh", *, persist=True) -> JDProfile:
+    def fake_evaluate(job, profile, llm, cv_hash="", language="zh"):
         nonlocal active, peak
-        assert persist is False
         assert job.dedup_key in persisted
         with active_lock:
             active += 1
             peak = max(peak, active)
         time.sleep(0.03)
-        return JDProfile(job_id=job.dedup_key, title=job.title, company=job.company)
-
-    def fake_match(profile, jd_profile, full_jd, llm, cv_hash="", language="zh", *, persist=True):
-        nonlocal active
-        assert persist is False
+        jd_profile = JDProfile(job_id=job.dedup_key, title=job.title, company=job.company)
         time.sleep(0.03)
         with active_lock:
             active -= 1
-        return MatchScore(
+        match = MatchScore(
             job_id=jd_profile.job_id,
             cv_hash=cv_hash,
             overall_score=80,
@@ -96,6 +91,7 @@ def test_three_workers_evaluate_persisted_jobs_concurrently_and_emit_after_commi
             risk_penalty=0,
             recommendation="apply",
         )
+        return jd_profile, match
 
     monkeypatch.setattr(stage, "write_cache", fake_write_cache)
     monkeypatch.setattr(
@@ -113,14 +109,14 @@ def test_three_workers_evaluate_persisted_jobs_concurrently_and_emit_after_commi
             for _ in jobs
         ],
     )
-    monkeypatch.setattr(stage, "extract_jd_profile", fake_extract)
-    monkeypatch.setattr(stage, "match_job_to_cv", fake_match)
-    monkeypatch.setattr(stage.cache, "save_jd_profile", lambda **kwargs: None)
+    monkeypatch.setattr(stage.cache, "get_jd_profile", lambda *args, **kwargs: None)
+    monkeypatch.setattr(stage, "evaluate_job_once", fake_evaluate)
 
-    def fake_save_match(match_score, **kwargs):
-        match_commits.add(match_score.job_id)
+    def fake_save_evaluation(profile, match, **kwargs):
+        assert profile.job_id == match.job_id
+        match_commits.add(match.job_id)
 
-    monkeypatch.setattr(stage.cache, "save_job_match", fake_save_match)
+    monkeypatch.setattr(stage.cache, "save_job_evaluation", fake_save_evaluation)
 
     def on_job(key: str) -> None:
         assert key in match_commits

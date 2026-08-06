@@ -169,6 +169,7 @@ _MODULE_STEP_MAP = {
     "CV 解析": "cv_parse",
     "Title 粗筛": "title_relevance",
     "JD 批量评估": "jd_assessment",
+    "JD Evaluation": "job_evaluation",
     "JD Profile": "jd_profile",
     "JD CV Matching": "matching",
     "Interview Prep": "interview_prep",
@@ -255,6 +256,11 @@ def _collect_module_metrics(pipeline_stats=None) -> dict:
             "queue_wait_avg": round(float(getattr(pipeline_stats, "queue_wait_avg", 0.0)), 3),
             "queue_wait_p50": round(float(getattr(pipeline_stats, "queue_wait_p50", 0.0)), 3),
             "queue_wait_p95": round(float(getattr(pipeline_stats, "queue_wait_p95", 0.0)), 3),
+            "gate_workers": int(getattr(pipeline_stats, "gate_workers", 1)),
+            "evaluation_commit_elapsed": round(
+                float(getattr(pipeline_stats, "evaluation_commit_elapsed", 0.0)),
+                3,
+            ),
         }
 
     total_in = sum(int(item.get("input_tokens", 0)) for item in metrics.values())

@@ -178,11 +178,13 @@ Final outputs:
 
 ## Compare one assessment worker with the production worker count
 
-The production pipeline keeps title/coarse/JD gates batched, then evaluates the
-independent `JD Profile -> CV Match` chain for different jobs in a bounded pool.
-Pending candidates are persisted before submission; worker threads use the
-in-memory job payload, and the assessment coordinator serializes profile/match
-commits before publishing the job callback.
+The production pipeline keeps title/coarse/JD gates batched and runs independent
+gate chunks with at most two workers for cloud providers (one for local providers).
+It then evaluates different jobs in a bounded pool. An uncached job returns its
+`JD Profile` and `CV Match` evidence in one provider call; a cached JD Profile is
+reused and only the missing match is generated. Pending candidates are persisted
+before submission; worker threads use the in-memory job payload, and the assessment
+coordinator atomically commits each profile/match pair before publishing the job callback.
 
 Run a paired real-provider comparison with the same frozen jobs and CV:
 

@@ -1006,6 +1006,7 @@ const I18N = {
     'module.cv_parse': 'CV 解析',
     'module.title_relevance': '标题语义粗筛',
     'module.jd_assessment': 'JD 批量评估',
+    'module.job_evaluation': 'JD 解析与匹配',
     'module.jd_profile': 'JD Profile',
     'module.matching': 'CV↔JD 匹配',
     'module.interview_prep': '面试准备',
@@ -1192,6 +1193,7 @@ const I18N = {
     'module.cv_parse': 'CV Parse',
     'module.title_relevance': 'Title Relevance Gate',
     'module.jd_assessment': 'JD Batch Assessment',
+    'module.job_evaluation': 'JD Profile + CV Match',
     'module.jd_profile': 'JD Profile',
     'module.matching': 'CV↔JD Matching',
     'module.interview_prep': 'Interview Prep',
@@ -1378,6 +1380,7 @@ const I18N = {
     'module.cv_parse': 'Análisis CV',
     'module.title_relevance': 'Filtro semántico de título',
     'module.jd_assessment': 'Evaluación masiva JD',
+    'module.job_evaluation': 'Perfil JD + matching CV',
     'module.jd_profile': 'JD Profile',
     'module.matching': 'Matching CV↔JD',
     'module.interview_prep': 'Preparación entrevista',
@@ -1824,7 +1827,7 @@ function renderHistoryBenchmark(benchmark) {
 }
 
 function _moduleOrder() {
-  return ['cv_parse', 'title_relevance', 'jd_assessment', 'jd_profile', 'matching', 'interview_prep', 'cover_letter', 'cv_optimization'];
+  return ['cv_parse', 'title_relevance', 'jd_assessment', 'job_evaluation', 'jd_profile', 'matching', 'interview_prep', 'cover_letter', 'cv_optimization'];
 }
 
 function _moduleLabel(key, item) {

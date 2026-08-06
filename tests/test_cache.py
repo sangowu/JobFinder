@@ -1,6 +1,7 @@
 """测试缓存层：写入、读取、去重、过期。"""
 import importlib
 import os
+import sqlite3
 import tempfile
 from datetime import datetime, timedelta
 
@@ -11,6 +12,7 @@ from jobradar.schemas import (
     CoverLetter,
     CVOptimization,
     InterviewPrep,
+    JDProfile,
     JobResult,
     JobSummary,
     MatchScore,
@@ -283,6 +285,84 @@ class TestJobCache:
         assert artifacts["interview_prep"]["exists"] is True
         assert artifacts["cover_letter"]["data"]["subject_line"] == "Application"
         assert artifacts["cv_optimization"]["data"]["summary_strategy"] == "Tailor resume"
+
+    def test_job_evaluation_profile_and_match_commit_together(self, temp_db):
+        profile = JDProfile(job_id="example|backend engineer", title="Backend Engineer", company="Example")
+        match = MatchScore(
+            job_id=profile.job_id,
+            cv_hash="cv123",
+            overall_score=85,
+            title_score=90,
+            seniority_score=85,
+            must_have_score=85,
+            nice_to_have_score=80,
+            domain_score=85,
+            location_score=100,
+            language_score=100,
+            risk_penalty=0,
+            recommendation="strong_apply",
+        )
+
+        temp_db.save_job_evaluation(
+            profile,
+            match,
+            "Build Python APIs.",
+            profile_prompt_version="profile-v1",
+            match_prompt_version="match-v1",
+        )
+
+        assert temp_db.get_jd_profile(profile.job_id, "Build Python APIs.", "profile-v1") == profile
+        assert temp_db.get_job_match(profile.job_id, "cv123", "Build Python APIs.", "match-v1") == match
+
+    def test_get_jd_profile_accepts_any_of_several_prompt_versions(self, temp_db):
+        profile = JDProfile(job_id="example|backend engineer", title="Backend Engineer", company="Example")
+        temp_db.save_jd_profile(
+            job_id=profile.job_id,
+            description="Build Python APIs.",
+            profile=profile,
+            prompt_version="job_evaluation_v1:zh",
+        )
+
+        # A profile written by the combined prompt stays reusable by the match-only path.
+        assert temp_db.get_jd_profile(
+            profile.job_id,
+            "Build Python APIs.",
+            ("jd_profile_v1:zh", "job_evaluation_v1:zh"),
+        ) == profile
+        assert temp_db.get_jd_profile(profile.job_id, "Build Python APIs.", ("jd_profile_v1:zh",)) is None
+        assert temp_db.get_jd_profile_prompt_version(profile.job_id) == "job_evaluation_v1:zh"
+
+    def test_job_evaluation_rolls_back_profile_when_match_insert_fails(self, temp_db):
+        profile = JDProfile(job_id="example|backend engineer", title="Backend Engineer", company="Example")
+        match = MatchScore(
+            job_id=profile.job_id,
+            cv_hash="cv123",
+            overall_score=85,
+            title_score=90,
+            seniority_score=85,
+            must_have_score=85,
+            nice_to_have_score=80,
+            domain_score=85,
+            location_score=100,
+            language_score=100,
+            risk_penalty=0,
+            recommendation="strong_apply",
+        )
+        with temp_db._conn() as con:
+            con.execute(
+                """
+                CREATE TRIGGER fail_job_match
+                BEFORE INSERT ON job_matches
+                BEGIN
+                  SELECT RAISE(ABORT, 'forced match failure');
+                END
+                """
+            )
+
+        with pytest.raises(sqlite3.IntegrityError, match="forced match failure"):
+            temp_db.save_job_evaluation(profile, match, "Build Python APIs.")
+
+        assert temp_db.get_jd_profile(profile.job_id, "Build Python APIs.") is None
 
 
 class TestSessionCache:

@@ -8,13 +8,16 @@
   Indeed and LinkedIn now emit completed role batches into a deterministic Python prefilter. Filtered candidates are committed to `search_candidates` before the same in-memory objects enter assessment, so scraping and evaluation overlap without requiring workers to reload candidate payloads from SQLite. Candidate state, queue timing, first-result latency, persistence time, overlap, worker utilization, and failures are recorded; SQLite uses WAL and a busy timeout for short coordinated writes.
 
 - **Bounded concurrent deep evaluation** (`search_assessment_stage.py` / `jd_profile.py` / `matching.py`)
-  Independent `JD Profile → CV Match` chains run in a bounded pool while preserving the dependency order within each job. Cloud providers default to five workers, local providers to one, and `ASSESSMENT_WORKERS` / `run_search(assessment_workers=...)` can select 1–8. Profile/match results are committed before SSE publication.
+  Independent jobs run in a bounded pool. Uncached jobs now return `JD Profile + CV Match` in one provider call, while cached JD Profiles remain reusable for match-only refreshes. Cloud providers default to five workers and local providers to one. Profile/match results are committed atomically before SSE publication, with commit latency included in pipeline telemetry.
+
+- **Bounded concurrent assessment gates** (`assessment.py` / `scraping.py`)
+  Independent Title, coarse-filter, and JD-assessment chunks use up to two workers for cloud providers while local providers remain serial. Input ordering, conservative fallback behavior, and existing batch sizes are preserved.
 
 - **Reproducible pipeline and model evaluation** (`pipeline_benchmark.py` / `model_quality_audit.py` / `version_comparison.py` / `version_matrix.py`)
   Added one-command capture/replay, historical-version, worker-count, model-matrix, and 100-job quality-audit tools. Schema-v2 captures retain every source/role query event, empty query, batch arrival, source completion, total producer time, and producer tail; each run uses an isolated SQLite database. Blind-review exports and adjudication scoring support human validation of model rejection quality.
 
 - **Bounded concurrent JobSpy searches** (`scraping.py`)
-  Indeed and LinkedIn source pipelines now run concurrently. Indeed searches up to two titles at once while preserving one shared 2–4 second request-start interval; LinkedIn title searches remain serial to reduce rate-limit risk.
+  Indeed and LinkedIn source pipelines run concurrently. Each source searches up to two titles at once while preserving its shared request-start interval: 2–4 seconds for Indeed and 3–5 seconds for LinkedIn.
 
 - **Gmail application tracking with selective LLM classification** (`email_sync.py` / `email_classifier.py` / `email_llm_classifier.py` / `application_store.py` / `server.py` / `index.html`)
   Added Google OAuth read-only Gmail sync, local rule classification, selective LLM adjudication for ambiguous messages, application timelines, pending-review actions, direct Gmail links, scheduled sync controls, background reanalysis progress, expandable sync history, and local classification metrics.

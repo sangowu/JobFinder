@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import threading
+from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -485,7 +486,24 @@ def _description_hash(description: str) -> str:
     return hashlib.sha256((description or "").encode("utf-8")).hexdigest()
 
 
-def get_jd_profile(job_id: str, description: str = "", prompt_version: str = "") -> JDProfile | None:
+def get_jd_profile(
+    job_id: str,
+    description: str = "",
+    prompt_version: str | Sequence[str] = "",
+) -> JDProfile | None:
+    """Read a cached JD profile.
+
+    ``prompt_version`` accepts a sequence when several prompts produce
+    interchangeable profiles (standalone extraction vs. the combined
+    JD-evaluation call); the row matches if it carries any of them.
+    """
+    if isinstance(prompt_version, str):
+        accepted = {prompt_version} if prompt_version else set()
+        primary = prompt_version
+    else:
+        accepted = {version for version in prompt_version if version}
+        primary = next((version for version in prompt_version if version), "")
+
     with _conn() as con:
         row = con.execute(
             "SELECT profile_json, description_hash, prompt_version FROM jd_profiles WHERE job_id = ?",
@@ -494,15 +512,26 @@ def get_jd_profile(job_id: str, description: str = "", prompt_version: str = "")
     if row is not None:
         if description and row["description_hash"] != _description_hash(description):
             return None
-        if prompt_version and row["prompt_version"] != prompt_version:
+        if accepted and row["prompt_version"] not in accepted:
             return None
         return JDProfile.model_validate_json(row["profile_json"])
 
     # Legacy fallback: read older job_summaries rows and upcast them.
-    legacy = get_job_summary(job_id, description=description, prompt_version=prompt_version)
+    # Those rows predate the combined prompt, so only the standalone tag applies.
+    legacy = get_job_summary(job_id, description=description, prompt_version=primary)
     if legacy is None:
         return None
     return JDProfile.model_validate(legacy.model_dump(mode="json"))
+
+
+def get_jd_profile_prompt_version(job_id: str) -> str:
+    """Return the prompt tag stored with a cached profile, or "" when absent."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT prompt_version FROM jd_profiles WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    return str(row["prompt_version"] or "") if row is not None else ""
 
 
 def save_jd_profile(
@@ -658,6 +687,71 @@ def save_job_match(
                 match.model_dump_json(),
                 model_name,
                 prompt_version,
+                now,
+                now,
+            ),
+        )
+
+
+def save_job_evaluation(
+    profile: JDProfile,
+    match: MatchScore,
+    description: str,
+    model_name: str = "",
+    profile_prompt_version: str = "",
+    match_prompt_version: str = "",
+) -> None:
+    """Atomically persist the profile and CV match produced for one job."""
+    if profile.job_id != match.job_id:
+        raise ValueError("profile and match must belong to the same job")
+    now = datetime.utcnow().isoformat()
+    description_hash = _description_hash(description)
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO jd_profiles
+              (job_id, description_hash, profile_json, model_name, prompt_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+              description_hash = excluded.description_hash,
+              profile_json = excluded.profile_json,
+              model_name = excluded.model_name,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """,
+            (
+                profile.job_id,
+                description_hash,
+                profile.model_dump_json(),
+                model_name,
+                profile_prompt_version,
+                now,
+                now,
+            ),
+        )
+        con.execute(
+            """
+            INSERT INTO job_matches
+              (job_id, cv_hash, description_hash, overall_score, recommendation, score_json, model_name, prompt_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id, cv_hash) DO UPDATE SET
+              description_hash = excluded.description_hash,
+              overall_score = excluded.overall_score,
+              recommendation = excluded.recommendation,
+              score_json = excluded.score_json,
+              model_name = excluded.model_name,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """,
+            (
+                match.job_id,
+                match.cv_hash,
+                description_hash,
+                match.overall_score,
+                match.recommendation,
+                match.model_dump_json(),
+                model_name,
+                match_prompt_version,
                 now,
                 now,
             ),
