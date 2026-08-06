@@ -57,6 +57,9 @@ class NormalizedResponse:
     # the tool-call path; providers that omit usage leave these at 0.
     input_tokens: int = 0
     output_tokens: int = 0
+    # The model the provider reports having served, which can differ from the
+    # requested one (aliases, silent upgrades). Empty when not reported.
+    served_model: str = ""
 
 
 # ─── 公共入口 ─────────────────────────────────────────────────────────────────
@@ -80,11 +83,11 @@ def complete_structured(
     t0 = time.monotonic()
 
     if provider == "claude":
-        result, in_tok, out_tok = _claude_structured(prompt, response_schema, system, m)
+        result, in_tok, out_tok, served = _claude_structured(prompt, response_schema, system, m)
     elif provider == "gemini":
-        result, in_tok, out_tok = _gemini_structured(prompt, response_schema, system, m)
+        result, in_tok, out_tok, served = _gemini_structured(prompt, response_schema, system, m)
     elif provider in _COMPAT_PROVIDERS:
-        result, in_tok, out_tok = _compat_structured(prompt, response_schema, system, m, provider)
+        result, in_tok, out_tok, served = _compat_structured(prompt, response_schema, system, m, provider)
     else:
         raise ValueError(f"不支持的 provider：{provider}")
 
@@ -93,6 +96,7 @@ def complete_structured(
             step=_step, provider=provider, model=m,
             input_tokens=in_tok, output_tokens=out_tok,
             elapsed=time.monotonic() - t0,
+            served_model=served,
         )
     if _metrics is not None:
         _metrics.update({
@@ -169,6 +173,7 @@ def complete_via_tool(
                         input_tokens=response.input_tokens,
                         output_tokens=response.output_tokens,
                         elapsed=time.monotonic() - t0,
+                        served_model=response.served_model,
                     )
                 return result
     except Exception:
@@ -237,7 +242,7 @@ def _get_anthropic():
     return Anthropic(api_key=key)
 
 
-def _claude_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int]:
+def _claude_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int, str]:
     client = _get_anthropic()
     response = client.messages.create(
         model=model,
@@ -250,9 +255,10 @@ def _claude_structured(prompt, schema, system, model) -> tuple[BaseModel, int, i
     )
     in_tok = response.usage.input_tokens
     out_tok = response.usage.output_tokens
+    served = getattr(response, "model", "") or ""
     for block in response.content:
         if block.type == "tool_use":
-            return schema.model_validate(block.input), in_tok, out_tok
+            return schema.model_validate(block.input), in_tok, out_tok, served
     raise RuntimeError("Claude 未返回结构化输出")
 
 
@@ -300,6 +306,7 @@ def _claude_tool_call(messages, tools, system, model) -> NormalizedResponse:
         content=content,
         input_tokens=getattr(usage, "input_tokens", 0) or 0,
         output_tokens=getattr(usage, "output_tokens", 0) or 0,
+        served_model=getattr(response, "model", "") or "",
     )
 
 
@@ -322,7 +329,7 @@ def _gemini_thinking_config(types, model: str):
     return None
 
 
-def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int]:
+def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int, str]:
     from google.genai import types
     client = _get_gemini_client()
     response = client.models.generate_content(
@@ -338,7 +345,8 @@ def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, i
     meta = response.usage_metadata
     in_tok = meta.prompt_token_count if meta else 0
     out_tok = meta.candidates_token_count if meta else 0
-    return schema.model_validate(json.loads(response.text)), in_tok, out_tok
+    served = getattr(response, "model_version", "") or ""
+    return schema.model_validate(json.loads(response.text)), in_tok, out_tok, served
 
 
 def _to_gemini_contents(messages: list[dict]) -> list:
@@ -386,6 +394,7 @@ def _gemini_tool_call(messages, tools, system, model) -> NormalizedResponse:
     usage = {
         "input_tokens": (meta.prompt_token_count if meta else 0) or 0,
         "output_tokens": (meta.candidates_token_count if meta else 0) or 0,
+        "served_model": getattr(response, "model_version", "") or "",
     }
     if not response.candidates:
         return NormalizedResponse(stop_reason="end_turn", content=[
@@ -429,7 +438,7 @@ def _get_compat_client(provider: str):
     return OpenAI(api_key=key, base_url=base_url)
 
 
-def _compat_structured(prompt, schema, system, model, provider) -> tuple[BaseModel, int, int]:
+def _compat_structured(prompt, schema, system, model, provider) -> tuple[BaseModel, int, int, str]:
     """OpenAI 兼容结构化输出：schema 注入 system prompt + json_object 格式。"""
     client = _get_compat_client(provider)
     schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False)
@@ -457,8 +466,9 @@ def _compat_structured(prompt, schema, system, model, provider) -> tuple[BaseMod
 
     in_tok  = response.usage.prompt_tokens     if response.usage else 0
     out_tok = response.usage.completion_tokens if response.usage else 0
+    served  = getattr(response, "model", "") or ""
     text    = response.choices[0].message.content or ""
-    return schema.model_validate(_extract_json(text)), in_tok, out_tok
+    return schema.model_validate(_extract_json(text)), in_tok, out_tok, served
 
 
 def _to_openai_messages(messages: list[dict], system: str) -> list[dict]:
@@ -509,6 +519,7 @@ def _compat_tool_call(messages, tools, system, model, provider) -> NormalizedRes
     usage = {
         "input_tokens": (response.usage.prompt_tokens if response.usage else 0) or 0,
         "output_tokens": (response.usage.completion_tokens if response.usage else 0) or 0,
+        "served_model": getattr(response, "model", "") or "",
     }
     content: list[TextBlock | ToolUseBlock] = []
     if msg.content:

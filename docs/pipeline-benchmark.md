@@ -231,7 +231,9 @@ Two cautions learned from running this comparison:
 
 - Both arms must carry the same telemetry code. A baseline that predates the
   tool-call usage fix reports zero tokens for every step that succeeds on the
-  tool path, which silently inverts the token comparison.
+  tool path, which silently inverts the token comparison. The same applies to
+  served-model recording: a baseline without it cannot confirm which model it
+  actually ran.
 - Compare between-arm result overlap against each arm's own run-to-run overlap
   before calling a difference real. At three paired runs the within-arm Jaccard
   was 0.65–0.67, so a between-arm Jaccard of 0.66 is noise, not a change.
@@ -385,10 +387,12 @@ the candidate population, rate limiting, and network latency are uncontrolled.
 Visible-job counts differ between architectures even on identical frozen data.
 Serial replay hands every batch to the filters at once while streaming replay
 filters each batch on arrival, so the batched Title and JD gates see different
-batch companions and can judge borderline jobs differently. Treat a result-count
-gap as an open question for blind review, not as a measured recall regression,
-and check how many of the differing jobs are stable across runs before drawing
-any conclusion.
+batch companions and can judge borderline jobs differently. Check how many of the
+differing jobs are stable across runs before reading a result-count gap as a
+recall change; most of them are usually borderline jobs that already vary between
+runs of the same arm.
 
-Telemetry records the model that was requested, not the model a provider reports
-serving. State the requested model when reporting a comparison.
+Each run records the model the provider reports serving, not only the requested
+one. Check `served_models` per step before comparing two runs: an alias or a
+silent model change invalidates the comparison, and the requested string alone
+cannot detect it.
