@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Callable
 from pydantic import BaseModel
 
 from jobradar import cache
-from jobradar.assessment import batch_assess_titles
+from jobradar.assessment import batch_assess_titles, gate_worker_count
 from jobradar.logger import get_logger
 from jobradar.schemas import CoarseFilterResult
 
@@ -252,6 +252,24 @@ def _filter_cards_by_llm(
         cards_meta[i:i + _COARSE_FILTER_BATCH_SIZE]
         for i in range(0, len(cards_meta), _COARSE_FILTER_BATCH_SIZE)
     ]
+    workers = min(gate_worker_count(provider), len(batches))
+    if workers > 1:
+        def _process(batch: list[dict]) -> dict[int, CoarseFilterResult]:
+            return _filter_cards_by_llm(
+                batch,
+                cv_profile,
+                provider,
+                model,
+                target_location=target_location,
+            )
+
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="jobradar-coarse-gate") as executor:
+            filtered_batches = executor.map(_process, batches)
+            return {
+                job_id: result
+                for batch_results in filtered_batches
+                for job_id, result in batch_results.items()
+            }
     merged: dict[int, CoarseFilterResult] = {}
 
     for batch_index, batch in enumerate(batches, start=1):
@@ -587,18 +605,27 @@ def scrape_linkedin_jobspy_multi(
     on_batch: Callable[[str, list[dict]], None] | None = None,
     on_batch_timed: Callable[[str, list[dict], float, float], None] | None = None,
 ) -> list[dict]:
-    """多 role 串行抓取 LinkedIn（含限速），URL 去重后返回。"""
+    """多 role 有界并发抓取 LinkedIn（共享限速），URL 去重后返回。"""
     if cb:
         cb(f"JobSpy scraping (linkedin.com): {roles}")
 
     seen: set[str] = set()
     jobs: list[dict] = []
+    start_lock = threading.Lock()
+    next_start_at = 0.0
 
-    for i, role in enumerate(roles):
-        if i > 0:
-            delay = random.uniform(_LINKEDIN_DELAY_MIN, _LINKEDIN_DELAY_MAX)
-            logger.debug("LinkedIn inter-role delay: %.1fs", delay)
-            time.sleep(delay)
+    def _scrape_role(role: str) -> tuple[str, list[dict]]:
+        nonlocal next_start_at
+        with start_lock:
+            now = time.monotonic()
+            if next_start_at > now:
+                delay = next_start_at - now
+                logger.debug("LinkedIn inter-role delay: %.1fs", delay)
+                time.sleep(delay)
+            next_start_at = time.monotonic() + random.uniform(
+                _LINKEDIN_DELAY_MIN,
+                _LINKEDIN_DELAY_MAX,
+            )
         request_started_at = time.perf_counter()
         batch = scrape_linkedin_jobspy(role, limit_per_role, location, hours_old)
         request_finished_at = time.perf_counter()
@@ -606,13 +633,23 @@ def scrape_linkedin_jobspy_multi(
             on_batch(role, batch)
         if on_batch_timed:
             on_batch_timed(role, batch, request_started_at, request_finished_at)
-        for job in batch:
-            url = job.get("url", "")
-            if url and url not in seen:
-                seen.add(url)
-                jobs.append(job)
-        if cb:
-            cb(f"  [{i+1}/{len(roles)}] {role!r} → {len(batch)} results")
+        return role, batch
+
+    worker_count = min(2, len(roles))
+    if worker_count == 0:
+        return jobs
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        batches = executor.map(_scrape_role, roles)
+
+        for i, (role, batch) in enumerate(batches):
+            for job in batch:
+                url = job.get("url", "")
+                if url and url not in seen:
+                    seen.add(url)
+                    jobs.append(job)
+            if cb:
+                cb(f"  [{i+1}/{len(roles)}] {role!r} → {len(batch)} results")
 
     logger.info("JobSpy linkedin 全部 role 完成：%d 条（URL 去重后）", len(jobs))
     if cb:

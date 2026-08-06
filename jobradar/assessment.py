@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel
 
@@ -24,6 +25,11 @@ _TITLE_KEYWORD_STOPWORDS = {
     "ii", "iii", "i", "in", "intern", "lead", "manager", "of", "or",
     "principal", "scientist", "senior", "specialist", "staff", "the", "with",
 }
+
+
+def gate_worker_count(provider: str) -> int:
+    """Bound independent gate calls without overloading local providers."""
+    return 1 if provider in {"ollama", "local"} else 2
 
 
 def _extract_years_required(text: str) -> int | None:
@@ -153,6 +159,16 @@ def batch_assess_jds(
     """
     if not jobs:
         return []
+
+    batches = [jobs[i:i + BATCH_SIZE] for i in range(0, len(jobs), BATCH_SIZE)]
+    workers = min(gate_worker_count(llm.provider), len(batches))
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="jobradar-jd-gate") as executor:
+            assessed_batches = executor.map(
+                lambda batch: batch_assess_jds(batch, profile, llm, language),
+                batches,
+            )
+            return [assessment for batch in assessed_batches for assessment in batch]
 
     skills_str = ", ".join(profile.skills[:20])
     leniency_note = ""
@@ -287,6 +303,17 @@ def batch_assess_titles(
     """
     if not titles:
         return []
+
+    batch_size = BATCH_SIZE * 2
+    batches = [titles[i:i + batch_size] for i in range(0, len(titles), batch_size)]
+    workers = min(gate_worker_count(llm.provider), len(batches))
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="jobradar-title-gate") as executor:
+            assessed_batches = executor.map(
+                lambda batch: batch_assess_titles(batch, profile, llm, language),
+                batches,
+            )
+            return [assessment for batch in assessed_batches for assessment in batch]
 
     skills_str = ", ".join(profile.skills[:20])
     roles_str = ", ".join(profile.preferred_roles[:8])
