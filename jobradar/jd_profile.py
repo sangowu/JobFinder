@@ -48,24 +48,9 @@ class _JDProfilePayload(BaseModel):
     red_flags: list[str] = Field(default_factory=list)
 
 
-def extract_jd_profile(
-    job: JobResult,
-    llm: LLMConfig,
-    language: str = "zh",
-    *,
-    persist: bool = True,
-) -> JDProfile:
-    cached = cache.get_jd_profile(
-        job.dedup_key,
-        job.description_snippet,
-        prompt_version=jd_profile_prompt_version(language),
-    )
-    if cached is not None:
-        return cached
-
+def build_jd_profile_prompt(job: JobResult, language: str = "zh") -> str:
     lang_name = _LANGUAGE_NAMES.get(language, "中文")
-
-    prompt = f"""请基于以下职位信息输出结构化 JDProfile。
+    return f"""请基于以下职位信息输出结构化 JDProfile。
 
 规则：
 - 所有文字字段必须使用 {lang_name} 输出。
@@ -101,8 +86,24 @@ description:
 </jd_content>
 """
 
+
+def extract_jd_profile(
+    job: JobResult,
+    llm: LLMConfig,
+    language: str = "zh",
+    *,
+    persist: bool = True,
+) -> JDProfile:
+    cached = cache.get_jd_profile(
+        job.dedup_key,
+        job.description_snippet,
+        prompt_version=jd_profile_prompt_version(language),
+    )
+    if cached is not None:
+        return cached
+
     payload = complete_via_tool(
-        prompt=prompt,
+        prompt=build_jd_profile_prompt(job, language),
         args_schema=_JDProfilePayload,
         tool_name="extract_jd_profile",
         tool_description="Extract a structured JD profile from a job description.",
