@@ -44,23 +44,26 @@ CV 文件
          结构化 seniority 区间 + 显式语言能力提取
   ▼ ② 用户确认 title 列表
   ▼ ③ 抓取（Indeed + LinkedIn，JobSpy，无浏览器）
-         串行限速（Indeed 2s / LinkedIn 3s）→ URL 去重
-  ▼    前置 LLM title relevance gate
+         两个来源并发；每完成一个 role batch 就立即做 URL 去重
+  ▼    低成本 Python 预筛 + 落盘检查点
+         年资 / 关闭状态 / 经验差距过滤 → filtered list → search_candidates（SQLite）
+         同一批对象随后进入内存评估队列
+  ▼ ④ 批量评估协调器（与后续抓取 batch 重叠执行）
+         前置 LLM title relevance gate
          仅基于 title 做保守语义粗筛；默认 keep=true，只拒绝明显属于另一条职业路径的标题
   ▼    分批 LLM coarse filter
          使用 title + location + snippet 做卡片级 keep/reject
-  ▼    动态 title seniority gate
-         提前拦截明显级别不符的标题（如 new grad → lead / manager）
-  ▼    experience-gap gate
-         如果 JD 明确要求的年限比候选人实际经验高出 3 年以上，直接跳过
-  ▼ ④ JD Profile 提取
+  ▼ ⑤ 有界职位评估池（云端默认 5 workers，本地模型默认 1）
+         不同职位并发执行；每个职位内部保持 JD Profile → CV Match 的依赖顺序
+         评估结果由协调线程串行提交 SQLite，提交成功后才发送 SSE
+  ▼ ⑥ JD Profile 提取
          结构化 required/preferred skills、must-have、年限、seniority 冲突、work mode、语言要求
-  ▼ ⑤ 可解释 CV↔JD 匹配
+  ▼ ⑦ 可解释 CV↔JD 匹配
          rubric 分维打分 → 程序化加权总分 → recommendation
          跨城市搬迁 / 到岗办公要求计入风险，不压低 location_score
-  ▼ ⑥ 衍生材料生成
+  ▼ ⑧ 衍生材料生成
           面试准备 / 求职信 / CV 优化
-  ▼ ⑦ 搜索统计与缓存
+  ▼ ⑨ 搜索统计与缓存
          历史指标、报告、filter events、Web UI / 终端展示
 ```
 
@@ -89,7 +92,7 @@ LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 
 # 默认模型（由 jobradar model 命令自动写入）
 DEFAULT_PROVIDER=gemini
-DEFAULT_MODEL=gemini-2.0-flash
+DEFAULT_MODEL=gemini-3.5-flash-lite
 ```
 
 ## Web UI 功能
@@ -102,6 +105,7 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **标准化搜索历史指标**：每次搜索都会记录抓取总数、去重后数量、过滤后数量、新增职位数和 token 消耗
 - **模块级监控**：历史记录与搜索完成事件会附带 `module_metrics`，按模块记录 `calls / input_tokens / output_tokens / elapsed`，搜索链路还会附带 `processed / rejected / kept`
 - **漏斗 benchmark 摘要**：搜索历史会记录 pipeline/prompt 版本，并展示过滤后占比、新增产出率、每个新增职位 token 成本等效率指标
+- **可复现调度对照**：[`docs/pipeline-benchmark.md`](docs/pipeline-benchmark.md) 说明如何固定 batch、使用隔离 SQLite 回放，并配对比较串行/流式调度，全程不写正式缓存或 SSE
 - **标题前置语义过滤**：在 JD 评估前，先把职位 title 批量交给 LLM 做保守相关性粗筛；历史漏斗中会显示 `skip_irrelevant`
 - **Title gate 行为边界**：只有当职位标题本身已经足以说明它明显属于另一条职业路径时才拒绝；宽泛标题、相邻技术方向标题、信息不足标题都会先保守放行，交给后续 JD 评估处理
 - **逐条过滤事件持久化**：每次搜索都会把 `run_id / stage / title / reason / details` 写入 `filter_events`，可以回看每条职位被哪一步过滤掉

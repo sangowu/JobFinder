@@ -1,17 +1,158 @@
 from __future__ import annotations
 
+import threading
+from concurrent.futures import Executor, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from typing import Callable
 
 from jobradar import cache
 from jobradar.assessment import JDAssessment, batch_assess_jds
-from jobradar.jd_profile import extract_jd_profile
+from jobradar.jd_profile import extract_jd_profile, jd_profile_prompt_version
 from jobradar.logger import get_logger
-from jobradar.matching import match_job_to_cv
-from jobradar.schemas import CVProfile, make_dedup_key
+from jobradar.matching import match_job_to_cv, match_prompt_version
+from jobradar.schemas import CVProfile, JDProfile, JobResult, MatchScore, make_dedup_key
 from jobradar.search_prefilter import SOURCE_STATS_KEYS, PrefilterResult
 from jobradar.tools import write_cache
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class JobEvaluationTask:
+    """One persisted job whose profile and CV match can be evaluated independently."""
+
+    key: str
+    job: JobResult
+    full_jd: str
+    kind: str
+    source: str = "unknown"
+
+
+@dataclass(frozen=True)
+class JobEvaluationOutcome:
+    task: JobEvaluationTask
+    jd_profile: JDProfile
+    match_score: MatchScore
+
+
+@dataclass
+class AssessmentConcurrencyMetrics:
+    workers: int = 1
+    submitted: int = 0
+    completed: int = 0
+    failed: int = 0
+    peak_inflight: int = 0
+    _active: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def record_submission(self, task_count: int) -> None:
+        with self._lock:
+            self.submitted += task_count
+
+    def record_started(self) -> None:
+        with self._lock:
+            self._active += 1
+            self.peak_inflight = max(self.peak_inflight, self._active)
+
+    def record_finished(self) -> None:
+        with self._lock:
+            self._active -= 1
+
+    def record_completion(self, *, failed: bool) -> None:
+        with self._lock:
+            self.completed += 1
+            if failed:
+                self.failed += 1
+
+
+def _evaluate_job(
+    task: JobEvaluationTask,
+    profile: CVProfile,
+    llm,
+    cv_hash: str,
+    language: str,
+    metrics: AssessmentConcurrencyMetrics,
+) -> JobEvaluationOutcome:
+    metrics.record_started()
+    try:
+        jd_profile = extract_jd_profile(task.job, llm, language=language, persist=False)
+        match_score = match_job_to_cv(
+            profile,
+            jd_profile,
+            task.full_jd,
+            llm,
+            cv_hash=cv_hash,
+            language=language,
+            persist=False,
+        )
+        return JobEvaluationOutcome(task=task, jd_profile=jd_profile, match_score=match_score)
+    finally:
+        metrics.record_finished()
+
+
+def _commit_job_evaluation(outcome: JobEvaluationOutcome, llm, language: str) -> None:
+    task = outcome.task
+    cache.save_jd_profile(
+        job_id=task.key,
+        description=task.full_jd,
+        profile=outcome.jd_profile,
+        model_name=f"{llm.provider}/{llm.model}",
+        prompt_version=jd_profile_prompt_version(language),
+    )
+    cache.save_job_match(
+        outcome.match_score,
+        description=task.full_jd,
+        model_name=f"{llm.provider}/{llm.model}",
+        prompt_version=match_prompt_version(language),
+    )
+    task.job.jd_profile = outcome.jd_profile
+    task.job.match_score = outcome.match_score
+
+
+def _evaluate_jobs(
+    tasks: list[JobEvaluationTask],
+    *,
+    profile: CVProfile,
+    llm,
+    cv_hash: str,
+    language: str,
+    executor: Executor | None,
+    workers: int,
+    metrics: AssessmentConcurrencyMetrics,
+) -> list[tuple[JobEvaluationTask, Exception | None]]:
+    if not tasks:
+        return []
+    if executor is None:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="jobradar-evaluation") as local_executor:
+            return _evaluate_jobs(
+                tasks,
+                profile=profile,
+                llm=llm,
+                cv_hash=cv_hash,
+                language=language,
+                executor=local_executor,
+                workers=workers,
+                metrics=metrics,
+            )
+
+    metrics.record_submission(len(tasks))
+    futures = {
+        executor.submit(_evaluate_job, task, profile, llm, cv_hash, language, metrics): task
+        for task in tasks
+    }
+    completed: list[tuple[JobEvaluationTask, Exception | None]] = []
+    for future in as_completed(futures):
+        task = futures[future]
+        try:
+            outcome = future.result()
+            _commit_job_evaluation(outcome, llm, language)
+        except Exception as exc:
+            metrics.record_completion(failed=True)
+            completed.append((task, exc))
+        else:
+            metrics.record_completion(failed=False)
+            completed.append((task, None))
+    return completed
 
 
 def flush_assessments(
@@ -24,7 +165,14 @@ def flush_assessments(
     on_job: Callable[[str], None] | None,
     language: str,
     run_id: str = "",
+    *,
+    evaluation_executor: Executor | None = None,
+    assessment_workers: int = 1,
+    concurrency_metrics: AssessmentConcurrencyMetrics | None = None,
 ) -> tuple[list[str], int, int]:
+    if assessment_workers < 1:
+        raise ValueError("assessment_workers must be at least 1")
+    metrics = concurrency_metrics or AssessmentConcurrencyMetrics(workers=assessment_workers)
     def _is_visible_job(job_obj) -> bool:
         return bool(job_obj is not None and job_obj.is_effectively_relevant)
 
@@ -36,22 +184,20 @@ def flush_assessments(
     if pf.immediate_keys and has_cv and llm:
         cb(f"Checking explainable scores for {len(pf.immediate_keys)} cached jobs...")
 
+    immediate_tasks: list[JobEvaluationTask] = []
     for key in pf.immediate_keys:
         job_obj = cache.get_job(key, language=language)
         if job_obj is not None and has_cv and llm:
-            try:
-                jd_profile = extract_jd_profile(job_obj, llm, language=language)
-                job_obj.jd_profile = jd_profile
-                job_obj.match_score = match_job_to_cv(
-                    profile,
-                    jd_profile,
-                    job_obj.description_snippet,
-                    llm,
-                    cv_hash=cv_hash,
-                    language=language,
+            immediate_tasks.append(
+                JobEvaluationTask(
+                    key=key,
+                    job=job_obj,
+                    full_jd=job_obj.description_snippet,
+                    kind="immediate",
+                    source=job_obj.sources[0] if job_obj.sources else "unknown",
                 )
-            except Exception as exc:
-                logger.warning("JD profile extraction/matching failed for cached job %s: %s", key, exc)
+            )
+            continue
         if not _is_visible_job(job_obj):
             logger.debug("Skip cached result after final relevance check: %s", key)
             continue
@@ -59,10 +205,31 @@ def flush_assessments(
         if on_job:
             on_job(key)
 
+    for task, error in _evaluate_jobs(
+        immediate_tasks,
+        profile=profile,
+        llm=llm,
+        cv_hash=cv_hash,
+        language=language,
+        executor=evaluation_executor,
+        workers=assessment_workers,
+        metrics=metrics,
+    ):
+        if error is not None:
+            logger.warning("JD profile extraction/matching failed for cached job %s: %s", task.key, error)
+        final_job = cache.get_job(task.key, language=language) or task.job
+        if not _is_visible_job(final_job):
+            logger.debug("Skip cached result after final relevance check: %s", task.key)
+            continue
+        keys.append(task.key)
+        if on_job:
+            on_job(task.key)
+
     if pf.patch_pending and has_cv and llm:
         cb(f"Re-assessing {len(pf.patch_pending)} cached jobs...")
         patch_inputs = [(cached_job.title, cached_job.description_snippet) for cached_job, _ in pf.patch_pending]
         patch_assessments = batch_assess_jds(patch_inputs, profile, llm, language=language)
+        patch_tasks: list[JobEvaluationTask] = []
         for (cached_job, _), assessment in zip(pf.patch_pending, patch_assessments):
             if not assessment.relevant:
                 cb(f"Skip (not relevant): {cached_job.title[:50]} — {assessment.reason}")
@@ -92,31 +259,47 @@ def flush_assessments(
                 }
             )
             if assessment.relevant:
-                try:
-                    cached_job = cache.get_job(cached_job.dedup_key) or cached_job
-                    jd_profile = extract_jd_profile(cached_job, llm, language=language)
-                    match_job_to_cv(profile, jd_profile, cached_job.description_snippet, llm, cv_hash=cv_hash, language=language)
-                except Exception as exc:
-                    logger.warning("JD profile extraction failed for cached job %s: %s", cached_job.dedup_key, exc)
-            if assessment.relevant:
-                final_job = cache.get_job(cached_job.dedup_key, language=language)
-                if not _is_visible_job(final_job):
-                    cb(f"Skip (final match): {cached_job.title[:50]}")
-                    logger.info("Final match filtered cached job: %s", cached_job.title)
-                    cache.record_filter_event(
-                        run_id=run_id,
-                        stage="final_match",
-                        title=cached_job.title,
-                        company=cached_job.company,
-                        location=cached_job.location,
-                        url=cached_job.url,
-                        reason="match recommendation=skip",
-                        details={"cached": True},
+                refreshed_job = cache.get_job(cached_job.dedup_key) or cached_job
+                patch_tasks.append(
+                    JobEvaluationTask(
+                        key=cached_job.dedup_key,
+                        job=refreshed_job,
+                        full_jd=refreshed_job.description_snippet,
+                        kind="patch",
+                        source=refreshed_job.sources[0] if refreshed_job.sources else "unknown",
                     )
-                    continue
-                keys.append(cached_job.dedup_key)
-                if on_job:
-                    on_job(cached_job.dedup_key)
+                )
+
+        for task, error in _evaluate_jobs(
+            patch_tasks,
+            profile=profile,
+            llm=llm,
+            cv_hash=cv_hash,
+            language=language,
+            executor=evaluation_executor,
+            workers=assessment_workers,
+            metrics=metrics,
+        ):
+            if error is not None:
+                logger.warning("JD profile extraction failed for cached job %s: %s", task.key, error)
+            final_job = cache.get_job(task.key, language=language) or task.job
+            if not _is_visible_job(final_job):
+                cb(f"Skip (final match): {task.job.title[:50]}")
+                logger.info("Final match filtered cached job: %s", task.job.title)
+                cache.record_filter_event(
+                    run_id=run_id,
+                    stage="final_match",
+                    title=task.job.title,
+                    company=task.job.company,
+                    location=task.job.location,
+                    url=task.job.url,
+                    reason="match recommendation=skip",
+                    details={"cached": True},
+                )
+                continue
+            keys.append(task.key)
+            if on_job:
+                on_job(task.key)
 
     if pf.pending:
         if has_cv and llm:
@@ -136,6 +319,8 @@ def flush_assessments(
                 for _ in pf.pending
             ]
 
+        pending_tasks: list[JobEvaluationTask] = []
+        pending_without_evaluation: list[JobEvaluationTask] = []
         for (job, content, expires_at), assessment in zip(pf.pending, assessments):
             title = (job.get("title") or "").strip()
             job_source = job.get("source") or "unknown"
@@ -182,35 +367,78 @@ def flush_assessments(
                 }
             )
             if assessment.relevant:
-                summary_job = cache.get_job(key)
-                if summary_job is not None and llm is not None:
-                    try:
-                        jd_profile = extract_jd_profile(summary_job, llm, language=language)
-                        match_job_to_cv(profile, jd_profile, summary_job.description_snippet, llm, cv_hash=cv_hash, language=language)
-                    except Exception as exc:
-                        logger.warning("JD profile extraction/matching failed for %s: %s", key, exc)
-                final_job = cache.get_job(key, language=language)
-                if not _is_visible_job(final_job):
-                    cb(f"Skip (final match): {title[:50]}")
-                    logger.info("Final match filtered job: %s", title)
-                    cache.record_filter_event(
-                        run_id=run_id,
-                        stage="final_match",
-                        title=title,
-                        company=job.get("company", ""),
-                        location=job.get("location", ""),
-                        source=job_source,
-                        url=job.get("url", ""),
-                        reason="match recommendation=skip",
-                        details={"cached": False},
+                summary_job = JobResult(
+                    title=title,
+                    company=job.get("company", ""),
+                    location=job.get("location", ""),
+                    url=job.get("url", ""),
+                    description_snippet=content,
+                    sources=[entry["source"] for entry in raw_sources],
+                    raw_sources=raw_sources,
+                    date_posted=job.get("date_posted", ""),
+                    expires_at=expires_at,
+                    is_complete=job.get("is_complete", True),
+                    coarse_filter=job.get("coarse_filter"),
+                    assessment=job_assessment,
+                )
+                if llm is not None:
+                    pending_tasks.append(
+                        JobEvaluationTask(
+                            key=key,
+                            job=summary_job,
+                            full_jd=summary_job.description_snippet,
+                            kind="pending",
+                            source=job_source,
+                        )
                     )
-                    continue
-                source_stats["saved"] += 1
-                new_saved += 1
-                keys.append(key)
-                if on_job:
-                    on_job(key)
-                cb(f"Saved: {title} @ {job.get('company', '?')} [{job_source}]")
+                else:
+                    pending_without_evaluation.append(
+                        JobEvaluationTask(
+                            key=key,
+                            job=summary_job,
+                            full_jd=summary_job.description_snippet,
+                            kind="pending",
+                            source=job_source,
+                        )
+                    )
+
+        evaluated = _evaluate_jobs(
+            pending_tasks,
+            profile=profile,
+            llm=llm,
+            cv_hash=cv_hash,
+            language=language,
+            executor=evaluation_executor,
+            workers=assessment_workers,
+            metrics=metrics,
+        )
+        evaluated.extend((task, None) for task in pending_without_evaluation)
+        for task, error in evaluated:
+            if error is not None:
+                logger.warning("JD profile extraction/matching failed for %s: %s", task.key, error)
+            final_job = task.job
+            if not _is_visible_job(final_job):
+                cb(f"Skip (final match): {task.job.title[:50]}")
+                logger.info("Final match filtered job: %s", task.job.title)
+                cache.record_filter_event(
+                    run_id=run_id,
+                    stage="final_match",
+                    title=task.job.title,
+                    company=task.job.company,
+                    location=task.job.location,
+                    source=task.source,
+                    url=task.job.url,
+                    reason="match recommendation=skip",
+                    details={"cached": False},
+                )
+                continue
+            source_stats = pf.source_stats.setdefault(task.source, {key: 0 for key in SOURCE_STATS_KEYS})
+            source_stats["saved"] += 1
+            new_saved += 1
+            keys.append(task.key)
+            if on_job:
+                on_job(task.key)
+            cb(f"Saved: {task.job.title} @ {task.job.company or '?'} [{task.source}]")
 
     total_assessed = len(pf.pending) + len(pf.patch_pending)
     if total_assessed >= 5 and llm_rejected / total_assessed >= 0.9:

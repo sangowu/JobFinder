@@ -15,7 +15,7 @@ from jobradar.schemas import CVProfile, JobAssessment
 logger = get_logger(__name__)
 
 BATCH_SIZE = 8  # 每批 JD 数量，兼顾 context 长度与 token 节省
-TITLE_RELEVANCE_PROMPT_VERSION = "title_relevance_v3"
+TITLE_RELEVANCE_PROMPT_VERSION = "title_relevance_v4"
 
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 _TITLE_KEYWORD_STOPWORDS = {
@@ -295,7 +295,8 @@ def batch_assess_titles(
         "你是招聘标题粗筛助手，只返回 JSON，不要额外解释。"
         f"无论输入 title 使用何种语言，所有文字字段必须用 {lang_name} 输出。"
         "这一步只能依据职位标题判断方向是否明显不相关，不要臆测 JD 细节。"
-        "默认倾向 keep=true；只有在标题本身已经足以高置信度证明这是另一条职业路径时，才允许 keep=false。"
+        "默认倾向 keep=true；只有在 title 本身已经足以高置信度证明与候选人 CV 所体现的求职方向完全不同时，"
+        "才允许 keep=false。"
     )
     default = TitleAssessment(keep=True, reason="标题粗筛失败，默认保留")
     results: list[TitleAssessment] = []
@@ -315,13 +316,13 @@ def batch_assess_titles(
 判断原则：
 - 只根据 title 判断是否与候选人的目标方向明显不相关。
 - 只要 title 与候选人的目标岗位、核心技能、技术栈、职能方向任一项存在合理关联，就 keep=true。
-- 只有在 title 明显属于另一条职业路径、且看不出与候选人关键背景有任何合理关联时，才 keep=false。
+- 只有在 title 与候选人 CV 所体现的求职方向完全不同，且仅凭 title 就能高置信度确定时，才 keep=false。
 - 如果你需要依赖职位描述、公司背景、隐含职责、行业上下文才能判断，请 keep=true；因为这一步只看 title。
 - 对宽泛 title、信息不足的 title、可能相关的相邻方向 title，一律 keep=true。
 - 不要因为 title 更宽泛就拒绝，例如 AI Engineer 可以覆盖 Applied AI Engineer。
 - 不要因为 title 不是 preferred_roles 的字面同义词就拒绝；只要语义上可能属于同一求职方向，就应保守放行。
 - support、services、solutions、platform、security、infrastructure、consulting 这类词本身不足以证明职位无关；如果标题仍可能属于同一技术职业路径，应 keep=true。
-- keep=false 只适用于那种光看 title 就能确定是完全不同职业路径的职位，例如行政、财务、机械维修、制造、采购、纯销售等。
+- keep=false 只适用于仅凭 title 就能确定与候选人 CV 所体现的求职方向完全不同的职位。
 - 不要依据不存在于 title 中的信息做推断。
 
 职位标题列表（按编号 [1]~[{len(batch)}] 排列）：

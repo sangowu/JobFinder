@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "dataset_id": "pipeline-benchmark-fixture-v1",
+  "producer_finished_offset_seconds": 0.05,
+  "batches": [
+    {
+      "batch_id": "indeed-ai-engineer",
+      "ready_offset_ms": 0,
+      "source": "indeed.ie",
+      "role": "AI Engineer",
+      "jobs": [
+        {
+          "title": "AI Engineer",
+          "company": "Example One",
+          "url": "https://example.test/jobs/1",
+          "description_snippet": "Build Python AI services."
+        },
+        {
+          "title": "Applied AI Engineer",
+          "company": "Example Two",
+          "url": "https://example.test/jobs/2",
+          "description_snippet": "Develop and evaluate LLM applications."
+        }
+      ]
+    },
+    {
+      "batch_id": "linkedin-ai-engineer",
+      "ready_offset_ms": 20,
+      "source": "linkedin.com",
+      "role": "AI Engineer",
+      "jobs": [
+        {
+          "title": "Machine Learning Engineer",
+          "company": "Example Three",
+          "url": "https://example.test/jobs/3",
+          "description_snippet": "Deploy machine learning systems."
+        },
+        {
+          "title": "LLM Engineer",
+          "company": "Example Four",
+          "url": "https://example.test/jobs/4",
+          "description_snippet": "Build retrieval and evaluation pipelines."
+        }
+      ]
+    },
+    {
+      "batch_id": "indeed-ml-engineer",
+      "ready_offset_ms": 40,
+      "source": "indeed.ie",
+      "role": "ML Engineer",
+      "jobs": [
+        {
+          "title": "AI Backend Engineer",
+          "company": "Example Five",
+          "url": "https://example.test/jobs/5",
+          "description_snippet": "Own Python APIs and model integrations."
+        }
+      ]
+    }
+  ]
+}

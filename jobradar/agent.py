@@ -6,24 +6,325 @@
 """
 from __future__ import annotations
 
+import os
 import re
+import threading
+import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 from uuid import uuid4
 
 from jobradar import cache
+from jobradar.batch_scheduler import BatchScheduler, ScheduledBatch
 from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
 from jobradar.logger import get_logger
 from jobradar.pipeline_stats import PipelineStats
-from jobradar.schemas import CVProfile, SearchSession
-from jobradar.scraping import scrape_sources
-from jobradar.search_assessment_stage import flush_assessments
-from jobradar.search_prefilter import collect_all_sources, prefilter_jobs
+from jobradar.schemas import CVProfile, SearchSession, make_dedup_key
+from jobradar.scraping import filter_jobs_by_llm, stream_scrape_source_batches
+from jobradar.search_assessment_stage import (
+    AssessmentConcurrencyMetrics,
+    flush_assessments,
+)
+from jobradar.search_prefilter import (
+    SOURCE_STATS_KEYS,
+    PrefilterResult,
+    collect_all_sources,
+    prefilter_jobs,
+)
 
 logger = get_logger(__name__)
 
 
 class SearchCancelled(Exception):
     """Raised at a cooperative checkpoint when the user stops a search."""
+
+
+def _resolve_assessment_workers(requested: int | None, provider: str) -> int:
+    if requested is not None:
+        value = requested
+    else:
+        default = 1 if provider in {"ollama", "local"} else 5
+        raw = os.getenv("ASSESSMENT_WORKERS", str(default)).strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            logger.warning("Invalid ASSESSMENT_WORKERS=%r; using %d", raw, default)
+            value = default
+    if not 1 <= value <= 8:
+        raise ValueError("assessment_workers must be between 1 and 8")
+    return value
+
+
+def _merge_prefilter_results(target: PrefilterResult, current: PrefilterResult) -> None:
+    for name in (
+        "total", "skip_dup", "skip_seniority", "skip_irrelevant", "title_relevance_in",
+        "title_relevance_rejected", "cache_hit", "cache_patch", "skip_no_desc",
+        "skip_closed", "skip_exp", "skip_skill",
+    ):
+        setattr(target, name, getattr(target, name) + getattr(current, name))
+    for source, values in current.source_stats.items():
+        bucket = target.source_stats.setdefault(source, {key: 0 for key in SOURCE_STATS_KEYS})
+        for key in SOURCE_STATS_KEYS:
+            bucket[key] += values.get(key, 0)
+
+
+def _run_streaming_pipeline(
+    *,
+    profile: CVProfile,
+    location: str,
+    llm: LLMConfig,
+    cv_hash: str,
+    cb: Callable[[str], None],
+    on_job: Callable[[str], None] | None,
+    language: str,
+    limit_per_role: int,
+    linkedin_limit_per_role: int,
+    hours_old: int | None,
+    stats: PipelineStats,
+    run_id: str,
+    assessment_workers: int,
+) -> list[str]:
+    """生产者先落盘 filtered list，再并发评估同一批内存对象。"""
+    started_at = time.monotonic()
+    scrape_started_at = started_at
+    scrape_finished_at: float | None = None
+    assessment_started_at: float | None = None
+    assessment_finished_at: float | None = None
+    first_job_at: float | None = None
+    first_job_lock = threading.Lock()
+
+    collected_keys: list[str] = []
+    aggregate_pf = PrefilterResult()
+    seen_urls: set[str] = set()
+    seen_dedup_keys: set[str] = set()
+    all_sources: dict[str, list[dict]] = {}
+    sources_lock = threading.Lock()
+    persistence_elapsed = 0.0
+    assessment_batches = 0
+    assessment_batch_jobs = 0
+    llm_assessed = 0
+    llm_rejected = 0
+    new_saved = 0
+    concurrency_metrics = AssessmentConcurrencyMetrics(workers=assessment_workers)
+    cache.prune_search_candidates()
+
+    def _emit_job(key: str) -> None:
+        nonlocal first_job_at
+        with first_job_lock:
+            if first_job_at is None:
+                first_job_at = time.monotonic()
+        if on_job:
+            on_job(key)
+
+    def _source_snapshot(pf: PrefilterResult) -> dict[str, list[dict]]:
+        keys = {
+            make_dedup_key(str(job.get("company") or ""), str(job.get("title") or ""))
+            for job, _, _ in pf.pending
+        }
+        with sources_lock:
+            return {key: list(all_sources.get(key, [])) for key in keys}
+
+    def _cached_filter_dict(job) -> dict:
+        return {
+            "title": job.title,
+            "company": job.company,
+            "location": job.location,
+            "url": job.url,
+            "source": job.sources[0] if job.sources else "unknown",
+            "description_snippet": job.description_snippet,
+        }
+
+    def _process_assessment(
+        scheduled: ScheduledBatch[tuple[PrefilterResult, list[str]]],
+    ) -> None:
+        nonlocal assessment_started_at, assessment_finished_at
+        nonlocal assessment_batches, assessment_batch_jobs, llm_assessed, llm_rejected, new_saved
+        pf, candidate_keys = scheduled.value
+        now = time.monotonic()
+        if assessment_started_at is None:
+            assessment_started_at = now
+        assessment_batches += 1
+        assessment_batch_jobs += len(pf.pending) + len(pf.patch_pending) + len(pf.immediate_keys)
+        cache.update_search_candidate_status(run_id, candidate_keys, "processing")
+        try:
+            original_pending = list(pf.pending)
+            original_patch = list(pf.patch_pending)
+            original_immediate = list(pf.immediate_keys)
+            filter_entries: list[tuple[str, object, dict]] = [
+                ("pending", item, item[0]) for item in original_pending
+            ]
+            filter_entries.extend(
+                ("patch", item, _cached_filter_dict(item[0])) for item in original_patch
+            )
+            for key in original_immediate:
+                cached_job = cache.get_job(key, language=language)
+                if cached_job is not None:
+                    filter_entries.append(("immediate", key, _cached_filter_dict(cached_job)))
+            filtered_jobs = filter_jobs_by_llm(
+                [entry[2] for entry in filter_entries],
+                cv_profile=profile,
+                llm=llm,
+                location=location,
+                cb=cb,
+                stats=stats,
+                run_id=run_id,
+            )
+            kept_ids = {id(job) for job in filtered_jobs}
+            pf.pending = [
+                item for kind, item, job in filter_entries
+                if kind == "pending" and id(job) in kept_ids
+            ]
+            pf.patch_pending = [
+                item for kind, item, job in filter_entries
+                if kind == "patch" and id(job) in kept_ids
+            ]
+            pf.immediate_keys = [
+                item for kind, item, job in filter_entries
+                if kind == "immediate" and id(job) in kept_ids
+            ]
+            llm_assessed += len(pf.pending) + len(pf.patch_pending)
+
+            keys, rejected, saved = flush_assessments(
+                pf,
+                _source_snapshot(pf),
+                profile,
+                llm,
+                cv_hash,
+                cb,
+                _emit_job,
+                language,
+                run_id=run_id,
+                evaluation_executor=evaluation_executor,
+                assessment_workers=assessment_workers,
+                concurrency_metrics=concurrency_metrics,
+            )
+            collected_keys.extend(keys)
+            llm_rejected += rejected
+            new_saved += saved
+            cache.update_search_candidate_status(run_id, candidate_keys, "completed")
+            _merge_prefilter_results(aggregate_pf, pf)
+            assessment_finished_at = time.monotonic()
+        except Exception:
+            try:
+                cache.update_search_candidate_status(run_id, candidate_keys, "failed")
+            except Exception as status_exc:
+                logger.warning("Failed to mark candidate batch as failed: %s", status_exc)
+            raise
+
+    def _assessment_tasks() -> Iterator[ScheduledBatch[tuple[PrefilterResult, list[str]]]]:
+        nonlocal scrape_finished_at, persistence_elapsed
+        for batch_index, scraped_batch in enumerate(stream_scrape_source_batches(
+            roles=profile.preferred_roles,
+            location=location,
+            cb=cb,
+            limit_per_query=limit_per_role,
+            linkedin_limit_per_role=linkedin_limit_per_role,
+            hours_old=hours_old,
+            stats=stats,
+        )):
+            batch_sources = collect_all_sources(scraped_batch)
+            with sources_lock:
+                for dedup_key, entries in batch_sources.items():
+                    bucket = all_sources.setdefault(dedup_key, [])
+                    known = {item["source"] for item in bucket}
+                    bucket.extend(item for item in entries if item["source"] not in known)
+
+            pf = prefilter_jobs(
+                scraped_batch,
+                seen_urls,
+                cb,
+                profile,
+                language=language,
+                run_id=run_id,
+                seen_dedup_keys=seen_dedup_keys,
+            )
+            candidate_jobs = [job for job, _, _ in pf.pending]
+            persisted_at = time.monotonic()
+            candidate_keys = cache.save_search_candidates(run_id, candidate_jobs)
+            persistence_elapsed += time.monotonic() - persisted_at
+
+            if pf.pending or pf.patch_pending or pf.immediate_keys:
+                ready_at = time.monotonic()
+                yield ScheduledBatch(
+                    batch_id=f"{run_id}-{batch_index:04d}",
+                    value=(pf, candidate_keys),
+                    ready_at=ready_at,
+                    item_count=len(pf.pending) + len(pf.patch_pending) + len(pf.immediate_keys),
+                )
+        scrape_finished_at = time.monotonic()
+
+    with ThreadPoolExecutor(
+        max_workers=assessment_workers,
+        thread_name_prefix="jobradar-evaluation",
+    ) as evaluation_executor:
+        scheduler_metrics = BatchScheduler[tuple[PrefilterResult, list[str]]]("streaming").run(
+            _assessment_tasks(),
+            _process_assessment,
+        )
+
+    with sources_lock:
+        source_items = [(key, list(entries)) for key, entries in all_sources.items()]
+    for dedup_key, entries in source_items:
+        if len(entries) > 1:
+            for entry in entries:
+                cache.merge_job_raw_source(dedup_key, entry)
+
+    finished_at = time.monotonic()
+    scrape_finished_at = scrape_finished_at or finished_at
+    assessment_finished_at = assessment_finished_at or scrape_finished_at
+    stats.pipeline_elapsed = round(finished_at - started_at, 4)
+    stats.scrape_elapsed = round(scrape_finished_at - scrape_started_at, 4)
+    if assessment_started_at is not None:
+        stats.assessment_elapsed = round(assessment_finished_at - assessment_started_at, 4)
+        stats.overlap_elapsed = round(
+            max(0.0, min(scrape_finished_at, assessment_finished_at) - assessment_started_at),
+            4,
+        )
+    stats.time_to_first_job = round(first_job_at - started_at, 4) if first_job_at is not None else None
+    stats.persistence_elapsed = round(persistence_elapsed, 4)
+    stats.assessment_batches = assessment_batches
+    stats.assessment_batch_jobs = assessment_batch_jobs
+    stats.queue_peak = scheduler_metrics.queue_peak
+    stats.queue_wait_avg = round(scheduler_metrics.queue_wait_avg, 4)
+    stats.queue_wait_p50 = round(scheduler_metrics.queue_wait_p50, 4)
+    stats.queue_wait_p95 = round(scheduler_metrics.queue_wait_p95, 4)
+    stats.assessment_workers = assessment_workers
+    stats.evaluation_tasks = concurrency_metrics.submitted
+    stats.evaluation_completed = concurrency_metrics.completed
+    stats.evaluation_failed = concurrency_metrics.failed
+    stats.evaluation_peak_inflight = concurrency_metrics.peak_inflight
+
+    stats.prefilter_in = aggregate_pf.total
+    stats.skip_dup = aggregate_pf.skip_dup
+    stats.skip_seniority = aggregate_pf.skip_seniority
+    stats.skip_irrelevant += aggregate_pf.skip_irrelevant
+    stats.cache_hit = aggregate_pf.cache_hit
+    stats.cache_patch = aggregate_pf.cache_patch
+    stats.skip_no_desc = aggregate_pf.skip_no_desc
+    stats.skip_closed = aggregate_pf.skip_closed
+    stats.skip_exp = aggregate_pf.skip_exp
+    stats.skip_skill = aggregate_pf.skip_skill
+    stats.llm_assessed = llm_assessed
+    stats.llm_rejected = llm_rejected
+    unique_keys = list(dict.fromkeys(collected_keys))
+    stats.saved = len(unique_keys)
+    stats.new_saved = new_saved
+    stats.by_source = {source: dict(values) for source, values in aggregate_pf.source_stats.items()}
+
+    logger.info(
+        "Streaming pipeline | batches=%d queued_jobs=%d scrape=%.2fs assess=%.2fs overlap=%.2fs "
+        "persist=%.3fs first_job=%s saved=%d",
+        assessment_batches,
+        assessment_batch_jobs,
+        stats.scrape_elapsed,
+        stats.assessment_elapsed,
+        stats.overlap_elapsed,
+        stats.persistence_elapsed,
+        f"{stats.time_to_first_job:.2f}s" if stats.time_to_first_job is not None else "none",
+        len(unique_keys),
+    )
+    return unique_keys
 
 
 def run_search(
@@ -39,6 +340,7 @@ def run_search(
     linkedin_limit_per_role: int = 30,
     hours_old: int | None = 72,
     control_checkpoint: Callable[[], None] | None = None,
+    assessment_workers: int | None = None,
     # 兼容旧参数，优先使用 llm
     provider: Provider = "claude",
     model: str | None = None,
@@ -51,6 +353,7 @@ def run_search(
         provider=provider,
         model=model or DEFAULT_MODELS.get(provider, ""),
     )
+    effective_assessment_workers = _resolve_assessment_workers(assessment_workers, effective_llm.provider)
     pipeline_stats = PipelineStats()
     run_id = uuid4().hex
     setattr(pipeline_stats, "run_id", run_id)
@@ -91,41 +394,31 @@ def run_search(
     logger.info("Starting search: %s @ %s (seniority=%s)", profile.preferred_roles, location, profile.seniority)
     _cb(f"Starting search: {profile.preferred_roles} @ {location}")
 
-    seen_urls: set[str] = set()
     collected_keys: list[str] = []
 
-    # ── 浏览器直接抓取（注册表中所有站点）────────────────────────────────────
+    # ── 流式抓取 + 异步评估 ─────────────────────────────────────────────────
     try:
-        scraped = scrape_sources(
-            roles=profile.preferred_roles,
+        collected_keys = _run_streaming_pipeline(
+            profile=profile,
             location=location,
             cb=_cb,
-            limit_per_query=limit_per_role,
-            cv_profile=profile,
-            llm=effective_llm,
-            linkedin_limit_per_role=linkedin_limit_per_role,
-            hours_old=hours_old,
-            stats=pipeline_stats,
-            run_id=run_id,
-        )
-        logger.info("Scraped %d jobs, starting prefilter & LLM assessment...", len(scraped))
-        keys = _write_scraped(
-            scraped, seen_urls, _cb,
-            profile=profile,
             llm=effective_llm,
             cv_hash=cv_hash,
             on_job=on_job,
             language=language,
+            limit_per_role=limit_per_role,
+            linkedin_limit_per_role=linkedin_limit_per_role,
+            hours_old=hours_old,
             stats=pipeline_stats,
             run_id=run_id,
+            assessment_workers=effective_assessment_workers,
         )
-        collected_keys.extend(keys)
-        logger.info("Scrape done: %d jobs", len(keys))
+        logger.info("Streaming scrape and assessment done: %d jobs", len(collected_keys))
     except SearchCancelled:
         raise
     except Exception as e:
-        logger.warning("Scrape error, skipping: %s", e)
-        _cb(f"Scrape skipped due to error: {e}")
+        logger.error("Streaming search pipeline failed: %s", e, exc_info=True)
+        raise
 
     # ── 去重 + 保存 Session ───────────────────────────────────────────────────
     if control_checkpoint:
@@ -223,7 +516,7 @@ def _write_scraped(
     for dk, srcs in job_all_sources.items():
         if len(srcs) > 1:
             for s in srcs:
-                cache.merge_job_source(dk, s)
+                cache.merge_job_raw_source(dk, s)
 
     # 填充管道统计
     if stats is not None:

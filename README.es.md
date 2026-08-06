@@ -44,23 +44,26 @@ Archivo CV
          bandas estructuradas de seniority + extracción explícita de idiomas
   ▼ ② El usuario revisa y confirma la lista de títulos
   ▼ ③ Extracción (Indeed + LinkedIn, JobSpy, sin navegador)
-         serie limitada (Indeed 2s / LinkedIn 3s) → dedup
-  ▼    title relevance gate LLM previo al JD
+         fuentes concurrentes; cada lote de rol completado se deduplica inmediatamente
+  ▼    prefiltro Python determinista + checkpoint persistido
+         gates de seniority / cierre / diferencia de experiencia → filtered list → search_candidates (SQLite)
+         los mismos objetos entran después en una cola en memoria
+  ▼ ④ Coordinador de evaluación por lotes (solapado con el scraping posterior)
+         title relevance gate LLM previo al JD
          filtro semántico conservador solo con el título; keep=true por defecto y rechazo solo si la ruta profesional es claramente distinta
   ▼    coarse filter LLM por lotes
          keep/reject a nivel de tarjeta usando title + location + snippet
-  ▼    title seniority gate dinámico
-          bloquea títulos con desajuste obvio de nivel (p. ej. new grad → lead / manager)
-  ▼    gate de diferencia de experiencia
-         si el JD exige más de 3 años por encima de la experiencia real del candidato, se descarta directamente
-  ▼ ④ Extracción de JD Profile
+  ▼ ⑤ Pool acotado de evaluación (5 workers en cloud; 1 para modelos locales)
+         distintos puestos se procesan en paralelo; cada puesto mantiene JD Profile → CV Match
+         el coordinador confirma SQLite en serie y emite SSE solo después del commit
+  ▼ ⑥ Extracción de JD Profile
          required/preferred skills estructurados, must-haves, años, conflicto de seniority, work mode y requisitos de idioma
-  ▼ ⑤ Matching explicable CV↔JD
+  ▼ ⑦ Matching explicable CV↔JD
          puntuación por rúbrica → score ponderado programático → recommendation
          reubicación entre ciudades / asistencia a oficina cuentan como riesgo, no como penalización de location_score
-  ▼ ⑥ Generación de artifacts
+  ▼ ⑧ Generación de artifacts
           interview prep / cover letter / CV optimization
-  ▼ ⑦ Estadísticas de búsqueda y caché
+  ▼ ⑨ Estadísticas de búsqueda y caché
           métricas históricas, informes, filter events, Web UI / terminal
 ```
 
@@ -89,7 +92,7 @@ LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 
 # Modelo predeterminado (escrito automáticamente por `jobradar model`)
 DEFAULT_PROVIDER=gemini
-DEFAULT_MODEL=gemini-2.0-flash
+DEFAULT_MODEL=gemini-3.5-flash-lite
 ```
 
 ## Funciones de la Web UI
@@ -101,6 +104,7 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Historial de búsquedas**: cada registro tiene un botón 📊 para expandir el embudo completo, con desglose por fuente (Indeed / LinkedIn)
 - **Métricas normalizadas del historial**: cada búsqueda guarda total extraído, total tras deduplicación, total filtrado, nuevos puestos guardados y consumo de tokens
 - **Resumen benchmark del embudo**: el historial guarda versiones del pipeline/prompt y muestra métricas derivadas como tasa post-filtro, rendimiento de nuevos puestos y tokens por puesto nuevo
+- **Benchmark reproducible de planificación**: [`docs/pipeline-benchmark.md`](docs/pipeline-benchmark.md) explica la captura de lotes congelados, la reproducción con SQLite aislado y la comparación emparejada serial/streaming sin escribir en la caché de producción ni en SSE
 - **Filtro semántico previo por título**: antes del JD assessment, los títulos pasan por un gate LLM conservador; `skip_irrelevant` aparece en el embudo
 - **Persistencia de eventos de filtrado**: cada búsqueda guarda `run_id / stage / title / reason / details` en `filter_events`
 - **Filtro dinámico de seniority en el título**: usa los niveles eligible/stretch/blocked del CV para quitar desajustes claros antes del JD matching

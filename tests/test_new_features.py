@@ -21,7 +21,14 @@ from jobradar.cv_extractor import extract_cv_profile
 from jobradar.jd_profile import _JDProfilePayload, extract_jd_profile
 from jobradar.paths import REPORTS_DIR
 from jobradar.pipeline_stats import PipelineStats
-from jobradar.schemas import CVProfile, JDProfile, JobAssessment, JobResult, MatchScore
+from jobradar.schemas import (
+    CoarseFilterResult,
+    CVProfile,
+    JDProfile,
+    JobAssessment,
+    JobResult,
+    MatchScore,
+)
 
 
 @pytest.fixture()
@@ -56,6 +63,57 @@ def _make_llm():
     from jobradar.llm_backend import LLMConfig
 
     return LLMConfig(provider="gemini", model="gemini-2.0-flash")
+
+
+def test_streaming_llm_filters_preserve_objects_and_aggregate_stats(db, monkeypatch):
+    import jobradar.scraping as scraping
+
+    jobs = [
+        {
+            "title": title,
+            "company": f"Company {index}",
+            "location": "Dublin",
+            "url": f"https://example.com/{index}",
+            "source": "indeed.ie",
+            "description_snippet": "Python APIs",
+        }
+        for index, title in enumerate(("Backend Engineer", "Data Engineer", "Sales Manager"))
+    ]
+    monkeypatch.setattr(
+        scraping,
+        "batch_assess_titles",
+        lambda titles, profile, llm: [
+            TitleAssessment(keep=True, reason="match"),
+            TitleAssessment(keep=True, reason="match"),
+            TitleAssessment(keep=False, reason="different path"),
+        ],
+    )
+    monkeypatch.setattr(
+        scraping,
+        "_filter_cards_by_llm",
+        lambda cards, *args, **kwargs: {
+            0: CoarseFilterResult(job_card_id=0, keep=True, reason="match"),
+            1: CoarseFilterResult(job_card_id=1, keep=False, reason="location mismatch"),
+        },
+    )
+    stats = PipelineStats()
+
+    kept = scraping.filter_jobs_by_llm(
+        jobs,
+        cv_profile=_make_profile(),
+        llm=_make_llm(),
+        location="Ireland",
+        stats=stats,
+        run_id="run-filter",
+    )
+
+    assert kept == [jobs[0]]
+    assert kept[0] is jobs[0]
+    assert stats.title_relevance_in == 3
+    assert stats.title_relevance_rejected == 1
+    assert stats.title_filter_in == 2
+    assert stats.title_filter_passed == 1
+    assert stats.title_filter_out == 1
 
 
 class TestJobAssessmentMatchedKeywords:
@@ -546,6 +604,22 @@ class TestTitleAssessmentHelpers:
         assert "保守放行" in result[0].reason
         assert result[1].keep is True
 
+    def test_title_prompt_uses_cv_relative_rule_without_hardcoded_career_examples(self):
+        response = type(
+            "Resp",
+            (),
+            {"results": [TitleAssessment(keep=True, reason="可能相关")]},
+        )()
+
+        with patch("jobradar.assessment.complete_via_tool", return_value=response) as tool_call:
+            batch_assess_titles(["Operations Specialist"], _make_profile(), _make_llm())
+
+        prompt = tool_call.call_args.kwargs["prompt"]
+        system = tool_call.call_args.kwargs["system"]
+        assert "title 与候选人 CV 所体现的求职方向完全不同" in prompt
+        assert "与候选人 CV 所体现的求职方向完全不同" in system
+        assert "行政、财务、机械维修、制造、采购、纯销售" not in prompt
+
 
 class TestBuildRoleKeywords:
     def test_ai_domain(self):
@@ -641,7 +715,7 @@ class TestJobResultCompatibility:
 
 
 class TestCachedJobModernMatchBackfill:
-    def test_immediate_cache_hit_gets_match_for_current_cv(self, monkeypatch: pytest.MonkeyPatch):
+    def test_immediate_cache_hit_gets_match_for_current_cv(self, db, monkeypatch: pytest.MonkeyPatch):
         import jobradar.search_assessment_stage as stage
         from jobradar.search_prefilter import PrefilterResult
 
@@ -675,9 +749,21 @@ class TestCachedJobModernMatchBackfill:
         calls: list[str] = []
 
         monkeypatch.setattr(stage.cache, "get_job", lambda key, language="zh": cached_job)
-        monkeypatch.setattr(stage, "extract_jd_profile", lambda job, llm, language="zh": jd_profile)
+        monkeypatch.setattr(
+            stage,
+            "extract_jd_profile",
+            lambda job, llm, language="zh", persist=True: jd_profile,
+        )
 
-        def fake_match_job_to_cv(profile_arg, jd_profile_arg, full_jd, llm, cv_hash="", language="zh"):
+        def fake_match_job_to_cv(
+            profile_arg,
+            jd_profile_arg,
+            full_jd,
+            llm,
+            cv_hash="",
+            language="zh",
+            persist=True,
+        ):
             calls.append(cv_hash)
             return match
 

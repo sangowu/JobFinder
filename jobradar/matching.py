@@ -659,6 +659,8 @@ def match_job_to_cv(
     llm: LLMConfig,
     cv_hash: str = "",
     language: str = "zh",
+    *,
+    persist: bool = True,
 ) -> MatchScore:
     effective_cv_hash = cv_hash or cv_profile_hash(profile)
     prompt_version = match_prompt_version(language)
@@ -750,11 +752,12 @@ JD Profile:
         explanation=evidence.explanation,
     )
     result = adjust_match_for_profile(profile, jd_profile, result, language=language)
-    cache.save_job_match(
-        result,
-        description=full_jd,
-        model_name=f"{llm.provider}/{llm.model}",
-        prompt_version=prompt_version,
-    )
-    logger.info("JD match saved: %s / %s", jd_profile.job_id, effective_cv_hash[:8])
+    if persist:
+        cache.save_job_match(
+            result,
+            description=full_jd,
+            model_name=f"{llm.provider}/{llm.model}",
+            prompt_version=prompt_version,
+        )
+        logger.info("JD match saved: %s / %s", jd_profile.job_id, effective_cv_hash[:8])
     return result

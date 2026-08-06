@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import os
+import queue
 import random
 import re
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable
 
@@ -28,6 +31,24 @@ _COARSE_FILTER_BATCH_SIZE = 10
 _COARSE_FILTER_RETRY_BATCH_SIZE = 5
 _COARSE_FILTER_SNIPPET_LIMIT = 160
 _COARSE_FILTER_RETRY_SNIPPET_LIMIT = 80
+
+
+@dataclass(frozen=True)
+class ScrapeBatchEvent:
+    """One observable source/role query result before the Python prefilter."""
+
+    source: str
+    role: str
+    request_started_at: float
+    request_finished_at: float
+    emitted_at: float
+    raw_count: int
+    unique_count: int
+    jobs: tuple[dict, ...]
+
+    @property
+    def scrape_elapsed(self) -> float:
+        return max(0.0, self.request_finished_at - self.request_started_at)
 
 
 def _title_relevance_gate_enabled() -> bool:
@@ -438,6 +459,8 @@ def scrape_indeed_jobspy_multi(
     country: str = "ireland",
     hours_old: int = 72,
     cb: Callable[[str], None] | None = None,
+    on_batch: Callable[[str, list[dict]], None] | None = None,
+    on_batch_timed: Callable[[str, list[dict], float, float], None] | None = None,
 ) -> list[dict]:
     """多 role 有界并发抓取 Indeed（全局限速），URL 去重后返回。"""
     if cb:
@@ -460,7 +483,14 @@ def scrape_indeed_jobspy_multi(
                 _INDEED_DELAY_MIN,
                 _INDEED_DELAY_MAX,
             )
-        return role, scrape_indeed_jobspy(role, limit_per_role, country, hours_old)
+        request_started_at = time.perf_counter()
+        batch = scrape_indeed_jobspy(role, limit_per_role, country, hours_old)
+        request_finished_at = time.perf_counter()
+        if on_batch:
+            on_batch(role, batch)
+        if on_batch_timed:
+            on_batch_timed(role, batch, request_started_at, request_finished_at)
+        return role, batch
 
     worker_count = min(2, len(roles))
     if worker_count == 0:
@@ -554,6 +584,8 @@ def scrape_linkedin_jobspy_multi(
     location: str = "Dublin, Ireland",
     hours_old: int = 72,
     cb: Callable[[str], None] | None = None,
+    on_batch: Callable[[str, list[dict]], None] | None = None,
+    on_batch_timed: Callable[[str, list[dict], float, float], None] | None = None,
 ) -> list[dict]:
     """多 role 串行抓取 LinkedIn（含限速），URL 去重后返回。"""
     if cb:
@@ -567,7 +599,13 @@ def scrape_linkedin_jobspy_multi(
             delay = random.uniform(_LINKEDIN_DELAY_MIN, _LINKEDIN_DELAY_MAX)
             logger.debug("LinkedIn inter-role delay: %.1fs", delay)
             time.sleep(delay)
+        request_started_at = time.perf_counter()
         batch = scrape_linkedin_jobspy(role, limit_per_role, location, hours_old)
+        request_finished_at = time.perf_counter()
+        if on_batch:
+            on_batch(role, batch)
+        if on_batch_timed:
+            on_batch_timed(role, batch, request_started_at, request_finished_at)
         for job in batch:
             url = job.get("url", "")
             if url and url not in seen:
@@ -583,6 +621,251 @@ def scrape_linkedin_jobspy_multi(
 
 
 # ── 公开入口 ──────────────────────────────────────────────────────────────────
+
+
+def stream_scrape_source_batch_events(
+    roles: list[str],
+    location: str,
+    cb: Callable[[str], None] | None = None,
+    limit_per_query: int = 200,
+    linkedin_limit_per_role: int = 30,
+    hours_old: int | None = 72,
+    stats: "PipelineStats | None" = None,
+) -> Iterator[ScrapeBatchEvent]:
+    """Yield timed source/role events after date and cross-source URL filtering."""
+    cb_lock = threading.Lock()
+
+    def _cb(msg: str) -> None:
+        if cb:
+            with cb_lock:
+                cb(msg)
+
+    country = location.strip().split()[0].lower() if location else "ireland"
+    linkedin_location = _LINKEDIN_LOCATION.get(country, location.title())
+    batch_queue: queue.Queue[object] = queue.Queue()
+    source_done = object()
+    source_tasks: dict[str, Callable[[], list[dict]]] = {}
+
+    def _on_batch(source: str) -> Callable[[str, list[dict], float, float], None]:
+        return lambda role, jobs, started_at, finished_at: batch_queue.put(
+            (source, role, jobs, started_at, finished_at)
+        )
+
+    if limit_per_query > 0:
+        source_tasks["indeed"] = lambda: scrape_indeed_jobspy_multi(
+            roles=roles,
+            limit_per_role=limit_per_query,
+            country=country,
+            hours_old=hours_old,
+            cb=_cb,
+            on_batch_timed=_on_batch("indeed.ie"),
+        )
+    else:
+        _cb("Indeed scraping skipped (limit=0)")
+
+    if linkedin_limit_per_role > 0 and linkedin_location:
+        source_tasks["linkedin"] = lambda: scrape_linkedin_jobspy_multi(
+            roles=roles,
+            limit_per_role=linkedin_limit_per_role,
+            location=linkedin_location,
+            hours_old=hours_old,
+            cb=_cb,
+            on_batch_timed=_on_batch("linkedin.com"),
+        )
+    elif linkedin_limit_per_role > 0:
+        _cb("LinkedIn scraping skipped: no location mapping for remote")
+
+    if not source_tasks:
+        return
+
+    def _run_source(task: Callable[[], list[dict]]) -> None:
+        try:
+            task()
+        finally:
+            batch_queue.put(source_done)
+
+    seen_urls: set[str] = set()
+    with ThreadPoolExecutor(max_workers=len(source_tasks)) as executor:
+        futures = [executor.submit(_run_source, task) for task in source_tasks.values()]
+        remaining = len(futures)
+        while remaining:
+            item = batch_queue.get()
+            if item is source_done:
+                remaining -= 1
+                continue
+            source, role, jobs, request_started_at, request_finished_at = item
+            unique: list[dict] = []
+            for job in jobs:
+                url = str(job.get("url") or "")
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                unique.append(job)
+            if stats is not None:
+                if source == "indeed.ie":
+                    stats.scraped_indeed += len(unique)
+                elif source == "linkedin.com":
+                    stats.scraped_linkedin += len(unique)
+            filtered = _filter_by_posted_date(unique, hours_old, _cb)
+            if stats is not None:
+                stats.scraped_total += len(filtered)
+            emitted_at = time.perf_counter()
+            _cb(f"Streaming batch ready: {source} / {role!r} → {len(filtered)} jobs")
+            yield ScrapeBatchEvent(
+                source=source,
+                role=role,
+                request_started_at=request_started_at,
+                request_finished_at=request_finished_at,
+                emitted_at=emitted_at,
+                raw_count=len(jobs),
+                unique_count=len(unique),
+                jobs=tuple(filtered),
+            )
+
+        for future in futures:
+            future.result()
+
+
+def stream_scrape_source_batches(
+    roles: list[str],
+    location: str,
+    cb: Callable[[str], None] | None = None,
+    limit_per_query: int = 200,
+    linkedin_limit_per_role: int = 30,
+    hours_old: int | None = 72,
+    stats: "PipelineStats | None" = None,
+) -> Iterator[list[dict]]:
+    """Preserve the production list-of-jobs interface over timed batch events."""
+    for event in stream_scrape_source_batch_events(
+        roles=roles,
+        location=location,
+        cb=cb,
+        limit_per_query=limit_per_query,
+        linkedin_limit_per_role=linkedin_limit_per_role,
+        hours_old=hours_old,
+        stats=stats,
+    ):
+        if event.jobs:
+            yield list(event.jobs)
+
+
+def filter_jobs_by_llm(
+    jobs: list[dict],
+    cv_profile: "CVProfile | None",
+    llm: "LLMConfig | None",
+    location: str,
+    cb: Callable[[str], None] | None = None,
+    stats: "PipelineStats | None" = None,
+    run_id: str = "",
+    provider: str = "gemini",
+    model: str = "gemini-2.5-flash",
+) -> list[dict]:
+    """对一个已落盘的 filtered batch 执行 Title gate 和 LLM 粗筛。"""
+    if not jobs:
+        return []
+    _cb = cb or (lambda _msg: None)
+    raw = jobs
+    effective_provider = llm.provider if llm is not None else provider
+    effective_model = llm.model if llm is not None else model
+
+    if cv_profile is not None and llm is not None and _title_relevance_gate_enabled():
+        title_in = len(raw)
+        _cb(f"Title relevance gate: {title_in} titles")
+        title_results = batch_assess_titles(
+            [job.get("title", "") for job in raw],
+            cv_profile,
+            llm,
+        )
+        kept: list[dict] = []
+        rejected = 0
+        for job, assessment in zip(raw, title_results):
+            if assessment.keep:
+                kept.append(job)
+                continue
+            rejected += 1
+            cache.record_filter_event(
+                run_id=run_id,
+                stage="title_relevance",
+                title=job.get("title", ""),
+                company=job.get("company", ""),
+                location=job.get("location", ""),
+                source=job.get("source", ""),
+                url=job.get("url", ""),
+                reason=assessment.reason,
+            )
+            _cb(f"Skip (title not relevant): {job.get('title', '')[:60]} — {assessment.reason}")
+        raw = kept
+        if stats is not None:
+            stats.title_relevance_in += title_in
+            stats.title_relevance_rejected += rejected
+            stats.skip_irrelevant += rejected
+        logger.info("Title relevance gate: %d → %d jobs", title_in, len(raw))
+        _cb(f"Title relevance gate: {title_in} → {len(raw)} jobs")
+
+    if cv_profile is None:
+        return raw
+
+    cards_meta = [
+        {
+            "id": i,
+            "title": job["title"],
+            "company": job["company"],
+            "location": job["location"],
+            "snippet": job.get("description_snippet", ""),
+        }
+        for i, job in enumerate(raw)
+    ]
+    logger.info("LLM 粗筛：共 %d 条待判断", len(cards_meta))
+    filter_results = _filter_cards_by_llm(
+        cards_meta,
+        cv_profile,
+        effective_provider,
+        effective_model,
+        target_location=location,
+    )
+    coarse_in = len(raw)
+    kept = []
+    for i, job in enumerate(raw):
+        coarse = filter_results.get(i) or CoarseFilterResult(
+            job_card_id=i,
+            keep=True,
+            priority="unknown",
+            title_match="unknown",
+            location_match="unknown",
+            inferred_seniority="unknown",
+            seniority_confidence="low",
+            reason="缺少粗筛结果，默认保留",
+        )
+        job["coarse_filter"] = coarse.model_dump(mode="json")
+        if coarse.keep:
+            kept.append(job)
+            continue
+        reason = coarse.reject_reason or coarse.reason or "coarse filter rejected"
+        cache.record_filter_event(
+            run_id=run_id,
+            stage="coarse_filter",
+            title=job.get("title", ""),
+            company=job.get("company", ""),
+            location=job.get("location", ""),
+            source=job.get("source", ""),
+            url=job.get("url", ""),
+            reason=reason,
+            details={
+                "priority": coarse.priority,
+                "title_match": coarse.title_match,
+                "location_match": coarse.location_match,
+                "inferred_seniority": coarse.inferred_seniority,
+                "seniority_confidence": coarse.seniority_confidence,
+            },
+        )
+        _cb(f"Skip (coarse filter): {job['title'][:60]} — {reason}")
+    if stats is not None:
+        stats.title_filter_in += coarse_in
+        stats.title_filter_passed += len(kept)
+        stats.title_filter_out += coarse_in - len(kept)
+    logger.info("LLM coarse filter done: %d → %d jobs", coarse_in, len(kept))
+    _cb(f"LLM coarse filter: {coarse_in} → {len(kept)} jobs")
+    return kept
 
 def scrape_sources(
     roles: list[str],
@@ -671,111 +954,14 @@ def scrape_sources(
     if stats is not None and before_date_filter != len(raw):
         stats.scraped_total = len(raw)
 
-    # pre-coarse title relevance gate
-    if cv_profile is not None and llm is not None:
-        stats_title_in = len(raw)
-        title_gate_enabled = _title_relevance_gate_enabled()
-        if title_gate_enabled and raw:
-            _cb(f"Title relevance gate: {len(raw)} titles")
-            title_results = batch_assess_titles(
-                [job.get("title", "") for job in raw],
-                cv_profile,
-                llm,
-            )
-            kept: list[dict] = []
-            rejected = 0
-            for job, assessment in zip(raw, title_results):
-                if assessment.keep:
-                    kept.append(job)
-                else:
-                    rejected += 1
-                    cache.record_filter_event(
-                        run_id=run_id,
-                        stage="title_relevance",
-                        title=job.get("title", ""),
-                        company=job.get("company", ""),
-                        location=job.get("location", ""),
-                        source=job.get("source", ""),
-                        url=job.get("url", ""),
-                        reason=assessment.reason,
-                    )
-                    _cb(f"Skip (title not relevant): {job.get('title', '')[:60]} — {assessment.reason}")
-            raw = kept
-            logger.info("Title relevance gate: %d → %d jobs", stats_title_in, len(raw))
-            _cb(f"Title relevance gate: {stats_title_in} → {len(raw)} jobs")
-            if stats is not None:
-                stats.title_relevance_in = stats_title_in
-                stats.title_relevance_rejected = rejected
-                stats.skip_irrelevant = rejected
-        elif stats is not None:
-            stats.title_relevance_in = 0
-            stats.title_relevance_rejected = 0
-
-    # LLM 粗筛
-    if cv_profile is not None:
-        cards_meta = [
-            {
-                "id": i,
-                "title": j["title"],
-                "company": j["company"],
-                "location": j["location"],
-                "snippet": j.get("description_snippet", ""),
-            }
-            for i, j in enumerate(raw)
-        ]
-        logger.info("LLM 粗筛：共 %d 条待判断", len(cards_meta))
-        filter_results = _filter_cards_by_llm(cards_meta, cv_profile, _provider, _model, target_location=location)
-        before = len(raw)
-        kept: list[dict] = []
-        for i, job in enumerate(raw):
-            coarse = filter_results.get(i)
-            if coarse is None:
-                coarse = CoarseFilterResult(
-                    job_card_id=i,
-                    keep=True,
-                    priority="unknown",
-                    title_match="unknown",
-                    location_match="unknown",
-                    inferred_seniority="unknown",
-                    seniority_confidence="low",
-                    reason="缺少粗筛结果，默认保留",
-                )
-            job["coarse_filter"] = coarse.model_dump(mode="json")
-            if coarse.keep:
-                kept.append(job)
-            else:
-                reason = coarse.reject_reason or coarse.reason or "coarse filter rejected"
-                cache.record_filter_event(
-                    run_id=run_id,
-                    stage="coarse_filter",
-                    title=job.get("title", ""),
-                    company=job.get("company", ""),
-                    location=job.get("location", ""),
-                    source=job.get("source", ""),
-                    url=job.get("url", ""),
-                    reason=reason,
-                    details={
-                        "priority": coarse.priority,
-                        "title_match": coarse.title_match,
-                        "location_match": coarse.location_match,
-                        "inferred_seniority": coarse.inferred_seniority,
-                        "seniority_confidence": coarse.seniority_confidence,
-                    },
-                )
-                _cb(f"Skip (coarse filter): {job['title'][:60]} — {reason}")
-        raw = kept
-        logger.info("LLM coarse filter done: %d → %d jobs", before, len(raw))
-        _cb(f"LLM coarse filter: {before} → {len(raw)} jobs")
-        if stats is not None:
-            stats.title_filter_in      = before
-            stats.title_filter_passed  = len(raw)
-            stats.title_filter_out     = before - len(raw)
-    else:
-        logger.info("LLM coarse filter skipped (no CVProfile), keeping %d jobs", len(raw))
-        _cb(f"LLM coarse filter skipped (no CVProfile): keeping {len(raw)} jobs")
-        if stats is not None:
-            stats.title_filter_in     = len(raw)
-            stats.title_filter_passed = len(raw)
-            stats.title_filter_out    = 0
-
-    return raw
+    return filter_jobs_by_llm(
+        raw,
+        cv_profile=cv_profile,
+        llm=llm,
+        location=location,
+        cb=_cb,
+        stats=stats,
+        run_id=run_id,
+        provider=_provider,
+        model=_model,
+    )

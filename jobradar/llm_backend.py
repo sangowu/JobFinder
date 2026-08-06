@@ -300,6 +300,14 @@ def _get_gemini_client():
     return genai.Client(api_key=key)
 
 
+def _gemini_thinking_config(types, model: str):
+    """Pin documented high-throughput defaults for supported Flash-Lite models."""
+    normalized = model.lower().strip()
+    if normalized.startswith(("gemini-3.1-flash-lite", "gemini-3.5-flash-lite")):
+        return types.ThinkingConfig(thinking_level="minimal")
+    return None
+
+
 def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int]:
     from google.genai import types
     client = _get_gemini_client()
@@ -310,6 +318,7 @@ def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, i
             system_instruction=system,
             response_mime_type="application/json",
             response_schema=schema.model_json_schema(),
+            thinking_config=_gemini_thinking_config(types, model),
         ),
     )
     meta = response.usage_metadata
@@ -356,6 +365,7 @@ def _gemini_tool_call(messages, tools, system, model) -> NormalizedResponse:
         config=types.GenerateContentConfig(
             system_instruction=system,
             tools=[types.Tool(function_declarations=_to_gemini_tools(tools))],
+            thinking_config=_gemini_thinking_config(types, model),
         ),
     )
     if not response.candidates:

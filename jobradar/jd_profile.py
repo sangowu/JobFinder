@@ -48,7 +48,13 @@ class _JDProfilePayload(BaseModel):
     red_flags: list[str] = Field(default_factory=list)
 
 
-def extract_jd_profile(job: JobResult, llm: LLMConfig, language: str = "zh") -> JDProfile:
+def extract_jd_profile(
+    job: JobResult,
+    llm: LLMConfig,
+    language: str = "zh",
+    *,
+    persist: bool = True,
+) -> JDProfile:
     cached = cache.get_jd_profile(
         job.dedup_key,
         job.description_snippet,
@@ -106,12 +112,13 @@ description:
         _step="JD Profile",
     )
     profile = JDProfile(job_id=job.dedup_key, **payload.model_dump())
-    cache.save_jd_profile(
-        job_id=job.dedup_key,
-        description=job.description_snippet,
-        profile=profile,
-        model_name=f"{llm.provider}/{llm.model}",
-        prompt_version=jd_profile_prompt_version(language),
-    )
-    logger.info("JD profile saved: %s", job.dedup_key)
+    if persist:
+        cache.save_jd_profile(
+            job_id=job.dedup_key,
+            description=job.description_snippet,
+            profile=profile,
+            model_name=f"{llm.provider}/{llm.model}",
+            prompt_version=jd_profile_prompt_version(language),
+        )
+        logger.info("JD profile saved: %s", job.dedup_key)
     return profile

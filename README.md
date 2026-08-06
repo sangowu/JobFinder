@@ -44,23 +44,26 @@ CV file
          structured seniority bands + explicit language extraction
   ▼ ② User reviews & confirms title list
   ▼ ③ Scraping (Indeed + LinkedIn, JobSpy, no browser)
-         rate-limited serial (Indeed 2s / LinkedIn 3s) → URL dedup
-  ▼    pre-JD LLM title relevance gate
+         sources run concurrently; each completed role batch is URL-deduplicated immediately
+  ▼    deterministic Python prefilter + persistence checkpoint
+         seniority / closed / experience-gap gates → filtered list → search_candidates (SQLite)
+         the same objects then enter an in-memory assessment queue
+  ▼ ④ Batched assessment coordinator (overlaps with later scraping batches)
+         pre-JD LLM title relevance gate
          conservative title-only semantic filter; default keep=true and reject only clearly different career paths
   ▼    batched LLM coarse filter
          card-level keep/reject using title + location + snippet
-  ▼    dynamic title seniority gate
-         blocks obvious level mismatch (e.g. new grad → lead / manager)
-  ▼    experience-gap gate
-         directly skips roles whose explicit years-required exceeds candidate experience by more than 3 years
-  ▼ ④ JD profile extraction
+  ▼ ⑤ Bounded job evaluation pool (5 workers for cloud providers; 1 for local models)
+         different jobs run concurrently; each job preserves JD Profile → CV Match dependency order
+         the coordinator commits SQLite results serially and emits SSE only after commit
+  ▼ ⑥ JD profile extraction
          structured required/preferred skills, must-haves, years, seniority conflict, work mode, language requirements
-  ▼ ⑤ Explainable CV↔JD matching
+  ▼ ⑦ Explainable CV↔JD matching
          rubric-based dimension scores → programmatic weighted score → recommendation
          city-to-city relocation / office attendance count as risk, not as location-score penalty
-  ▼ ⑥ Artifact generation
+  ▼ ⑧ Artifact generation
           interview prep / cover letter / CV optimization
-  ▼ ⑦ Search stats + cache
+  ▼ ⑨ Search stats + cache
          history metrics, reports, filter events, Web UI / terminal display
 ```
 
@@ -89,7 +92,7 @@ LOCAL_LLM_BASE_URL=http://localhost:1234/v1
 
 # Default model (auto-written by `jobradar model`)
 DEFAULT_PROVIDER=gemini
-DEFAULT_MODEL=gemini-2.0-flash
+DEFAULT_MODEL=gemini-3.5-flash-lite
 ```
 
 ## Web UI Features
@@ -101,6 +104,8 @@ DEFAULT_MODEL=gemini-2.0-flash
 - **Search history**: each record has a 📊 button to expand the full pipeline funnel, with per-source breakdown (Indeed / LinkedIn)
 - **Normalized search history metrics**: each record stores total scraped, deduped, filtered, newly saved jobs, and token consumption
 - **Module-level telemetry**: history records and search completion events now include `module_metrics` with per-module `calls / input_tokens / output_tokens / elapsed`, plus `processed / rejected / kept` where applicable in the search pipeline
+- **Streaming pipeline telemetry**: reports scrape/assessment overlap, time to first visible job, persistence cost, assessment batch counts, queue peak, and queue-wait P50/P95
+- **Reproducible scheduling benchmark**: [`docs/pipeline-benchmark.md`](docs/pipeline-benchmark.md) describes frozen batch capture, isolated SQLite replay, and paired serial/streaming comparison without production cache or SSE writes
 - **Funnel benchmark summary**: history now tracks pipeline/prompt versions and shows derived efficiency metrics such as post-filter rate, new-job yield, and tokens per new job
 - **Pre-JD title semantic filter**: before JD assessment, job titles are batch-scored by an LLM using a conservative relevance gate; history funnel shows `skip_irrelevant`
 - **Title gate behavior**: the gate only rejects titles that are clearly outside the candidate's career path from the title alone; broad, adjacent, or ambiguous technical titles are kept for later JD assessment

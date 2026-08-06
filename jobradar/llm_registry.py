@@ -43,7 +43,7 @@ _COMPAT_PROVIDERS: dict[str, dict[str, str | None]] = {
 
 DEFAULT_MODELS: dict[str, str] = {
     "claude": "claude-haiku-4.5",
-    "gemini": "gemini-3.1-flash-lite-preview",
+    "gemini": "gemini-3.5-flash-lite",
     "openai": "gpt-5.4-mini",
     "xai": "grok-4",
     "mistral": "mistral-small-2603",

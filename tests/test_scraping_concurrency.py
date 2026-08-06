@@ -102,3 +102,56 @@ def test_indeed_and_linkedin_sources_run_concurrently(monkeypatch):
 
     assert peak == 2
     assert {job["source"] for job in jobs} == {"indeed.ie", "linkedin.com"}
+
+
+def test_streaming_source_yields_batch_before_scrape_finishes(monkeypatch):
+    release_sources = threading.Event()
+    source_finished = threading.Event()
+
+    def fake_indeed(**kwargs):
+        batch = [_job("https://example.com/indeed", "indeed.ie")]
+        kwargs["on_batch_timed"]("AI Engineer", batch, 10.0, 12.5)
+        release_sources.wait(timeout=1)
+        source_finished.set()
+        return batch
+
+    def fake_linkedin(**kwargs):
+        release_sources.wait(timeout=1)
+        return []
+
+    monkeypatch.setattr(scraping, "scrape_indeed_jobspy_multi", fake_indeed)
+    monkeypatch.setattr(scraping, "scrape_linkedin_jobspy_multi", fake_linkedin)
+
+    events = scraping.stream_scrape_source_batch_events(
+        roles=["AI Engineer"],
+        location="Ireland",
+        hours_old=None,
+    )
+    try:
+        first = next(events)
+        assert first.source == "indeed.ie"
+        assert first.role == "AI Engineer"
+        assert first.scrape_elapsed == 2.5
+        assert first.raw_count == 1
+        assert first.unique_count == 1
+        assert [job["url"] for job in first.jobs] == ["https://example.com/indeed"]
+        assert not source_finished.is_set()
+    finally:
+        release_sources.set()
+        list(events)
+
+
+def test_streaming_source_wrapper_preserves_list_interface(monkeypatch):
+    def fake_indeed(**kwargs):
+        batch = [_job("https://example.com/indeed", "indeed.ie")]
+        kwargs["on_batch_timed"]("AI Engineer", batch, 10.0, 11.0)
+        return batch
+
+    monkeypatch.setattr(scraping, "scrape_indeed_jobspy_multi", fake_indeed)
+    monkeypatch.setattr(scraping, "scrape_linkedin_jobspy_multi", lambda **kwargs: [])
+
+    batches = list(scraping.stream_scrape_source_batches(["AI Engineer"], "Ireland", hours_old=None))
+
+    assert len(batches) == 1
+    assert isinstance(batches[0], list)
+    assert batches[0][0]["url"] == "https://example.com/indeed"
