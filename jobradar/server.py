@@ -236,6 +236,27 @@ def _collect_module_metrics(pipeline_stats=None) -> dict:
         jd_assessment["rejected"] = int(getattr(pipeline_stats, "llm_rejected", 0))
         jd_assessment["kept"] = max(0, int(jd_assessment["processed"]) - int(jd_assessment["rejected"]))
 
+        metrics["search_pipeline"] = {
+            "step": "搜索评估流水线",
+            "calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "elapsed": round(float(getattr(pipeline_stats, "pipeline_elapsed", 0.0)), 3),
+            "provider": "",
+            "model": "",
+            "scrape_elapsed": round(float(getattr(pipeline_stats, "scrape_elapsed", 0.0)), 3),
+            "assessment_elapsed": round(float(getattr(pipeline_stats, "assessment_elapsed", 0.0)), 3),
+            "overlap_elapsed": round(float(getattr(pipeline_stats, "overlap_elapsed", 0.0)), 3),
+            "time_to_first_job": getattr(pipeline_stats, "time_to_first_job", None),
+            "persistence_elapsed": round(float(getattr(pipeline_stats, "persistence_elapsed", 0.0)), 3),
+            "assessment_batches": int(getattr(pipeline_stats, "assessment_batches", 0)),
+            "assessment_batch_jobs": int(getattr(pipeline_stats, "assessment_batch_jobs", 0)),
+            "queue_peak": int(getattr(pipeline_stats, "queue_peak", 0)),
+            "queue_wait_avg": round(float(getattr(pipeline_stats, "queue_wait_avg", 0.0)), 3),
+            "queue_wait_p50": round(float(getattr(pipeline_stats, "queue_wait_p50", 0.0)), 3),
+            "queue_wait_p95": round(float(getattr(pipeline_stats, "queue_wait_p95", 0.0)), 3),
+        }
+
     total_in = sum(int(item.get("input_tokens", 0)) for item in metrics.values())
     total_out = sum(int(item.get("output_tokens", 0)) for item in metrics.values())
     total_calls = sum(int(item.get("calls", 0)) for item in metrics.values())

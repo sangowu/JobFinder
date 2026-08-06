@@ -102,10 +102,11 @@ def prefilter_jobs(
     profile: CVProfile,
     language: str = "zh",
     run_id: str = "",
+    seen_dedup_keys: set[str] | None = None,
 ) -> PrefilterResult:
     del language
     result = PrefilterResult()
-    seen_dedup_keys: set[str] = set()
+    run_seen_dedup_keys = seen_dedup_keys if seen_dedup_keys is not None else set()
     title_candidates: list[tuple[dict, str, str, str, str, dict[str, int]]] = []
 
     for job in jobs:
@@ -148,12 +149,12 @@ def prefilter_jobs(
             continue
 
         dedup_key = make_dedup_key(company, title)
-        if dedup_key in seen_dedup_keys:
+        if dedup_key in run_seen_dedup_keys:
             logger.debug("Skip (cross-source dedup): %s @ %s", title, company)
             source_stats["dup"] += 1
             result.skip_dup += 1
             continue
-        seen_dedup_keys.add(dedup_key)
+        run_seen_dedup_keys.add(dedup_key)
 
         cached_job = cache.get_job_by_url(url)
         if cached_job is not None and not cached_job.is_expired:

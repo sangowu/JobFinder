@@ -97,6 +97,27 @@ class TestJobCache:
         assert result.coarse_filter is not None
         assert result.coarse_filter.priority == "normal"
 
+    def test_search_candidates_persist_before_in_memory_assessment(self, temp_db):
+        jobs = [
+            {
+                "title": "AI Engineer",
+                "company": "Example",
+                "url": "https://example.com/ai",
+                "source": "indeed.ie",
+                "description_snippet": "Build Python services.",
+            }
+        ]
+
+        keys = temp_db.save_search_candidates("run-1", jobs)
+        rows = temp_db.get_search_candidates("run-1")
+
+        assert len(keys) == 1
+        assert rows[0]["candidate"] == jobs[0]
+        assert rows[0]["status"] == "queued"
+
+        temp_db.update_search_candidate_status("run-1", keys, "completed")
+        assert temp_db.get_search_candidates("run-1")[0]["status"] == "completed"
+
     def test_job_summary_roundtrip(self, temp_db):
         job = make_job()
         temp_db.save_job(job)
@@ -303,10 +324,15 @@ class TestCacheManagement:
     def test_clear_all(self, temp_db):
         temp_db.save_job(make_job())
         temp_db.record_failed_url("http://x.com", "reason")
+        temp_db.save_search_candidates(
+            "run-clear",
+            [{"title": "Engineer", "company": "Example", "url": "https://example.com/job"}],
+        )
         temp_db.clear_all()
 
         assert temp_db.get_job("google|software engineer") is None
         assert not temp_db.is_failed_url("http://x.com")
+        assert temp_db.get_search_candidates("run-clear") == []
 
     def test_clean_expired(self, temp_db):
         fresh_job = make_job(company="Fresh Corp", url="http://fresh.com")

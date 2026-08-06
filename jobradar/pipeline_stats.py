@@ -55,6 +55,25 @@ class PipelineStats:
     new_saved: int = 0
     by_source: dict = field(default_factory=dict)  # {source: {step: count}}
 
+    # ── 流式流水线性能 ───────────────────────────────────────────────────────
+    pipeline_elapsed: float = 0.0
+    scrape_elapsed: float = 0.0
+    assessment_elapsed: float = 0.0
+    overlap_elapsed: float = 0.0
+    time_to_first_job: float | None = None
+    persistence_elapsed: float = 0.0
+    assessment_batches: int = 0
+    assessment_batch_jobs: int = 0
+    queue_peak: int = 0
+    queue_wait_avg: float = 0.0
+    queue_wait_p50: float = 0.0
+    queue_wait_p95: float = 0.0
+    assessment_workers: int = 1
+    evaluation_tasks: int = 0
+    evaluation_completed: int = 0
+    evaluation_failed: int = 0
+    evaluation_peak_inflight: int = 0
+
     # ── 元数据 ────────────────────────────────────────────────────────────────
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -133,6 +152,19 @@ class PipelineStats:
             f"  最终    保存 {self.saved} / 抓取 {self.scraped_total}  "
             f"过滤无效 JD {self.filter_rate}%"
         )
+        if self.assessment_batches:
+            lines.append(
+                f"  流水线  总耗时 {self.pipeline_elapsed:.1f}s | 抓取 {self.scrape_elapsed:.1f}s | "
+                f"评估 {self.assessment_elapsed:.1f}s | 重叠 {self.overlap_elapsed:.1f}s | "
+                f"首条 {self.time_to_first_job:.1f}s"
+                if self.time_to_first_job is not None
+                else f"  流水线  总耗时 {self.pipeline_elapsed:.1f}s | 暂无可见职位"
+            )
+            lines.append(
+                f"  并发评估  workers {self.assessment_workers} | 任务 {self.evaluation_tasks} | "
+                f"完成 {self.evaluation_completed} | 失败 {self.evaluation_failed} | "
+                f"峰值并发 {self.evaluation_peak_inflight}"
+            )
         return lines
 
     # ── 文件写入 ──────────────────────────────────────────────────────────────

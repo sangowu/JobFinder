@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from jobradar.schemas import (
     JobSummary,
     MatchScore,
     SearchSession,
+    make_dedup_key,
 )
 
 _DEFAULT_DB_PATH = str(DATA_DIR / "jobradar_cache.db")
@@ -117,6 +119,16 @@ CREATE TABLE IF NOT EXISTS filter_events (
     details_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS search_candidates (
+    run_id          TEXT NOT NULL,
+    dedup_key       TEXT NOT NULL,
+    candidate_json  TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'queued',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (run_id, dedup_key)
+);
+
 CREATE TABLE IF NOT EXISTS job_summaries (
     job_id            TEXT PRIMARY KEY,
     description_hash  TEXT NOT NULL,
@@ -194,16 +206,21 @@ ALTER TABLE job_cache ADD COLUMN assessment TEXT;
 ALTER TABLE search_stats ADD COLUMN cv_hash TEXT NOT NULL DEFAULT '';
 """
 
+_INIT_LOCK = threading.Lock()
+_INITIALIZED_DB_PATHS: set[str] = set()
 
-@contextmanager
-def _conn():
-    db_path = Path(os.getenv("CACHE_DB_PATH", _DEFAULT_DB_PATH))
-    ensure_parent(db_path)
-    con = sqlite3.connect(str(db_path))
-    con.row_factory = sqlite3.Row
-    try:
+
+def _initialize_connection(con: sqlite3.Connection, db_path: str) -> None:
+    con.execute("PRAGMA busy_timeout = 30000")
+    if db_path in _INITIALIZED_DB_PATHS:
+        return
+
+    with _INIT_LOCK:
+        if db_path in _INITIALIZED_DB_PATHS:
+            return
+        con.execute("PRAGMA journal_mode = WAL")
         con.executescript(_INIT_SQL)
-        # 迁移：旧库补加 assessment 列（列已存在时 SQLite 会报错，忽略即可）
+        # 迁移：旧库补加字段（字段已存在时 SQLite 会报错，忽略即可）。
         for migration in (
             "ALTER TABLE job_cache ADD COLUMN assessment TEXT",
             "ALTER TABLE job_cache ADD COLUMN coarse_filter TEXT",
@@ -232,8 +249,20 @@ def _conn():
             try:
                 con.execute(migration)
                 con.commit()
-            except Exception:
+            except sqlite3.OperationalError:
                 pass
+        _INITIALIZED_DB_PATHS.add(db_path)
+
+
+@contextmanager
+def _conn():
+    db_path = Path(os.getenv("CACHE_DB_PATH", _DEFAULT_DB_PATH))
+    ensure_parent(db_path)
+    resolved_db_path = str(db_path.resolve())
+    con = sqlite3.connect(resolved_db_path, timeout=30)
+    con.row_factory = sqlite3.Row
+    try:
+        _initialize_connection(con, resolved_db_path)
         yield con
         con.commit()
     except Exception:
@@ -344,6 +373,27 @@ def merge_job_source(dedup_key: str, source: str) -> None:
                 "UPDATE job_cache SET sources = ? WHERE dedup_key = ?",
                 (json.dumps(existing), dedup_key),
             )
+
+
+def merge_job_raw_source(dedup_key: str, source_entry: dict) -> None:
+    """将完整来源记录合并到已评估职位，供流式抓取后到达的重复来源使用。"""
+    source_name = str(source_entry.get("source") or "unknown")
+    with _conn() as con:
+        row = con.execute(
+            "SELECT sources, raw_sources FROM job_cache WHERE dedup_key = ?", (dedup_key,)
+        ).fetchone()
+        if row is None:
+            return
+        sources = json.loads(row["sources"] or "[]")
+        raw_sources = json.loads(row["raw_sources"] or "[]")
+        if source_name not in sources:
+            sources.append(source_name)
+        if not any(item.get("source") == source_name for item in raw_sources):
+            raw_sources.append(source_entry)
+        con.execute(
+            "UPDATE job_cache SET sources = ?, raw_sources = ? WHERE dedup_key = ?",
+            (json.dumps(sources), json.dumps(raw_sources), dedup_key),
+        )
 
 
 def get_recent_jobs(limit: int = 50, language: str = "zh") -> list[JobResult]:
@@ -849,6 +899,88 @@ def get_unassessed_jobs(limit: int = 200) -> list[JobResult]:
     return [j for j in jobs if not j.is_expired and job.match_score is None]
 
 
+# ─── 流式搜索候选缓存 ─────────────────────────────────────────────────────────
+
+
+def save_search_candidates(run_id: str, jobs: list[dict]) -> list[str]:
+    """先持久化 filtered list，再由内存 worker 消费同一批 Python 对象。"""
+    if not jobs:
+        return []
+    now = datetime.utcnow().isoformat()
+    rows: list[tuple[str, str, str, str, str]] = []
+    keys: list[str] = []
+    for job in jobs:
+        dedup_key = make_dedup_key(
+            str(job.get("company") or ""),
+            str(job.get("title") or ""),
+        )
+        keys.append(dedup_key)
+        rows.append((run_id, dedup_key, json.dumps(job, ensure_ascii=False, default=str), now, now))
+    with _conn() as con:
+        con.executemany(
+            """
+            INSERT INTO search_candidates
+              (run_id, dedup_key, candidate_json, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'queued', ?, ?)
+            ON CONFLICT(run_id, dedup_key) DO UPDATE SET
+              candidate_json = excluded.candidate_json,
+              status = 'queued',
+              updated_at = excluded.updated_at
+            """,
+            rows,
+        )
+    return keys
+
+
+def update_search_candidate_status(run_id: str, dedup_keys: list[str], status: str) -> None:
+    if not dedup_keys:
+        return
+    now = datetime.utcnow().isoformat()
+    with _conn() as con:
+        con.executemany(
+            """
+            UPDATE search_candidates
+            SET status = ?, updated_at = ?
+            WHERE run_id = ? AND dedup_key = ?
+            """,
+            [(status, now, run_id, key) for key in dedup_keys],
+        )
+
+
+def get_search_candidates(run_id: str) -> list[dict]:
+    """测试和故障检查用；正常 worker 不从数据库回读候选列表。"""
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT dedup_key, candidate_json, status
+            FROM search_candidates
+            WHERE run_id = ?
+            ORDER BY created_at, dedup_key
+            """,
+            (run_id,),
+        ).fetchall()
+    return [
+        {
+            "dedup_key": row["dedup_key"],
+            "candidate": json.loads(row["candidate_json"]),
+            "status": row["status"],
+        }
+        for row in rows
+    ]
+
+
+def prune_search_candidates(max_age_days: int = 14) -> int:
+    with _conn() as con:
+        result = con.execute(
+            """
+            DELETE FROM search_candidates
+            WHERE julianday('now') - julianday(updated_at) > ?
+            """,
+            (max_age_days,),
+        )
+    return result.rowcount or 0
+
+
 # ─── 缓存管理命令 ──────────────────────────────────────────────────────────────
 
 
@@ -868,6 +1000,7 @@ def clear_all() -> None:
         con.execute("DELETE FROM url_visits")
         con.execute("DELETE FROM search_stats")
         con.execute("DELETE FROM filter_events")
+        con.execute("DELETE FROM search_candidates")
 
 
 def delete_jobs(dedup_keys: list[str]) -> int:
