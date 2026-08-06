@@ -4,6 +4,15 @@
 
 ### New Features
 
+- **Streaming scrape-to-assessment pipeline** (`scraping.py` / `agent.py` / `cache.py`)
+  Indeed and LinkedIn now emit completed role batches into a deterministic Python prefilter. Filtered candidates are committed to `search_candidates` before the same in-memory objects enter assessment, so scraping and evaluation overlap without requiring workers to reload candidate payloads from SQLite. Candidate state, queue timing, first-result latency, persistence time, overlap, worker utilization, and failures are recorded; SQLite uses WAL and a busy timeout for short coordinated writes.
+
+- **Bounded concurrent deep evaluation** (`search_assessment_stage.py` / `jd_profile.py` / `matching.py`)
+  Independent `JD Profile → CV Match` chains run in a bounded pool while preserving the dependency order within each job. Cloud providers default to five workers, local providers to one, and `ASSESSMENT_WORKERS` / `run_search(assessment_workers=...)` can select 1–8. Profile/match results are committed before SSE publication.
+
+- **Reproducible pipeline and model evaluation** (`pipeline_benchmark.py` / `model_quality_audit.py` / `version_comparison.py` / `version_matrix.py`)
+  Added one-command capture/replay, historical-version, worker-count, model-matrix, and 100-job quality-audit tools. Schema-v2 captures retain every source/role query event, empty query, batch arrival, source completion, total producer time, and producer tail; each run uses an isolated SQLite database. Blind-review exports and adjudication scoring support human validation of model rejection quality.
+
 - **Bounded concurrent JobSpy searches** (`scraping.py`)
   Indeed and LinkedIn source pipelines now run concurrently. Indeed searches up to two titles at once while preserving one shared 2–4 second request-start interval; LinkedIn title searches remain serial to reduce rate-limit risk.
 
@@ -30,6 +39,17 @@
 - **History funnel benchmark metadata** (`cache.py` / `server.py` / `index.html`)
   Search history now persists version metadata for CV extraction, JD summary, matching, title gate, and coarse filter.
   The History UI adds a funnel benchmark summary with derived efficiency metrics such as post-filter rate, new-job yield, tokens per filtered job, tokens per new job, assessment efficiency, and seniority rejection rate.
+
+### Changed
+
+- **Gemini 3.5 Flash-Lite default** (`llm_registry.py` / `llm_backend.py`)
+  Gemini now defaults to stable `gemini-3.5-flash-lite` with `thinking_level=minimal`. The Title-only gate (`title_relevance_v4`) rejects only titles that clearly belong to a career path completely different from the CV; hard-coded unrelated-role categories were removed.
+
+### Validation
+
+- A recorded-timing Gemini 3.5 comparison used the same 30 candidates, CV, five alternating runs per arm, and full 16.469 s producer schedule. Versus `09b20c0` serial, the current 5-worker pipeline reduced mean total time from 97.04 s to 52.71 s (-45.68%) and P95 from 108.21 s to 53.64 s (-50.43%), with peak concurrency 5 and zero evaluation failures.
+- The concurrency-only comparison on the same current code reduced mean total time from 101.67 s (1 worker) to 52.27 s (5 workers, -48.59%), P95 from 118.81 s to 54.96 s (-53.74%), and first-result time by 54.40%; assessed-job throughput improved 93.75%. Both arms averaged 9.2 visible jobs with zero evaluation failures.
+- The valid 100-job audit completed five real-provider runs per model with no pipeline evaluation failures. Gemini 3.5 averaged 147.68 s versus 217.97 s for Gemini 3.1, but produced fewer visible jobs (16.0 versus 19.8) and more Title-stage rejections. Performance is validated; replacement-quality equivalence remains subject to blind human review, and stochastic result-set differences are not presented as worker-speed effects.
 
 ### Improvements
 
