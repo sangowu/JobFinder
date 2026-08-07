@@ -981,16 +981,27 @@ def update_job_assessment(dedup_key: str, assessment: JobAssessment) -> None:
 
 
 def get_unassessed_jobs(limit: int = 200) -> list[JobResult]:
-    """返回尚无现代匹配结果且缺少 legacy assessment 的未过期职位。"""
+    """返回当前 CV 下尚无匹配结果的未过期职位。
+
+    只按现代 ``job_matches`` 判定：legacy ``assessment`` 列没有 cv_hash 归属，
+    用它筛选会把换 CV 后本该重评的职位挡在门外。
+    """
     with _conn() as con:
-        rows = con.execute(
-            "SELECT * FROM job_cache WHERE assessment IS NULL ORDER BY fetched_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    jobs = [_row_to_job(r) for r in rows]
-    for job in jobs:
+        rows = con.execute("SELECT * FROM job_cache ORDER BY fetched_at DESC").fetchall()
+
+    unassessed: list[JobResult] = []
+    for row in rows:
+        job = _row_to_job(row)
+        if job.is_expired:
+            continue
+        # 先过滤过期再挂载 match，避免为已过期职位做多余的查询。
         _attach_latest_match(job)
-    return [j for j in jobs if not j.is_expired and job.match_score is None]
+        if job.match_score is not None:
+            continue
+        unassessed.append(job)
+        if len(unassessed) >= limit:
+            break
+    return unassessed
 
 
 # ─── 流式搜索候选缓存 ─────────────────────────────────────────────────────────

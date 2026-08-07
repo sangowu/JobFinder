@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **`assess` skipped every job that carried a legacy assessment** (`cache.py` / `cli.py` / `search_assessment_stage.py`)
+  `get_unassessed_jobs` selected on `assessment IS NULL` before consulting `job_matches`. Since the legacy `assessment` column records no `cv_hash`, any job scored under an earlier CV was treated as done forever — on a local cache of 293 jobs the command reported "all assessed" while 205 had no match under the current CV, and 95 rejected by a previous CV could never be reconsidered. Selection is now driven solely by the presence of a match for the current `cv_hash`.
+  Its filter predicate also read `job.match_score` — a leftover loop variable — instead of `j.match_score`, so the whole batch was kept or dropped according to the last row alone.
+  `assess` now writes `job_matches` through the shared evaluation path (`evaluate_cached_jobs`) rather than only refreshing the legacy column, which keeps repeated runs idempotent: previously the new selection rule would have re-queued the same jobs on every invocation.
+
 ### Documentation
 
 - **Release highlights in Chinese, English and Spanish** (`docs/release-highlights.*.md` / `README*.md`)
