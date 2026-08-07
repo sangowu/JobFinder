@@ -79,7 +79,8 @@ Indeed 741 + LinkedIn 255 = 996 extraídos
 
 ## Rendimiento
 
-Última versión, 0.4.0:
+El trabajo de rendimiento más reciente es de 0.4.0. La versión actual, 0.5.0,
+modificó el comportamiento y no el rendimiento, y no reclama cifras propias:
 
 | Métrica | Antes | Después |
 | --- | --- | --- |

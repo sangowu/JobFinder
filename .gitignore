@@ -51,3 +51,9 @@ jobspy_*.md
 
 # Google OAuth local credentials
 /data/google_gmail_token.json
+
+# 数据库备份（含个人求职数据，禁止入库）
+*.db.bak
+*.db-wal
+*.db-shm
+/data/*.bak

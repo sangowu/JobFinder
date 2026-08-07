@@ -81,7 +81,8 @@ Indeed 741 + LinkedIn 255 = 996 scraped
 
 ## Performance
 
-Latest release, 0.4.0:
+Most recent performance work, 0.4.0. The current release, 0.5.0, changed
+behavior rather than speed and claims no performance figures of its own:
 
 | Metric | Before | After |
 | --- | --- | --- |
