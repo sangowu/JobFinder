@@ -187,6 +187,51 @@ def _evaluate_jobs(
     return completed
 
 
+def evaluate_cached_jobs(
+    jobs: list[JobResult],
+    *,
+    profile: CVProfile,
+    llm,
+    cv_hash: str,
+    language: str = "zh",
+    workers: int = 1,
+) -> tuple[int, int]:
+    """为已缓存职位补算 JD profile 与 CV 匹配，返回 (成功, 失败) 条数。
+
+    ``assess`` 命令用此入口补全 ``job_matches``。写入 legacy ``assessment`` 列是不够的：
+    待评估判定看的是当前 cv_hash 下有无匹配结果，只写旧列会让同一批职位被反复捞出。
+    """
+    if not jobs:
+        return 0, 0
+    tasks = [
+        JobEvaluationTask(
+            key=job.dedup_key,
+            job=job,
+            full_jd=job.description_snippet,
+            kind="assess",
+            source=job.sources[0] if job.sources else "unknown",
+        )
+        for job in jobs
+    ]
+    metrics = AssessmentConcurrencyMetrics(workers=workers)
+    results = _evaluate_jobs(
+        tasks,
+        profile=profile,
+        llm=llm,
+        cv_hash=cv_hash,
+        language=language,
+        executor=None,
+        workers=workers,
+        metrics=metrics,
+    )
+    failed = 0
+    for task, error in results:
+        if error is not None:
+            failed += 1
+            logger.warning("Assessment failed for %s: %s", task.key, error)
+    return len(results) - failed, failed
+
+
 def flush_assessments(
     pf: PrefilterResult,
     job_all_sources: dict[str, list[dict]],

@@ -11,8 +11,10 @@ from jobradar.schemas import (
     CoarseFilterResult,
     CoverLetter,
     CVOptimization,
+    CVProfile,
     InterviewPrep,
     JDProfile,
+    JobAssessment,
     JobResult,
     JobSummary,
     MatchScore,
@@ -477,3 +479,169 @@ class TestCacheManagement:
 
         temp_db.delete_jobs([job.dedup_key])
         assert temp_db.get_cv_optimization(job.dedup_key, "cv123", "desc") is None
+
+
+class TestUnassessedJobs:
+    """get_unassessed_jobs 只按现代 job_matches 判定，不看 legacy assessment 列。"""
+
+    CV_HASH = "cv-current"
+
+    def _seed_cv(self, temp_db):
+        temp_db.save_cv_profile(
+            self.CV_HASH,
+            CVProfile(summary="Backend engineer", skills=["Python"]),
+        )
+
+    def _save_match(self, temp_db, job, cv_hash=None):
+        from jobradar.matching import match_prompt_version
+
+        match = MatchScore(
+            job_id=job.dedup_key,
+            cv_hash=cv_hash or self.CV_HASH,
+            overall_score=82,
+            title_score=80,
+            seniority_score=70,
+            must_have_score=90,
+            nice_to_have_score=60,
+            domain_score=75,
+            location_score=85,
+            language_score=100,
+            risk_penalty=3,
+            recommendation="apply",
+        )
+        temp_db.save_job_match(
+            match,
+            job.description_snippet,
+            prompt_version=match_prompt_version("zh"),
+        )
+
+    def test_legacy_assessment_does_not_hide_unmatched_job(self, temp_db):
+        """核心修复：旧评分存在不代表当前 CV 评过，该职位仍需重评。"""
+        self._seed_cv(temp_db)
+        job = make_job(
+            description_snippet="Build Python APIs.",
+            assessment=JobAssessment(score=7, is_relevant=True),
+        )
+        temp_db.save_job(job)
+
+        result = temp_db.get_unassessed_jobs()
+        assert [j.dedup_key for j in result] == [job.dedup_key]
+
+    def test_rejected_legacy_assessment_still_returned(self, temp_db):
+        """旧 CV 判定的 is_relevant=False 不应永久排除该职位。"""
+        self._seed_cv(temp_db)
+        job = make_job(
+            description_snippet="Build Python APIs.",
+            assessment=JobAssessment(score=2, is_relevant=False),
+        )
+        temp_db.save_job(job)
+
+        assert [j.dedup_key for j in temp_db.get_unassessed_jobs()] == [job.dedup_key]
+
+    def test_job_matched_under_current_cv_is_excluded(self, temp_db):
+        self._seed_cv(temp_db)
+        job = make_job(description_snippet="Build Python APIs.")
+        temp_db.save_job(job)
+        self._save_match(temp_db, job)
+
+        assert temp_db.get_unassessed_jobs() == []
+
+    def test_match_from_another_cv_does_not_count(self, temp_db):
+        """换 CV 后旧 cv_hash 的匹配结果不算已评估。"""
+        self._seed_cv(temp_db)
+        job = make_job(description_snippet="Build Python APIs.")
+        temp_db.save_job(job)
+        self._save_match(temp_db, job, cv_hash="cv-outdated")
+
+        assert [j.dedup_key for j in temp_db.get_unassessed_jobs()] == [job.dedup_key]
+
+    def test_each_job_filtered_independently(self, temp_db):
+        """回归：过滤条件曾误用循环残留变量，导致整批结果由最后一条决定。"""
+        self._seed_cv(temp_db)
+        unmatched = [
+            make_job(company=f"Company{i}", url=f"http://example.com/{i}", description_snippet="desc")
+            for i in range(3)
+        ]
+        for job in unmatched:
+            temp_db.save_job(job)
+
+        # 最后写入的职位已有当前 CV 的匹配结果，不应影响前面三条的判定。
+        matched = make_job(company="Matched", url="http://example.com/matched", description_snippet="desc")
+        temp_db.save_job(matched)
+        self._save_match(temp_db, matched)
+
+        result = {j.dedup_key for j in temp_db.get_unassessed_jobs()}
+        assert result == {j.dedup_key for j in unmatched}
+
+    def test_expired_jobs_excluded(self, temp_db):
+        self._seed_cv(temp_db)
+        expired = make_job(
+            company="Expired",
+            url="http://example.com/expired",
+            description_snippet="desc",
+            expires_at=datetime.utcnow() - timedelta(days=1),
+        )
+        live = make_job(company="Live", url="http://example.com/live", description_snippet="desc")
+        temp_db.save_job(expired)
+        temp_db.save_job(live)
+
+        assert [j.dedup_key for j in temp_db.get_unassessed_jobs()] == [live.dedup_key]
+
+    def test_limit_counts_returned_jobs(self, temp_db):
+        """limit 作用于实际返回条数，而非过滤前的扫描量。"""
+        self._seed_cv(temp_db)
+        for i in range(5):
+            temp_db.save_job(
+                make_job(company=f"Company{i}", url=f"http://example.com/{i}", description_snippet="desc")
+            )
+
+        assert len(temp_db.get_unassessed_jobs(limit=2)) == 2
+
+    def test_assess_cycle_is_idempotent(self, temp_db, monkeypatch):
+        """回归：补跑评估必须写入 job_matches，否则同一批职位会被反复捞出。"""
+        from jobradar import search_assessment_stage as stage
+        from jobradar.llm_backend import LLMConfig
+
+        self._seed_cv(temp_db)
+        for i in range(3):
+            temp_db.save_job(
+                make_job(
+                    company=f"Company{i}",
+                    url=f"http://example.com/{i}",
+                    description_snippet="Build Python APIs.",
+                )
+            )
+
+        def fake_evaluate(job, profile, llm, cv_hash="", language="zh"):
+            jd_profile = JDProfile(job_id=job.dedup_key, title=job.title, company=job.company)
+            match = MatchScore(
+                job_id=job.dedup_key,
+                cv_hash=cv_hash,
+                overall_score=80,
+                title_score=80,
+                seniority_score=80,
+                must_have_score=80,
+                nice_to_have_score=80,
+                domain_score=80,
+                location_score=100,
+                language_score=100,
+                risk_penalty=0,
+                recommendation="apply",
+            )
+            return jd_profile, match
+
+        monkeypatch.setattr(stage, "evaluate_job_once", fake_evaluate)
+
+        pending = temp_db.get_unassessed_jobs()
+        assert len(pending) == 3
+
+        succeeded, failed = stage.evaluate_cached_jobs(
+            pending,
+            profile=CVProfile(summary="Backend engineer", skills=["Python"]),
+            llm=LLMConfig(provider="gemini", model="test-model"),
+            cv_hash=self.CV_HASH,
+        )
+
+        assert (succeeded, failed) == (3, 0)
+        # 第二次调用必须为空，否则 assess 会陷入每次重评同一批职位的循环。
+        assert temp_db.get_unassessed_jobs() == []

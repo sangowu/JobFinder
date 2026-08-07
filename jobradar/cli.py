@@ -1,6 +1,7 @@
 """CLI 入口：Typer 命令定义。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import webbrowser
@@ -14,7 +15,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from jobradar import cache
 from jobradar.agent import run_search
-from jobradar.assessment import batch_assess_jds
+from jobradar.assessment import gate_worker_count
 from jobradar.cv_extractor import extract_cv_profile
 from jobradar.cv_reader import read_cv
 from jobradar.display import (
@@ -43,6 +44,7 @@ from jobradar.runtime_config import (
     get_saved_defaults,
     save_env_key,
 )
+from jobradar.search_assessment_stage import evaluate_cached_jobs
 from jobradar.telemetry import telemetry
 from jobradar.tools import verify_job_active
 
@@ -447,11 +449,13 @@ def assess(
     llm = LLMConfig(provider=effective_provider, model=effective_model)
     console.print(f"[dim]使用模型：{llm.provider} / {llm.model}[/dim]")
 
-    # Step 1：获取 CVProfile
+    # Step 1：获取 CVProfile 及其 cv_hash（匹配结果按 cv_hash 归属，必须一并确定）
     profile = None
+    cv_hash = ""
     if cv_path is not None:
         try:
             cv_text = read_cv(cv_path)
+            cv_hash = hashlib.sha256(cv_text.encode()).hexdigest()
             with Progress(SpinnerColumn(), TextColumn("{task.description}"), transient=True) as p:
                 p.add_task("解析 CV 信息...", total=None)
                 profile = extract_cv_profile(cv_text, llm=llm)
@@ -463,26 +467,34 @@ def assess(
         if profile is None:
             console.print("[red]缓存中没有 CVProfile，请提供 CV 文件路径。[/red]")
             raise typer.Exit(1)
+        cv_hash = cache.get_latest_cv_hash()
         console.print(f"[dim]使用缓存的 CVProfile：{profile.summary[:40]}（{profile.seniority_display}）[/dim]")
 
-    # Step 2：加载未评估的 JD 并批量评估
+    if not cv_hash:
+        console.print("[red]无法确定 CV 版本（cv_hash），请提供 CV 文件路径。[/red]")
+        raise typer.Exit(1)
+
+    # Step 2：为当前 CV 下尚无匹配结果的 JD 补算评分
     unassessed = cache.get_unassessed_jobs(limit=limit)
     if unassessed:
-        console.print(f"\n[bold]待评估 JD：{len(unassessed)} 条[/bold]")
-
-        job_inputs = [(j.title, j.description_snippet or "") for j in unassessed]
+        console.print(f"\n[bold]待评估 JD：{len(unassessed)} 条[/bold]（CV 版本 {cv_hash[:8]}）")
 
         with Progress(SpinnerColumn(), TextColumn("{task.description}"), transient=True) as p:
-            p.add_task(f"批量评估（每批 8 条，共 {len(unassessed)} 条）...", total=None)
-            with telemetry.timer("JD 批量评估"):
-                assessments = batch_assess_jds(job_inputs, profile, llm)
+            p.add_task(f"评估中（共 {len(unassessed)} 条）...", total=None)
+            with telemetry.timer("JD 评估"):
+                succeeded, failed = evaluate_cached_jobs(
+                    unassessed,
+                    profile=profile,
+                    llm=llm,
+                    cv_hash=cv_hash,
+                    workers=gate_worker_count(llm.provider),
+                )
 
-        for job, jda in zip(unassessed, assessments):
-            cache.update_job_assessment(job.dedup_key, jda.to_job_assessment())
-
-        console.print(f"[green]已更新 {len(unassessed)} 条评估结果。[/green]")
+        console.print(f"[green]已更新 {succeeded} 条评估结果。[/green]")
+        if failed:
+            console.print(f"[yellow]{failed} 条评估失败，详见 logs/jobradar.log。[/yellow]")
     else:
-        console.print("[dim]所有 JD 已有评估，跳过评估步骤。[/dim]")
+        console.print("[dim]当前 CV 下所有 JD 均已评估，跳过评估步骤。[/dim]")
 
     # Step 3：加载全部已评估 JD 排序展示
     all_jobs = cache.get_recent_jobs(limit)
