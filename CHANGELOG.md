@@ -50,13 +50,46 @@
 
 ### Validation
 
-- A recorded-timing Gemini 3.5 comparison used the same 30 candidates, CV, five alternating runs per arm, and full 16.469 s producer schedule. Versus `09b20c0` serial, the current 5-worker pipeline reduced mean total time from 97.04 s to 52.71 s (-45.68%) and P95 from 108.21 s to 53.64 s (-50.43%), with peak concurrency 5 and zero evaluation failures.
-- The concurrency-only comparison on the same current code reduced mean total time from 101.67 s (1 worker) to 52.27 s (5 workers, -48.59%), P95 from 118.81 s to 54.96 s (-53.74%), and first-result time by 54.40%; assessed-job throughput improved 93.75%. Both arms averaged 9.2 visible jobs with zero evaluation failures.
-- The valid 100-job audit completed five real-provider runs per model with no pipeline evaluation failures. Gemini 3.5 averaged 147.68 s versus 217.97 s for Gemini 3.1, but produced fewer visible jobs (16.0 versus 19.8) and more Title-stage rejections. Performance is validated; replacement-quality equivalence remains subject to blind human review, and stochastic result-set differences are not presented as worker-speed effects.
-- A single-variable comparison of the merged `JD Profile + CV Match` call (`fb5b211` baseline versus `d4cfd11`, both running the streaming worker pool with identical gate concurrency, 37 frozen jobs, three paired runs) cut deep-evaluation input tokens per job from 5,251 to 2,759 (-47.5%) while output tokens stayed flat (1,340 to 1,356), and halved LLM calls (41 to 20). End-to-end latency was inconclusive at this sample size: P50 improved 15.3% while the mean regressed 3.5% and P95 regressed 16.7%. Result-set stability was indistinguishable between arms (within-arm Jaccard 0.674 versus 0.651, between-arm 0.657), so the merge is justified on call and token cost, not on latency.
-- A cumulative serial-to-current comparison (`09b20c0` historical-serial baseline versus `d4cfd11`, same 37 frozen jobs, three paired real runs) reduced mean total time from 118.5 s to 45.6 s (-61.5%), first-result time from 47.5 s to 12.8 s (-73.1%), and improved assessed-job throughput 144.6%. The controlled no-LLM run explains the mechanism: with stubbed assessment the pipeline is producer-bound and total time improves only 9.3%, while first-result time improves 63.0% and scrape/evaluate overlap rises from 0 s to 6.2 s. Token totals are not comparable for this pair because the baseline predates the tool-call usage fix.
-- The current pipeline surfaced fewer visible jobs than the serial baseline in that run (10.3 versus 14.7 mean). This is not attributed to the merged call: the single-variable comparison put both of its arms at 9–10 visible jobs. Six of the nine differing jobs appeared in only one or two of three baseline runs, and serial replay aggregates all batches while streaming replay filters them on arrival, so batch composition differs at the batched Title and JD gates.
-- Both comparison arms were confirmed to run `gemini-3.5-flash-lite`. A live check of the new served-model telemetry showed Gemini reporting the requested model back unchanged on both the structured and tool-call paths, with no alias substitution or silent downgrade.
+Each entry states the two arms, what was held constant, the numbers, and an explicit
+verdict including what is **not** claimed. Every promotional figure must trace back
+to an entry here.
+
+- **Merged JD evaluation call** — `fb5b211` → `d4cfd11`
+  - Held constant: 37 frozen jobs (dataset `98a2cb6a`), CV `240e25c8`, `gemini-3.5-flash-lite`, streaming worker pool, identical gate concurrency, 5 workers, 3 paired runs
+  - Input tokens per evaluated job: 5,251 → 2,759 (**-47.5%**)
+  - Output tokens per evaluated job: 1,340 → 1,356 (flat)
+  - LLM calls per run: 41 → 20 (**-51.2%**)
+  - Total time: P50 52.1 s → 44.1 s (-15.3%); mean 49.1 s → 50.8 s (+3.5%); P95 +16.7%
+  - Result-set stability: within-arm Jaccard 0.674 vs 0.651, between-arm 0.657
+  - Verdict: justified on call and token cost. Latency is **not** claimed — the mean and P95 regressed and n=3 is inconclusive. No output-set change was detected beyond run-to-run noise.
+
+- **Cumulative serial-to-current** — `09b20c0` historical-serial → `d4cfd11`
+  - Held constant: same 37 frozen jobs and CV as above, `gemini-3.5-flash-lite`, 3 paired real runs
+  - Mean total time: 118.5 s → 45.6 s (**-61.5%**)
+  - First-result time: 47.5 s → 12.8 s (**-73.1%**)
+  - Assessed-job throughput: 14.7/min → 36.0/min (**+144.6%**)
+  - Controlled no-LLM arm: total -9.3%, first result -63.0%, scrape/evaluate overlap 0 s → 6.2 s
+  - Verdict: the controlled arm shows the mechanism — with stubbed assessment the pipeline is producer-bound, so the large total-time win requires real assessment cost. Token totals are **not** comparable for this pair: the baseline predates the tool-call usage fix.
+  - Visible jobs: 10.3 vs 14.7. Not attributed to the merged call, whose own comparison put both arms at 9–10. Six of the nine differing jobs appeared in only one or two of three baseline runs, and serial replay aggregates all batches while streaming replay filters them on arrival, so the batched Title and JD gates see different batch companions.
+
+- **Served-model confirmation** — live check of the new telemetry
+  - Both comparison arms ran `gemini-3.5-flash-lite`; Gemini reported the requested model back unchanged on the structured and tool-call paths, with no alias substitution or silent downgrade.
+
+- **Worker-count concurrency** — 1 worker → 5 workers, same code
+  - Mean total time: 101.67 s → 52.27 s (**-48.59%**); P95 118.81 s → 54.96 s (-53.74%)
+  - First-result time: -54.40%; assessed-job throughput +93.75%
+  - Verdict: both arms averaged 9.2 visible jobs with zero evaluation failures, so the gain is scheduling, not a change in output.
+
+- **Recorded-timing Gemini 3.5 run** — `09b20c0` serial → 5-worker pipeline
+  - Held constant: 30 candidates, same CV, 5 alternating runs per arm, full 16.469 s producer schedule
+  - Mean total time: 97.04 s → 52.71 s (**-45.68%**); P95 108.21 s → 53.64 s (-50.43%)
+  - Verdict: peak concurrency 5, zero evaluation failures.
+
+- **100-job model audit** — Gemini 3.1 → Gemini 3.5
+  - Held constant: 100 frozen jobs, 5 real-provider runs per model, no pipeline evaluation failures
+  - Mean total time: 217.97 s → 147.68 s (**-32.2%**)
+  - Visible jobs: 19.8 → 16.0; more Title-stage rejections
+  - Verdict: performance is validated. Replacement-quality equivalence is **not** claimed and remains subject to blind human review; the result-set difference is stochastic and is not presented as a worker-speed effect.
 
 ### Improvements
 
