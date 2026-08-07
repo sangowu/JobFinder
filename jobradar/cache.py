@@ -1464,6 +1464,66 @@ def clear_search_stats() -> None:
         con.execute("DELETE FROM filter_events")
 
 
+def _stale_match_conditions(
+    prompt_version: str, keep_cv_hash: str, drop_orphans: bool
+) -> tuple[list[str], list[str]]:
+    """构造 job_matches 的过时行判定条件，返回 (SQL 片段, 参数)。"""
+    clauses: list[str] = []
+    params: list[str] = []
+    if prompt_version:
+        clauses.append("prompt_version != ?")
+        params.append(prompt_version)
+    if keep_cv_hash:
+        clauses.append("cv_hash != ?")
+        params.append(keep_cv_hash)
+    if drop_orphans:
+        clauses.append("job_id NOT IN (SELECT dedup_key FROM job_cache)")
+    return clauses, params
+
+
+def prune_job_matches(
+    *,
+    prompt_version: str = "",
+    keep_cv_hash: str = "",
+    drop_orphans: bool = False,
+    dry_run: bool = True,
+) -> dict[str, int]:
+    """删除过时的匹配结果，被删除的职位会在下次搜索或 assess 时按当前口径重算。
+
+    三类条件独立启用，彼此可重叠（同一行可能既是旧 prompt 版本又属于旧 CV），
+    因此各分类计数之和可能大于 ``total``；``total`` 才是唯一行数。
+    ``dry_run=True`` 时只统计不删除。
+    """
+    clauses, params = _stale_match_conditions(prompt_version, keep_cv_hash, drop_orphans)
+    result = {"stale_version": 0, "stale_cv": 0, "orphan": 0, "total": 0, "deleted": 0}
+    if not clauses:
+        return result
+
+    with _conn() as con:
+        if prompt_version:
+            result["stale_version"] = con.execute(
+                "SELECT count(*) FROM job_matches WHERE prompt_version != ?", (prompt_version,)
+            ).fetchone()[0]
+        if keep_cv_hash:
+            result["stale_cv"] = con.execute(
+                "SELECT count(*) FROM job_matches WHERE cv_hash != ?", (keep_cv_hash,)
+            ).fetchone()[0]
+        if drop_orphans:
+            result["orphan"] = con.execute(
+                "SELECT count(*) FROM job_matches WHERE job_id NOT IN (SELECT dedup_key FROM job_cache)"
+            ).fetchone()[0]
+
+        where = " OR ".join(clauses)
+        result["total"] = con.execute(
+            f"SELECT count(*) FROM job_matches WHERE {where}", params
+        ).fetchone()[0]
+        if not dry_run:
+            result["deleted"] = con.execute(
+                f"DELETE FROM job_matches WHERE {where}", params
+            ).rowcount
+    return result
+
+
 def clean_expired() -> int:
     """删除过期 JD 和 Session，返回删除条数。"""
     now = datetime.utcnow().isoformat()

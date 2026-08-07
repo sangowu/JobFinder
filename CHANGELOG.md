@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### New Features
+
+- **`jobradar cache prune-scores`** (`cli.py` / `cache.py`)
+  Drops match results that no longer reflect the current scoring setup, so the next search or `assess` recomputes them. By default it removes rows whose `prompt_version` differs from the current one — useful right after bumping `matching.PROMPT_VERSION`. `--stale-cv` also drops rows belonging to any CV other than the latest, and `--orphans` drops rows whose job is gone from `job_cache`. The command previews the counts and asks for confirmation before deleting (`--yes` skips the prompt). Categories can overlap, so each is reported separately alongside a de-duplicated total.
+
 ### Changes
 
 - **Scores now come from `job_matches` alone** (`schemas.py` / `display.py` / `cli.py` / `search_assessment_stage.py` / `search_prefilter.py` / `cache.py`)
