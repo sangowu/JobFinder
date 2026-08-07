@@ -971,15 +971,6 @@ def get_latest_cv_hash() -> str:
     return row["cv_hash"] if row is not None else ""
 
 
-def update_job_assessment(dedup_key: str, assessment: JobAssessment) -> None:
-    """单独更新某条 JD 的 assessment（独立评估命令使用）。"""
-    with _conn() as con:
-        con.execute(
-            "UPDATE job_cache SET assessment = ? WHERE dedup_key = ?",
-            (assessment.model_dump_json(), dedup_key),
-        )
-
-
 def get_unassessed_jobs(limit: int = 200) -> list[JobResult]:
     """返回当前 CV 下尚无匹配结果的未过期职位。
 

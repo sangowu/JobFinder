@@ -80,24 +80,23 @@ def classify_cache_hit(cached_job: JobResult, cv_hash: str, language: str = "zh"
     """判断缓存命中的职位在当前 CV 下应 reuse / skip / reassess。
 
     评分是 JD × CV 的函数，因此命中与否要看当前 ``cv_hash`` 下有无匹配结果，
-    而不是看该职位评过没有。legacy ``assessment`` 列不记录 cv_hash，
-    用它判断会把换 CV 后本该重评的职位永久挡在管道之外。
+    而不是看该职位评过没有。
     """
-    if cv_hash:
-        match = cache.get_job_match(
-            cached_job.dedup_key,
-            cv_hash,
-            cached_job.description_snippet,
-            prompt_version=match_prompt_version(language),
-        )
-        if match is None:
-            return "reassess"
-        return "skip" if match.recommendation == "skip" else "reuse"
+    if not cv_hash:
+        # 无 CV 时评分无从谈起，直接复用缓存内容。
+        # 不能返回 reassess：该场景下 flush_assessments 的 has_cv 为假，
+        # patch_pending 分支会被整个跳过，这些职位将从结果中消失。
+        return "reuse"
 
-    # 无从判断 CV 版本时退回 legacy 列，保持既有行为。
-    if cached_job.assessment is not None:
-        return "reuse" if cached_job.assessment.is_relevant else "skip"
-    return "reassess"
+    match = cache.get_job_match(
+        cached_job.dedup_key,
+        cv_hash,
+        cached_job.description_snippet,
+        prompt_version=match_prompt_version(language),
+    )
+    if match is None:
+        return "reassess"
+    return "skip" if match.recommendation == "skip" else "reuse"
 
 
 @dataclass

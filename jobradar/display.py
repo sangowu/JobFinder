@@ -114,12 +114,6 @@ def show_job_detail(job: JobResult) -> None:
         )
         if job.effective_keywords:
             lines.append(f"[bold cyan]匹配关键词：[/bold cyan]{', '.join(job.effective_keywords)}")
-    elif job.assessment:
-        a = job.assessment
-        bar = "█" * a.score + "░" * (10 - a.score)
-        lines.append(f"\n[bold cyan]匹配分：[/bold cyan]{a.score}/10  {bar}")
-        if a.matched_keywords:
-            lines.append(f"[bold cyan]匹配关键词：[/bold cyan]{', '.join(a.matched_keywords)}")
 
     lines.append("")
     lines.append(job.description_snippet or "（无摘要）")
@@ -155,22 +149,8 @@ def _job_to_markdown(job: JobResult) -> str:
         lines.append("**劣势 / 差距**")
         for w in m.weaknesses + m.risks:
             lines.append(f"- {w}")
-    elif job.assessment:
-        a = job.assessment
-        bar = "█" * a.score + "░" * (10 - a.score)
-        lines.append(f"**整体匹配分**：{a.score}/10  `{bar}`")
-        if a.matched_keywords:
-            lines.append(f"\n**匹配关键词**：{', '.join(a.matched_keywords)}")
-        lines.append("")
-        lines.append("**优势**")
-        for s in a.strengths:
-            lines.append(f"- {s}")
-        lines.append("")
-        lines.append("**劣势 / 差距**")
-        for w in a.weaknesses:
-            lines.append(f"- {w}")
     else:
-        lines.append("_本职位未进行 CV 匹配评估（无 CV 数据或评估被跳过）。_")
+        lines.append("_本职位在当前 CV 下尚无匹配结果，可运行 `jobradar assess` 补算。_")
 
     return "\n".join(lines)
 
