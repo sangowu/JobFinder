@@ -7,7 +7,8 @@ from typing import Callable
 from jobradar import cache
 from jobradar.filters import infer_title_seniority, is_title_seniority_ok
 from jobradar.logger import get_logger
-from jobradar.schemas import CVProfile, is_closed_posting, make_dedup_key
+from jobradar.matching import match_prompt_version
+from jobradar.schemas import CVProfile, JobResult, is_closed_posting, make_dedup_key
 from jobradar.tools import record_failed_url
 
 logger = get_logger(__name__)
@@ -75,6 +76,30 @@ def collect_all_sources(jobs: list[dict]) -> dict[str, list[dict]]:
     return result
 
 
+def classify_cache_hit(cached_job: JobResult, cv_hash: str, language: str = "zh") -> str:
+    """判断缓存命中的职位在当前 CV 下应 reuse / skip / reassess。
+
+    评分是 JD × CV 的函数，因此命中与否要看当前 ``cv_hash`` 下有无匹配结果，
+    而不是看该职位评过没有。legacy ``assessment`` 列不记录 cv_hash，
+    用它判断会把换 CV 后本该重评的职位永久挡在管道之外。
+    """
+    if cv_hash:
+        match = cache.get_job_match(
+            cached_job.dedup_key,
+            cv_hash,
+            cached_job.description_snippet,
+            prompt_version=match_prompt_version(language),
+        )
+        if match is None:
+            return "reassess"
+        return "skip" if match.recommendation == "skip" else "reuse"
+
+    # 无从判断 CV 版本时退回 legacy 列，保持既有行为。
+    if cached_job.assessment is not None:
+        return "reuse" if cached_job.assessment.is_relevant else "skip"
+    return "reassess"
+
+
 @dataclass
 class PrefilterResult:
     immediate_keys: list[str] = field(default_factory=list)
@@ -103,8 +128,8 @@ def prefilter_jobs(
     language: str = "zh",
     run_id: str = "",
     seen_dedup_keys: set[str] | None = None,
+    cv_hash: str = "",
 ) -> PrefilterResult:
-    del language
     result = PrefilterResult()
     run_seen_dedup_keys = seen_dedup_keys if seen_dedup_keys is not None else set()
     title_candidates: list[tuple[dict, str, str, str, str, dict[str, int]]] = []
@@ -158,18 +183,19 @@ def prefilter_jobs(
 
         cached_job = cache.get_job_by_url(url)
         if cached_job is not None and not cached_job.is_expired:
-            if cached_job.assessment is not None:
-                if not cached_job.assessment.is_relevant:
-                    logger.debug("URL cache hit (rejected), skip: %s", title)
-                    source_stats["cache_hit"] += 1
-                    result.cache_hit += 1
-                    continue
+            disposition = classify_cache_hit(cached_job, cv_hash, language)
+            if disposition == "skip":
+                logger.debug("URL cache hit (rejected for current CV), skip: %s", title)
+                source_stats["cache_hit"] += 1
+                result.cache_hit += 1
+                continue
+            if disposition == "reuse":
                 logger.debug("URL cache hit, skip fetch+LLM: %s", title)
                 result.immediate_keys.append(cached_job.dedup_key)
                 source_stats["cache_hit"] += 1
                 result.cache_hit += 1
                 continue
-            logger.debug("URL cache hit, pending LLM re-assess: %s", title)
+            logger.debug("URL cache hit without a match for current CV, re-assess: %s", title)
             result.patch_pending.append((cached_job, cached_job.description_snippet))
             result.cache_patch += 1
             continue
