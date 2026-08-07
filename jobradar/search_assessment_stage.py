@@ -332,7 +332,6 @@ def flush_assessments(
                     "expires_at": cached_job.expires_at,
                     "is_complete": cached_job.is_complete,
                     "coarse_filter": cached_job.coarse_filter,
-                    "assessment": assessment.to_job_assessment(),
                 }
             )
             if assessment.relevant:
@@ -421,7 +420,6 @@ def flush_assessments(
             else:
                 logger.debug("LLM assess matched: %s | score=%d", title, assessment.score)
 
-            job_assessment = assessment.to_job_assessment() if has_cv else None
             dedup_key = make_dedup_key(job.get("company", ""), title)
             raw_sources = job_all_sources.get(
                 dedup_key,
@@ -438,7 +436,6 @@ def flush_assessments(
                     "expires_at": expires_at,
                     "is_complete": job.get("is_complete", True),
                     "coarse_filter": job.get("coarse_filter"),
-                    "assessment": job_assessment,
                     "sources": [entry["source"] for entry in raw_sources],
                     "raw_sources": raw_sources,
                 }
@@ -456,7 +453,6 @@ def flush_assessments(
                     expires_at=expires_at,
                     is_complete=job.get("is_complete", True),
                     coarse_filter=job.get("coarse_filter"),
-                    assessment=job_assessment,
                 )
                 if llm is not None:
                     pending_tasks.append(

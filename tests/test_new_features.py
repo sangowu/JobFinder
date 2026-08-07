@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -695,7 +696,8 @@ class TestSeniorityFilter:
 
 
 class TestJobResultCompatibility:
-    def test_job_result_without_match_uses_legacy_assessment(self):
+    def test_legacy_assessment_no_longer_feeds_effective_score(self):
+        """legacy assessment 已退出评分口径：它不记录 cv_hash，且分制与 match_score 不同。"""
         job = JobResult(
             title="Backend Engineer",
             company="Acme",
@@ -709,8 +711,23 @@ class TestJobResultCompatibility:
             ),
         )
 
-        assert job.effective_score == 8.0
-        assert job.effective_keywords == ["Python", "SQL"]
+        assert job.effective_score is None
+        assert job.effective_strengths == []
+        assert job.effective_weaknesses == []
+        assert job.effective_keywords == []
+        # 无匹配结果时默认可见，由后续评估决定去留。
+        assert job.is_effectively_relevant is True
+        # 字段本身保留，历史数据仍可读取（model_quality_audit 依赖）。
+        assert job.assessment is not None and job.assessment.score == 8
+
+    def test_legacy_rejection_no_longer_hides_job(self):
+        job = JobResult(
+            title="Backend Engineer",
+            company="Acme",
+            url="https://example.com/job",
+            assessment=JobAssessment(score=1, is_relevant=False),
+        )
+
         assert job.is_effectively_relevant is True
 
 
@@ -785,6 +802,83 @@ class TestCachedJobModernMatchBackfill:
         assert keys == [cached_job.dedup_key]
         assert rejected == 0
         assert saved == 0
+
+    def test_pipeline_no_longer_writes_the_legacy_assessment_column(self, db, monkeypatch: pytest.MonkeyPatch):
+        """评分只经 job_matches 落库；legacy 列不再由管道写入。"""
+        import sqlite3
+
+        import jobradar.search_assessment_stage as stage
+        from jobradar.assessment import JDAssessment
+        from jobradar.search_prefilter import PrefilterResult
+
+        scraped = {
+            "title": "Backend Engineer",
+            "company": "Acme",
+            "location": "Dublin",
+            "url": "https://example.com/backend",
+            "source": "indeed.ie",
+            "description_snippet": "Build Python APIs.",
+            "is_complete": True,
+        }
+
+        monkeypatch.setattr(
+            stage,
+            "batch_assess_jds",
+            lambda jobs, profile, llm, language="zh": [
+                JDAssessment(
+                    relevant=True,
+                    reason="match",
+                    score=9,
+                    strengths=["Python"],
+                    weaknesses=["Cloud"],
+                    matched_keywords=["Python"],
+                )
+                for _ in jobs
+            ],
+        )
+
+        def fake_evaluate(job, profile, llm, cv_hash="", language="zh"):
+            jd_profile = JDProfile(job_id=job.dedup_key, title=job.title, company=job.company)
+            return jd_profile, MatchScore(
+                job_id=job.dedup_key,
+                cv_hash=cv_hash,
+                overall_score=78,
+                title_score=80,
+                seniority_score=80,
+                must_have_score=75,
+                nice_to_have_score=70,
+                domain_score=75,
+                location_score=100,
+                language_score=100,
+                risk_penalty=5,
+                recommendation="apply",
+            )
+
+        monkeypatch.setattr(stage.cache, "get_jd_profile", lambda *args, **kwargs: None)
+        monkeypatch.setattr(stage, "evaluate_job_once", fake_evaluate)
+
+        keys, _, saved = stage.flush_assessments(
+            PrefilterResult(pending=[(scraped, scraped["description_snippet"], None)]),
+            job_all_sources={},
+            profile=_make_profile(),
+            llm=_make_llm(),
+            cv_hash="current-cv",
+            cb=lambda msg: None,
+            on_job=None,
+            language="zh",
+        )
+
+        assert saved == 1
+        # 评分落在 job_matches，按 (job_id, cv_hash) 归属。
+        persisted = db.get_job_match(keys[0], "current-cv", scraped["description_snippet"])
+        assert persisted is not None and persisted.overall_score == 78
+
+        con = sqlite3.connect(os.environ["CACHE_DB_PATH"])
+        raw = con.execute(
+            "SELECT assessment FROM job_cache WHERE dedup_key = ?", (keys[0],)
+        ).fetchone()
+        con.close()
+        assert raw[0] is None
 
 
 class TestPipelineStats:

@@ -498,7 +498,7 @@ def assess(
 
     # Step 3：加载全部已评估 JD 排序展示
     all_jobs = cache.get_recent_jobs(limit)
-    all_jobs = [j for j in all_jobs if j.match_score is not None or j.assessment is not None]
+    all_jobs = [j for j in all_jobs if j.match_score is not None]
     all_jobs.sort(key=lambda j: (j.effective_score if j.effective_score is not None else -1), reverse=True)
 
     if not all_jobs:

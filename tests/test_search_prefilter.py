@@ -133,8 +133,13 @@ class TestClassifyCacheHit:
 
         assert classify_cache_hit(job, CURRENT_CV) == "reassess"
 
-    def test_without_cv_hash_falls_back_to_legacy_column(self, temp_db):
-        """无从判断 CV 版本时保持既有行为，避免无 CV 场景下丢结果。"""
+    def test_without_cv_hash_everything_is_reused(self, temp_db):
+        """无 CV 时评分无从谈起，一律复用缓存内容。
+
+        不能返回 reassess：该场景下 flush_assessments 的 has_cv 为假，
+        patch_pending 分支会被整个跳过，这些职位将从结果中消失。
+        legacy assessment 也不再参与判定——它不记录 cv_hash。
+        """
         from jobradar.search_prefilter import classify_cache_hit
 
         relevant = make_job(assessment=JobAssessment(score=8, is_relevant=True))
@@ -146,8 +151,8 @@ class TestClassifyCacheHit:
         unassessed = make_job(company="Third", url="https://example.com/jobs/3")
 
         assert classify_cache_hit(relevant, "") == "reuse"
-        assert classify_cache_hit(rejected, "") == "skip"
-        assert classify_cache_hit(unassessed, "") == "reassess"
+        assert classify_cache_hit(rejected, "") == "reuse"
+        assert classify_cache_hit(unassessed, "") == "reuse"
 
 
 class TestPrefilterCacheHit:

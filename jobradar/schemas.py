@@ -548,44 +548,32 @@ class JobResult(BaseModel):
             return False
         return bool(_CLOSED_PATTERN.search(self.description_snippet))
 
+    # 以下属性只认现代 match_score。legacy ``assessment`` 已退出评分口径：
+    # 它不记录 cv_hash，且用的是 0~10 分制，与 match_score 的 0~100 混在一起排序会失真。
+    # 该字段仍保留用于读取历史数据（见 model_quality_audit）。
+
     @property
     def effective_score(self) -> float | None:
-        if self.match_score is not None:
-            return self.match_score.overall_score
-        if self.assessment is not None:
-            return float(self.assessment.score)
-        return None
+        return self.match_score.overall_score if self.match_score is not None else None
 
     @property
     def effective_strengths(self) -> list[str]:
-        if self.match_score is not None:
-            return self.match_score.strengths
-        if self.assessment is not None:
-            return self.assessment.strengths
-        return []
+        return self.match_score.strengths if self.match_score is not None else []
 
     @property
     def effective_weaknesses(self) -> list[str]:
-        if self.match_score is not None:
-            return self.match_score.weaknesses
-        if self.assessment is not None:
-            return self.assessment.weaknesses
-        return []
+        return self.match_score.weaknesses if self.match_score is not None else []
 
     @property
     def effective_keywords(self) -> list[str]:
         if self.match_score is not None and (self.jd_profile is not None or self.job_summary is not None):
             return self.match_score.matched_keywords[:6]
-        if self.assessment is not None:
-            return self.assessment.matched_keywords[:6]
         return []
 
     @property
     def is_effectively_relevant(self) -> bool:
         if self.match_score is not None:
             return self.match_score.recommendation != "skip"
-        if self.assessment is not None:
-            return self.assessment.is_relevant
         return True
 
 

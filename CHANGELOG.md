@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changes
+
+- **Scores now come from `job_matches` alone** (`schemas.py` / `display.py` / `cli.py` / `search_assessment_stage.py` / `search_prefilter.py` / `cache.py`)
+  The legacy `job_cache.assessment` column is no longer written or read for scoring. It recorded no `cv_hash`, and its 0–10 scale was being mixed with `MatchScore`'s 0–100 inside the same `effective_score` property, so cached legacy scores and modern ones sorted against each other on incompatible scales. The `effective_*` properties, both `display.py` render paths, and the `assess` listing filter now depend only on `match_score`; the search pipeline stops populating the column, and `cache.update_job_assessment` is removed.
+  `classify_cache_hit` no longer consults the column when no `cv_hash` is available and returns `reuse` instead — returning `reassess` there would strand those jobs, since `flush_assessments` skips `patch_pending` when `has_cv` is false.
+  The column, the `JobAssessment` model, and `JobResult.assessment` are kept so historical rows stay readable — `model_quality_audit` exports them. Existing data is untouched, and `_merge_job` still preserves it.
+
 ### Bug Fixes
 
 - **Cache hits ignored which CV produced the score** (`search_prefilter.py` / `agent.py`)
