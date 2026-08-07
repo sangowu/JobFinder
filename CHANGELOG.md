@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- **Release highlights in Chinese, English and Spanish** (`docs/release-highlights.*.md` / `README*.md`)
+  The highlights document now follows the same `<name>.<lang>.md` convention as the READMEs, with a language switcher in each file. Each README gained a Performance section carrying the latest release's headline figures and linking to the highlights and to the `### Validation` entries behind them.
+
 ## [0.4.0] — 2026-08-07
 
 ### New Features
