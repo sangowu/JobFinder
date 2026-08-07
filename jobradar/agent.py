@@ -239,6 +239,7 @@ def _run_streaming_pipeline(
                 language=language,
                 run_id=run_id,
                 seen_dedup_keys=seen_dedup_keys,
+                cv_hash=cv_hash,
             )
             candidate_jobs = [job for job, _, _ in pf.pending]
             persisted_at = time.monotonic()
@@ -506,7 +507,7 @@ def _write_scraped(
 
     job_all_sources = collect_all_sources(jobs)
 
-    pf = prefilter_jobs(jobs, seen_urls, cb, profile, language=language, run_id=run_id)
+    pf = prefilter_jobs(jobs, seen_urls, cb, profile, language=language, run_id=run_id, cv_hash=cv_hash)
 
     _profile = profile or CVProfile(
         summary=_cv_summary, skills=_cv_skills,
