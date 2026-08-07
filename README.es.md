@@ -76,6 +76,20 @@ Indeed 741 + LinkedIn 255 = 996 extraídos
   → Tasa de filtrado total: 94.6%  (solo 54 de 996 requieren revisión humana)
 ```
 
+## Rendimiento
+
+Última versión, 0.4.0:
+
+| Métrica | Antes | Después |
+| --- | --- | --- |
+| Búsqueda de extremo a extremo | 118,5 s | 45,6 s (-61,5 %) |
+| Primer resultado | 47,5 s | 12,8 s (-73,1 %) |
+| Llamadas al LLM por ejecución | 41 | 20 (-51,2 %) |
+
+Consulta las [novedades de cada versión](docs/release-highlights.es.md) y las
+entradas `### Validation` de [CHANGELOG.md](CHANGELOG.md) para saber cómo se
+midió cada cifra.
+
 ## Variables de Entorno
 
 ```env

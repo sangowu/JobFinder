@@ -78,6 +78,20 @@ Indeed 741 + LinkedIn 255 = 996 scraped
   → Overall filter rate: 94.6%  (only 54 of 996 require human review)
 ```
 
+## Performance
+
+Latest release, 0.4.0:
+
+| Metric | Before | After |
+| --- | --- | --- |
+| Search end-to-end | 118.5 s | 45.6 s (-61.5%) |
+| First result | 47.5 s | 12.8 s (-73.1%) |
+| LLM calls per run | 41 | 20 (-51.2%) |
+
+See [release highlights](docs/release-highlights.md) for every release, and the
+`### Validation` entries in [CHANGELOG.md](CHANGELOG.md) for how each figure was
+measured.
+
 ## Environment Variables
 
 ```env
