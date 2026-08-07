@@ -8,13 +8,16 @@
   Indeed and LinkedIn now emit completed role batches into a deterministic Python prefilter. Filtered candidates are committed to `search_candidates` before the same in-memory objects enter assessment, so scraping and evaluation overlap without requiring workers to reload candidate payloads from SQLite. Candidate state, queue timing, first-result latency, persistence time, overlap, worker utilization, and failures are recorded; SQLite uses WAL and a busy timeout for short coordinated writes.
 
 - **Bounded concurrent deep evaluation** (`search_assessment_stage.py` / `jd_profile.py` / `matching.py`)
-  Independent `JD Profile → CV Match` chains run in a bounded pool while preserving the dependency order within each job. Cloud providers default to five workers, local providers to one, and `ASSESSMENT_WORKERS` / `run_search(assessment_workers=...)` can select 1–8. Profile/match results are committed before SSE publication.
+  Independent jobs run in a bounded pool. Uncached jobs now return `JD Profile + CV Match` in one provider call, while cached JD Profiles remain reusable for match-only refreshes. Cloud providers default to five workers and local providers to one. Profile/match results are committed atomically before SSE publication, with commit latency included in pipeline telemetry.
+
+- **Bounded concurrent assessment gates** (`assessment.py` / `scraping.py`)
+  Independent Title, coarse-filter, and JD-assessment chunks use up to two workers for cloud providers while local providers remain serial. Input ordering, conservative fallback behavior, and existing batch sizes are preserved.
 
 - **Reproducible pipeline and model evaluation** (`pipeline_benchmark.py` / `model_quality_audit.py` / `version_comparison.py` / `version_matrix.py`)
   Added one-command capture/replay, historical-version, worker-count, model-matrix, and 100-job quality-audit tools. Schema-v2 captures retain every source/role query event, empty query, batch arrival, source completion, total producer time, and producer tail; each run uses an isolated SQLite database. Blind-review exports and adjudication scoring support human validation of model rejection quality.
 
 - **Bounded concurrent JobSpy searches** (`scraping.py`)
-  Indeed and LinkedIn source pipelines now run concurrently. Indeed searches up to two titles at once while preserving one shared 2–4 second request-start interval; LinkedIn title searches remain serial to reduce rate-limit risk.
+  Indeed and LinkedIn source pipelines run concurrently. Each source searches up to two titles at once while preserving its shared request-start interval: 2–4 seconds for Indeed and 3–5 seconds for LinkedIn.
 
 - **Gmail application tracking with selective LLM classification** (`email_sync.py` / `email_classifier.py` / `email_llm_classifier.py` / `application_store.py` / `server.py` / `index.html`)
   Added Google OAuth read-only Gmail sync, local rule classification, selective LLM adjudication for ambiguous messages, application timelines, pending-review actions, direct Gmail links, scheduled sync controls, background reanalysis progress, expandable sync history, and local classification metrics.
@@ -47,9 +50,46 @@
 
 ### Validation
 
-- A recorded-timing Gemini 3.5 comparison used the same 30 candidates, CV, five alternating runs per arm, and full 16.469 s producer schedule. Versus `09b20c0` serial, the current 5-worker pipeline reduced mean total time from 97.04 s to 52.71 s (-45.68%) and P95 from 108.21 s to 53.64 s (-50.43%), with peak concurrency 5 and zero evaluation failures.
-- The concurrency-only comparison on the same current code reduced mean total time from 101.67 s (1 worker) to 52.27 s (5 workers, -48.59%), P95 from 118.81 s to 54.96 s (-53.74%), and first-result time by 54.40%; assessed-job throughput improved 93.75%. Both arms averaged 9.2 visible jobs with zero evaluation failures.
-- The valid 100-job audit completed five real-provider runs per model with no pipeline evaluation failures. Gemini 3.5 averaged 147.68 s versus 217.97 s for Gemini 3.1, but produced fewer visible jobs (16.0 versus 19.8) and more Title-stage rejections. Performance is validated; replacement-quality equivalence remains subject to blind human review, and stochastic result-set differences are not presented as worker-speed effects.
+Each entry states the two arms, what was held constant, the numbers, and an explicit
+verdict including what is **not** claimed. Every promotional figure must trace back
+to an entry here.
+
+- **Merged JD evaluation call** — `fb5b211` → `d4cfd11`
+  - Held constant: 37 frozen jobs (dataset `98a2cb6a`), CV `240e25c8`, `gemini-3.5-flash-lite`, streaming worker pool, identical gate concurrency, 5 workers, 3 paired runs
+  - Input tokens per evaluated job: 5,251 → 2,759 (**-47.5%**)
+  - Output tokens per evaluated job: 1,340 → 1,356 (flat)
+  - LLM calls per run: 41 → 20 (**-51.2%**)
+  - Total time: P50 52.1 s → 44.1 s (-15.3%); mean 49.1 s → 50.8 s (+3.5%); P95 +16.7%
+  - Result-set stability: within-arm Jaccard 0.674 vs 0.651, between-arm 0.657
+  - Verdict: justified on call and token cost. Latency is **not** claimed — the mean and P95 regressed and n=3 is inconclusive. No output-set change was detected beyond run-to-run noise.
+
+- **Cumulative serial-to-current** — `09b20c0` historical-serial → `d4cfd11`
+  - Held constant: same 37 frozen jobs and CV as above, `gemini-3.5-flash-lite`, 3 paired real runs
+  - Mean total time: 118.5 s → 45.6 s (**-61.5%**)
+  - First-result time: 47.5 s → 12.8 s (**-73.1%**)
+  - Assessed-job throughput: 14.7/min → 36.0/min (**+144.6%**)
+  - Controlled no-LLM arm: total -9.3%, first result -63.0%, scrape/evaluate overlap 0 s → 6.2 s
+  - Verdict: the controlled arm shows the mechanism — with stubbed assessment the pipeline is producer-bound, so the large total-time win requires real assessment cost. Token totals are **not** comparable for this pair: the baseline predates the tool-call usage fix.
+  - Visible jobs: 10.3 vs 14.7. Not attributed to the merged call, whose own comparison put both arms at 9–10. Six of the nine differing jobs appeared in only one or two of three baseline runs, and serial replay aggregates all batches while streaming replay filters them on arrival, so the batched Title and JD gates see different batch companions.
+
+- **Served-model confirmation** — live check of the new telemetry
+  - Both comparison arms ran `gemini-3.5-flash-lite`; Gemini reported the requested model back unchanged on the structured and tool-call paths, with no alias substitution or silent downgrade.
+
+- **Worker-count concurrency** — 1 worker → 5 workers, same code
+  - Mean total time: 101.67 s → 52.27 s (**-48.59%**); P95 118.81 s → 54.96 s (-53.74%)
+  - First-result time: -54.40%; assessed-job throughput +93.75%
+  - Verdict: both arms averaged 9.2 visible jobs with zero evaluation failures, so the gain is scheduling, not a change in output.
+
+- **Recorded-timing Gemini 3.5 run** — `09b20c0` serial → 5-worker pipeline
+  - Held constant: 30 candidates, same CV, 5 alternating runs per arm, full 16.469 s producer schedule
+  - Mean total time: 97.04 s → 52.71 s (**-45.68%**); P95 108.21 s → 53.64 s (-50.43%)
+  - Verdict: peak concurrency 5, zero evaluation failures.
+
+- **100-job model audit** — Gemini 3.1 → Gemini 3.5
+  - Held constant: 100 frozen jobs, 5 real-provider runs per model, no pipeline evaluation failures
+  - Mean total time: 217.97 s → 147.68 s (**-32.2%**)
+  - Visible jobs: 19.8 → 16.0; more Title-stage rejections
+  - Verdict: performance is validated. Replacement-quality equivalence is **not** claimed and remains subject to blind human review; the result-set difference is stochastic and is not presented as a worker-speed effect.
 
 ### Improvements
 
@@ -97,6 +137,13 @@
   Updated `README.md` / `README.zh.md` / `README.es.md` to reflect the current LLM pipeline: title gate before coarse filter, persisted filter events, compare / inspection scripts, experience-gap rejection, and risk-only relocation / office-attendance handling.
 
 ### Bug Fixes
+
+- **Token usage was lost on the tool-call path** (`llm_backend.py`)
+  `complete_via_tool` recorded `input_tokens=0` / `output_tokens=0` whenever a provider returned a `tool_use` block, so every step that succeeded on the tool path reported zero token cost and only `complete_structured` fallbacks were counted. Per-step metrics and `/api/stats` under-reported accordingly, and prompt-cost comparisons between versions were unusable. `NormalizedResponse` now carries usage through from the Claude, Gemini and OpenAI-compatible tool-call implementations.
+  The structured-output cap also moved from a hard-coded 2048 to a shared 4096 constant. That path is not an edge case: on Gemini the JD-profile schema falls back to `complete_structured` on every call, and a combined profile-plus-match payload approaches the old limit.
+
+- **Telemetry could not tell which model a provider actually served** (`llm_backend.py` / `telemetry.py`)
+  Per-step metrics echoed the requested model string; no provider response field was read back, so an alias, a silent upgrade or a downgrade was invisible and version comparisons could not prove both arms ran the same model. Every call now records the served model reported by the provider — `model_version` for Gemini, `model` for Claude and OpenAI-compatible backends — alongside the requested one. `summarize_llm_by_step` reports the distinct served models per step, so a step answered by more than one model surfaces all of them instead of only the last.
 
 - **Cached search results now receive explainable scores for the current CV** (`search_assessment_stage.py`)
   A cache hit with a legacy `assessment` previously skipped JD profiling and modern CV matching, so the job detail page could only show a total score without the dimension breakdown.

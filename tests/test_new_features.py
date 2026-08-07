@@ -750,9 +750,9 @@ class TestCachedJobModernMatchBackfill:
 
         monkeypatch.setattr(stage.cache, "get_job", lambda key, language="zh": cached_job)
         monkeypatch.setattr(
-            stage,
-            "extract_jd_profile",
-            lambda job, llm, language="zh", persist=True: jd_profile,
+            stage.cache,
+            "get_jd_profile",
+            lambda *args, **kwargs: jd_profile,
         )
 
         def fake_match_job_to_cv(

@@ -16,6 +16,7 @@ from typing import Callable
 from uuid import uuid4
 
 from jobradar import cache
+from jobradar.assessment import gate_worker_count
 from jobradar.batch_scheduler import BatchScheduler, ScheduledBatch
 from jobradar.llm_backend import DEFAULT_MODELS, LLMConfig, Provider
 from jobradar.logger import get_logger
@@ -294,6 +295,8 @@ def _run_streaming_pipeline(
     stats.evaluation_completed = concurrency_metrics.completed
     stats.evaluation_failed = concurrency_metrics.failed
     stats.evaluation_peak_inflight = concurrency_metrics.peak_inflight
+    stats.evaluation_commit_elapsed = round(concurrency_metrics.commit_elapsed, 4)
+    stats.gate_workers = gate_worker_count(llm.provider)
 
     stats.prefilter_in = aggregate_pf.total
     stats.skip_dup = aggregate_pf.skip_dup

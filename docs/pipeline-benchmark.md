@@ -176,13 +176,77 @@ Final outputs:
 - `version_comparison.json`: controlled summary, raw historical runs, token/call metrics, and result-set comparison.
 - `version_comparison.md`: reviewable serial/streaming and baseline/candidate tables.
 
+## Isolate a code change from the execution architecture
+
+`pipeline_version_worker.py` takes two independent arguments that are easy to
+confuse:
+
+| Argument | Controls | Where |
+| --- | --- | --- |
+| `--checkout <dir>` | **which code runs** | `sys.path.insert(0, checkout)`; all JobRadar imports are deferred until after it |
+| `--version-mode baseline\|candidate` | **how the run executes** | `baseline` aggregates every batch, cancels streaming arrival and leaves the worker count at one |
+
+`--version-mode` does not select a version. `baseline` means "replay under the
+pre-streaming serial contract", which is why `compare_pipeline_versions.py`
+pairs it with the baseline worktree: there the execution architecture *is* the
+change under test.
+
+That pairing is wrong when the change under test lives purely in the code and
+both refs already run the streaming worker pool — it would credit this change
+with the earlier concurrency work. `compare_merged_evaluation.py` runs both arms
+with `--version-mode candidate` so `--checkout` is the only variable:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\compare_merged_evaluation.py `
+  --baseline fb5b211 `
+  --dataset reports\pipeline_version_comparison\inputs\frozen-jobs.json `
+  --real-llm `
+  --provider gemini `
+  --model gemini-3.5-flash-lite `
+  --assessment-workers 5 `
+  --runs 3
+```
+
+Choose the script by the question:
+
+| Question | Script | Baseline |
+| --- | --- | --- |
+| How much did *this* code change contribute? | `compare_merged_evaluation.py` | the commit right before it |
+| How far have we come since the serial pipeline? | `compare_pipeline_versions.py` | `09b20c0` |
+
+Both arms label their output `"version_mode": "candidate"`, so distinguish them
+by the `checkout` field, not by `version_mode`. The aggregation modules do not
+read `version_mode`, so the paired output feeds `build_version_comparison` and
+`build_quality_report` unchanged.
+
+Real provider calls are mandatory here: a merged-call comparison measured
+against stubbed assessment latency would measure nothing, so there is no
+controlled mode. The report adds a call-cost table on top of the standard
+performance and quality axes. Read `tokens_out` first — merging removes a
+duplicated JD from the prompt, so `tokens_in` should fall while `tokens_out`
+stays flat. A large `tokens_out` drop means the model is emitting fewer fields,
+which is a quality signal rather than a saving.
+
+Two cautions learned from running this comparison:
+
+- Both arms must carry the same telemetry code. A baseline that predates the
+  tool-call usage fix reports zero tokens for every step that succeeds on the
+  tool path, which silently inverts the token comparison. The same applies to
+  served-model recording: a baseline without it cannot confirm which model it
+  actually ran.
+- Compare between-arm result overlap against each arm's own run-to-run overlap
+  before calling a difference real. At three paired runs the within-arm Jaccard
+  was 0.65–0.67, so a between-arm Jaccard of 0.66 is noise, not a change.
+
 ## Compare one assessment worker with the production worker count
 
-The production pipeline keeps title/coarse/JD gates batched, then evaluates the
-independent `JD Profile -> CV Match` chain for different jobs in a bounded pool.
-Pending candidates are persisted before submission; worker threads use the
-in-memory job payload, and the assessment coordinator serializes profile/match
-commits before publishing the job callback.
+The production pipeline keeps title/coarse/JD gates batched and runs independent
+gate chunks with at most two workers for cloud providers (one for local providers).
+It then evaluates different jobs in a bounded pool. An uncached job returns its
+`JD Profile` and `CV Match` evidence in one provider call; a cached JD Profile is
+reused and only the missing match is generated. Pending candidates are persisted
+before submission; worker threads use the in-memory job payload, and the assessment
+coordinator atomically commits each profile/match pair before publishing the job callback.
 
 Run a paired real-provider comparison with the same frozen jobs and CV:
 
@@ -319,3 +383,16 @@ model, CV, temporary databases, and alternating paired-run order.
 
 Do not compare two independent live JobSpy searches as a performance benchmark:
 the candidate population, rate limiting, and network latency are uncontrolled.
+
+Visible-job counts differ between architectures even on identical frozen data.
+Serial replay hands every batch to the filters at once while streaming replay
+filters each batch on arrival, so the batched Title and JD gates see different
+batch companions and can judge borderline jobs differently. Check how many of the
+differing jobs are stable across runs before reading a result-count gap as a
+recall change; most of them are usually borderline jobs that already vary between
+runs of the same arm.
+
+Each run records the model the provider reports serving, not only the requested
+one. Check `served_models` per step before comparing two runs: an alias or a
+silent model change invalidates the comparison, and the requested string alone
+cannot detect it.

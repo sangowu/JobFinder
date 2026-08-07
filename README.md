@@ -49,13 +49,15 @@ CV file
          seniority / closed / experience-gap gates → filtered list → search_candidates (SQLite)
          the same objects then enter an in-memory assessment queue
   ▼ ④ Batched assessment coordinator (overlaps with later scraping batches)
+         independent title / coarse / JD chunks use up to 2 gate workers for cloud providers
          pre-JD LLM title relevance gate
          conservative title-only semantic filter; default keep=true and reject only clearly different career paths
   ▼    batched LLM coarse filter
          card-level keep/reject using title + location + snippet
   ▼ ⑤ Bounded job evaluation pool (5 workers for cloud providers; 1 for local models)
-         different jobs run concurrently; each job preserves JD Profile → CV Match dependency order
-         the coordinator commits SQLite results serially and emits SSE only after commit
+         different jobs run concurrently; an uncached job returns JD Profile + CV Match in one LLM call
+         cached JD Profiles remain reusable and only run the missing CV Match
+         the coordinator atomically commits both SQLite records and emits SSE only after commit
   ▼ ⑥ JD profile extraction
          structured required/preferred skills, must-haves, years, seniority conflict, work mode, language requirements
   ▼ ⑦ Explainable CV↔JD matching

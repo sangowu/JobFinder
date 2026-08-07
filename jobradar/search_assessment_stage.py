@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import Executor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Callable
 
 from jobradar import cache
 from jobradar.assessment import JDAssessment, batch_assess_jds
-from jobradar.jd_profile import extract_jd_profile, jd_profile_prompt_version
+from jobradar.jd_profile import jd_profile_prompt_version
+from jobradar.job_evaluation import evaluate_job_once, job_evaluation_prompt_version
 from jobradar.logger import get_logger
 from jobradar.matching import match_job_to_cv, match_prompt_version
 from jobradar.schemas import CVProfile, JDProfile, JobResult, MatchScore, make_dedup_key
@@ -33,6 +35,7 @@ class JobEvaluationOutcome:
     task: JobEvaluationTask
     jd_profile: JDProfile
     match_score: MatchScore
+    profile_prompt_version: str = ""
 
 
 @dataclass
@@ -42,6 +45,7 @@ class AssessmentConcurrencyMetrics:
     completed: int = 0
     failed: int = 0
     peak_inflight: int = 0
+    commit_elapsed: float = 0.0
     _active: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -64,6 +68,10 @@ class AssessmentConcurrencyMetrics:
             if failed:
                 self.failed += 1
 
+    def record_commit(self, elapsed: float) -> None:
+        with self._lock:
+            self.commit_elapsed += elapsed
+
 
 def _evaluate_job(
     task: JobEvaluationTask,
@@ -75,35 +83,55 @@ def _evaluate_job(
 ) -> JobEvaluationOutcome:
     metrics.record_started()
     try:
-        jd_profile = extract_jd_profile(task.job, llm, language=language, persist=False)
-        match_score = match_job_to_cv(
-            profile,
-            jd_profile,
+        standalone_version = jd_profile_prompt_version(language)
+        combined_version = job_evaluation_prompt_version(language)
+        jd_profile = cache.get_jd_profile(
+            task.key,
             task.full_jd,
-            llm,
-            cv_hash=cv_hash,
-            language=language,
-            persist=False,
+            prompt_version=(standalone_version, combined_version),
         )
-        return JobEvaluationOutcome(task=task, jd_profile=jd_profile, match_score=match_score)
+        if jd_profile is None:
+            jd_profile, match_score = evaluate_job_once(
+                task.job,
+                profile,
+                llm,
+                cv_hash=cv_hash,
+                language=language,
+            )
+            profile_prompt_version = combined_version
+        else:
+            match_score = match_job_to_cv(
+                profile,
+                jd_profile,
+                task.full_jd,
+                llm,
+                cv_hash=cv_hash,
+                language=language,
+                persist=False,
+            )
+            # Re-persisting a reused profile must not relabel who produced it.
+            profile_prompt_version = (
+                cache.get_jd_profile_prompt_version(task.key) or standalone_version
+            )
+        return JobEvaluationOutcome(
+            task=task,
+            jd_profile=jd_profile,
+            match_score=match_score,
+            profile_prompt_version=profile_prompt_version,
+        )
     finally:
         metrics.record_finished()
 
 
 def _commit_job_evaluation(outcome: JobEvaluationOutcome, llm, language: str) -> None:
     task = outcome.task
-    cache.save_jd_profile(
-        job_id=task.key,
-        description=task.full_jd,
+    cache.save_job_evaluation(
         profile=outcome.jd_profile,
-        model_name=f"{llm.provider}/{llm.model}",
-        prompt_version=jd_profile_prompt_version(language),
-    )
-    cache.save_job_match(
-        outcome.match_score,
+        match=outcome.match_score,
         description=task.full_jd,
         model_name=f"{llm.provider}/{llm.model}",
-        prompt_version=match_prompt_version(language),
+        profile_prompt_version=outcome.profile_prompt_version or jd_profile_prompt_version(language),
+        match_prompt_version=match_prompt_version(language),
     )
     task.job.jd_profile = outcome.jd_profile
     task.job.match_score = outcome.match_score
@@ -145,7 +173,11 @@ def _evaluate_jobs(
         task = futures[future]
         try:
             outcome = future.result()
-            _commit_job_evaluation(outcome, llm, language)
+            commit_started_at = time.monotonic()
+            try:
+                _commit_job_evaluation(outcome, llm, language)
+            finally:
+                metrics.record_commit(time.monotonic() - commit_started_at)
         except Exception as exc:
             metrics.record_completion(failed=True)
             completed.append((task, exc))

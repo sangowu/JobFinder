@@ -25,10 +25,11 @@ console = Console()
 class LLMRecord:
     step: str
     provider: str
-    model: str
+    model: str          # 请求的模型名
     input_tokens: int
     output_tokens: int
-    elapsed: float  # 秒
+    elapsed: float      # 秒
+    served_model: str = ""  # provider 回报的实际模型；未回报时为空
 
 
 @dataclass
@@ -62,6 +63,7 @@ class Telemetry:
         input_tokens: int,
         output_tokens: int,
         elapsed: float,
+        served_model: str = "",
     ) -> None:
         with self._lock:
             self.llm_records.append(LLMRecord(
@@ -71,6 +73,7 @@ class Telemetry:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 elapsed=elapsed,
+                served_model=served_model,
             ))
 
     # ── 步骤计时 ─────────────────────────────────────────────────────────────
@@ -147,6 +150,9 @@ class Telemetry:
             llm = list(self.llm_records)
 
         summary: dict[str, dict[str, float | int | str]] = {}
+        # A step is one bucket, but a provider may serve it with more than one
+        # model (aliases, silent upgrades), so collect the distinct values.
+        served: dict[str, set[str]] = {}
         for record in llm:
             bucket = summary.setdefault(
                 record.step,
@@ -154,6 +160,7 @@ class Telemetry:
                     "step": record.step,
                     "provider": record.provider,
                     "model": record.model,
+                    "served_models": "",
                     "calls": 0,
                     "input_tokens": 0,
                     "output_tokens": 0,
@@ -166,6 +173,10 @@ class Telemetry:
             bucket["elapsed"] = round(float(bucket["elapsed"]) + record.elapsed, 3)
             bucket["provider"] = record.provider
             bucket["model"] = record.model
+            if record.served_model:
+                served.setdefault(record.step, set()).add(record.served_model)
+        for step, models in served.items():
+            summary[step]["served_models"] = ", ".join(sorted(models))
         return summary
 
 

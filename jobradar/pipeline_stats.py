@@ -68,11 +68,13 @@ class PipelineStats:
     queue_wait_avg: float = 0.0
     queue_wait_p50: float = 0.0
     queue_wait_p95: float = 0.0
+    gate_workers: int = 1
     assessment_workers: int = 1
     evaluation_tasks: int = 0
     evaluation_completed: int = 0
     evaluation_failed: int = 0
     evaluation_peak_inflight: int = 0
+    evaluation_commit_elapsed: float = 0.0
 
     # ── 元数据 ────────────────────────────────────────────────────────────────
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
@@ -161,9 +163,10 @@ class PipelineStats:
                 else f"  流水线  总耗时 {self.pipeline_elapsed:.1f}s | 暂无可见职位"
             )
             lines.append(
-                f"  并发评估  workers {self.assessment_workers} | 任务 {self.evaluation_tasks} | "
+                f"  并发评估  gate {self.gate_workers} | workers {self.assessment_workers} | "
+                f"任务 {self.evaluation_tasks} | "
                 f"完成 {self.evaluation_completed} | 失败 {self.evaluation_failed} | "
-                f"峰值并发 {self.evaluation_peak_inflight}"
+                f"峰值并发 {self.evaluation_peak_inflight} | 提交 {self.evaluation_commit_elapsed:.3f}s"
             )
         return lines
 

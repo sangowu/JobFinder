@@ -28,6 +28,10 @@ from jobradar.llm_registry import (
     Provider,  # noqa: F401 — 同上
 )
 
+# 结构化输出上限。合并调用（JD Profile + CV Match）单次要产出两份 payload，
+# 中文 JSON 合计可达约 2000 token，2048 会截断，故与 tool-call 路径统一为 4096。
+_STRUCTURED_MAX_TOKENS = 4096
+
 # ─── 统一响应格式 ─────────────────────────────────────────────────────────────
 
 
@@ -49,6 +53,13 @@ class ToolUseBlock:
 class NormalizedResponse:
     stop_reason: str  # "end_turn" | "tool_use"
     content: list[TextBlock | ToolUseBlock]
+    # Usage is carried through so complete_via_tool can record real telemetry on
+    # the tool-call path; providers that omit usage leave these at 0.
+    input_tokens: int = 0
+    output_tokens: int = 0
+    # The model the provider reports having served, which can differ from the
+    # requested one (aliases, silent upgrades). Empty when not reported.
+    served_model: str = ""
 
 
 # ─── 公共入口 ─────────────────────────────────────────────────────────────────
@@ -72,11 +83,11 @@ def complete_structured(
     t0 = time.monotonic()
 
     if provider == "claude":
-        result, in_tok, out_tok = _claude_structured(prompt, response_schema, system, m)
+        result, in_tok, out_tok, served = _claude_structured(prompt, response_schema, system, m)
     elif provider == "gemini":
-        result, in_tok, out_tok = _gemini_structured(prompt, response_schema, system, m)
+        result, in_tok, out_tok, served = _gemini_structured(prompt, response_schema, system, m)
     elif provider in _COMPAT_PROVIDERS:
-        result, in_tok, out_tok = _compat_structured(prompt, response_schema, system, m, provider)
+        result, in_tok, out_tok, served = _compat_structured(prompt, response_schema, system, m, provider)
     else:
         raise ValueError(f"不支持的 provider：{provider}")
 
@@ -85,6 +96,7 @@ def complete_structured(
             step=_step, provider=provider, model=m,
             input_tokens=in_tok, output_tokens=out_tok,
             elapsed=time.monotonic() - t0,
+            served_model=served,
         )
     if _metrics is not None:
         _metrics.update({
@@ -158,9 +170,10 @@ def complete_via_tool(
                         step=_step,
                         provider=provider,
                         model=m,
-                        input_tokens=0,
-                        output_tokens=0,
+                        input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
                         elapsed=time.monotonic() - t0,
+                        served_model=response.served_model,
                     )
                 return result
     except Exception:
@@ -229,11 +242,11 @@ def _get_anthropic():
     return Anthropic(api_key=key)
 
 
-def _claude_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int]:
+def _claude_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int, str]:
     client = _get_anthropic()
     response = client.messages.create(
         model=model,
-        max_tokens=2048,
+        max_tokens=_STRUCTURED_MAX_TOKENS,
         system=system,
         tools=[{"name": "output", "description": "结构化输出",
                 "input_schema": schema.model_json_schema()}],
@@ -242,9 +255,10 @@ def _claude_structured(prompt, schema, system, model) -> tuple[BaseModel, int, i
     )
     in_tok = response.usage.input_tokens
     out_tok = response.usage.output_tokens
+    served = getattr(response, "model", "") or ""
     for block in response.content:
         if block.type == "tool_use":
-            return schema.model_validate(block.input), in_tok, out_tok
+            return schema.model_validate(block.input), in_tok, out_tok, served
     raise RuntimeError("Claude 未返回结构化输出")
 
 
@@ -286,7 +300,14 @@ def _claude_tool_call(messages, tools, system, model) -> NormalizedResponse:
         elif block.type == "tool_use":
             content.append(ToolUseBlock(id=block.id, name=block.name, input=block.input))
     stop = "tool_use" if response.stop_reason == "tool_use" else "end_turn"
-    return NormalizedResponse(stop_reason=stop, content=content)
+    usage = getattr(response, "usage", None)
+    return NormalizedResponse(
+        stop_reason=stop,
+        content=content,
+        input_tokens=getattr(usage, "input_tokens", 0) or 0,
+        output_tokens=getattr(usage, "output_tokens", 0) or 0,
+        served_model=getattr(response, "model", "") or "",
+    )
 
 
 # ─── Gemini (Google) ──────────────────────────────────────────────────────────
@@ -308,7 +329,7 @@ def _gemini_thinking_config(types, model: str):
     return None
 
 
-def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int]:
+def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, int, str]:
     from google.genai import types
     client = _get_gemini_client()
     response = client.models.generate_content(
@@ -324,7 +345,8 @@ def _gemini_structured(prompt, schema, system, model) -> tuple[BaseModel, int, i
     meta = response.usage_metadata
     in_tok = meta.prompt_token_count if meta else 0
     out_tok = meta.candidates_token_count if meta else 0
-    return schema.model_validate(json.loads(response.text)), in_tok, out_tok
+    served = getattr(response, "model_version", "") or ""
+    return schema.model_validate(json.loads(response.text)), in_tok, out_tok, served
 
 
 def _to_gemini_contents(messages: list[dict]) -> list:
@@ -368,13 +390,19 @@ def _gemini_tool_call(messages, tools, system, model) -> NormalizedResponse:
             thinking_config=_gemini_thinking_config(types, model),
         ),
     )
+    meta = response.usage_metadata
+    usage = {
+        "input_tokens": (meta.prompt_token_count if meta else 0) or 0,
+        "output_tokens": (meta.candidates_token_count if meta else 0) or 0,
+        "served_model": getattr(response, "model_version", "") or "",
+    }
     if not response.candidates:
         return NormalizedResponse(stop_reason="end_turn", content=[
             TextBlock(text="[Gemini 未返回候选结果]")
-        ])
+        ], **usage)
     candidate = response.candidates[0]
     if not candidate.content or not candidate.content.parts:
-        return NormalizedResponse(stop_reason="end_turn", content=[])
+        return NormalizedResponse(stop_reason="end_turn", content=[], **usage)
     content: list[TextBlock | ToolUseBlock] = []
     has_tool_call = False
     for part in candidate.content.parts:
@@ -390,6 +418,7 @@ def _gemini_tool_call(messages, tools, system, model) -> NormalizedResponse:
     return NormalizedResponse(
         stop_reason="tool_use" if has_tool_call else "end_turn",
         content=content,
+        **usage,
     )
 
 
@@ -409,7 +438,7 @@ def _get_compat_client(provider: str):
     return OpenAI(api_key=key, base_url=base_url)
 
 
-def _compat_structured(prompt, schema, system, model, provider) -> tuple[BaseModel, int, int]:
+def _compat_structured(prompt, schema, system, model, provider) -> tuple[BaseModel, int, int, str]:
     """OpenAI 兼容结构化输出：schema 注入 system prompt + json_object 格式。"""
     client = _get_compat_client(provider)
     schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False)
@@ -424,7 +453,7 @@ def _compat_structured(prompt, schema, system, model, provider) -> tuple[BaseMod
             {"role": "system", "content": full_system},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 2048,
+        "max_tokens": _STRUCTURED_MAX_TOKENS,
     }
 
     # 尝试 json_object 格式（部分 provider 支持）
@@ -437,8 +466,9 @@ def _compat_structured(prompt, schema, system, model, provider) -> tuple[BaseMod
 
     in_tok  = response.usage.prompt_tokens     if response.usage else 0
     out_tok = response.usage.completion_tokens if response.usage else 0
+    served  = getattr(response, "model", "") or ""
     text    = response.choices[0].message.content or ""
-    return schema.model_validate(_extract_json(text)), in_tok, out_tok
+    return schema.model_validate(_extract_json(text)), in_tok, out_tok, served
 
 
 def _to_openai_messages(messages: list[dict], system: str) -> list[dict]:
@@ -486,6 +516,11 @@ def _compat_tool_call(messages, tools, system, model, provider) -> NormalizedRes
         tools=_to_openai_tools(tools),
     )
     msg = response.choices[0].message
+    usage = {
+        "input_tokens": (response.usage.prompt_tokens if response.usage else 0) or 0,
+        "output_tokens": (response.usage.completion_tokens if response.usage else 0) or 0,
+        "served_model": getattr(response, "model", "") or "",
+    }
     content: list[TextBlock | ToolUseBlock] = []
     if msg.content:
         content.append(TextBlock(text=msg.content))
@@ -495,8 +530,8 @@ def _compat_tool_call(messages, tools, system, model, provider) -> NormalizedRes
                 id=tc.id, name=tc.function.name,
                 input=json.loads(tc.function.arguments),
             ))
-        return NormalizedResponse(stop_reason="tool_use", content=content)
-    return NormalizedResponse(stop_reason="end_turn", content=content)
+        return NormalizedResponse(stop_reason="tool_use", content=content, **usage)
+    return NormalizedResponse(stop_reason="end_turn", content=content, **usage)
 
 
 # ─── Ollama（原生接口） ───────────────────────────────────────────────────────
