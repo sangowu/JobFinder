@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-07
+
+Scoring became CV-aware. A job's match score is now owned by the CV that produced
+it, so changing your CV re-opens every cached job instead of silently reusing a
+verdict reached for someone else's profile.
+
 ### New Features
 
 - **`jobradar cache prune-scores`** (`cli.py` / `cache.py`)
@@ -29,6 +35,20 @@
 
 - **Release highlights in Chinese, English and Spanish** (`docs/release-highlights.*.md` / `README*.md`)
   The highlights document now follows the same `<name>.<lang>.md` convention as the READMEs, with a language switcher in each file. Each README gained a Performance section carrying the latest release's headline figures and linking to the highlights and to the `### Validation` entries behind them.
+
+- **Release-highlights inclusion rule restated** (`docs/release-highlights.*.md`)
+  The rule read "from 0.5.0 onward each release is compared against the previous release", which said nothing about releases with nothing to compare. It now states that a release is listed when it changes performance or user-facing behavior, that the kind of change determines what is compared — measured figures for performance work, changed behavior for behavior work — and that a release altering neither is not listed.
+
+### Validation
+
+- **CV-aware scoring** — `f14e369` (0.4.0) → `b47dfc0`
+  - Held constant: the same local cache (293 jobs), the same CV (`eaf1b010`), `gemini-3.5-flash-lite`
+  - Jobs `assess` could reach: 0 → 205. Before, the command reported "all assessed" because every row carried a legacy assessment
+  - Cached jobs a CV change could never re-open: 95 → 0
+  - Jobs holding a match for the current CV: 93 → 293, by backfilling 200 (0 failures, 173 s, 5 workers)
+  - Scales feeding `effective_score`: 2 (legacy 0–10 alongside match 0–100) → 1
+  - Cache-hit classification, measured on five jobs a previous CV had rejected: passing the current `cv_hash` yields 0 skipped / 5 re-assessed, against 5 skipped / 0 re-assessed on the legacy path
+  - Verdict: correctness only. **No performance or cost improvement is claimed** — the release adds assessment work rather than removing it, since a cached job without a match for the current CV is now re-evaluated instead of reused. Expect a one-off cost increase on the first search after changing CV, and no change thereafter. Search latency was not measured and is not claimed either way.
 
 ## [0.4.0] — 2026-08-07
 
