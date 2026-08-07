@@ -33,6 +33,7 @@ uv run jobradar find cv.docx  # Modo CLI
 | `uv run jobradar assess` | Reejecuta la evaluación LLM sobre JDs en caché |
 | `uv run jobradar model` | Selecciona interactivamente el proveedor y modelo LLM |
 | `uv run jobradar cache clear` | Limpia toda la caché |
+| `uv run jobradar cache prune-scores` | Elimina resultados de coincidencia de una versión de prompt o CV obsoletos |
 | `uv run jobradar --version` | Muestra la versión actual |
 
 ## Visión General del Pipeline

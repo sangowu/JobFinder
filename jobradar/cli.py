@@ -558,6 +558,54 @@ def cache_clean() -> None:
     console.print(f"[green]已清理 {count} 条过期记录。[/green]")
 
 
+@cache_app.command("prune-scores")
+def cache_prune_scores(
+    stale_cv: Annotated[bool, typer.Option("--stale-cv", help="同时删除非当前 CV 的匹配结果")] = False,
+    orphans: Annotated[bool, typer.Option("--orphans", help="同时删除职位已不存在的匹配结果")] = False,
+    language: Annotated[str, typer.Option("--language", help="匹配 prompt 使用的语言")] = "zh",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="跳过确认")] = False,
+) -> None:
+    """删除过时的匹配结果。被删除的职位会在下次搜索或 assess 时按当前口径重算。"""
+    from jobradar.matching import match_prompt_version
+
+    current_version = match_prompt_version(language)
+    keep_cv_hash = cache.get_latest_cv_hash() if stale_cv else ""
+    if stale_cv and not keep_cv_hash:
+        console.print("[red]缓存中没有 CVProfile，无法确定当前 CV，--stale-cv 不可用。[/red]")
+        raise typer.Exit(1)
+
+    preview = cache.prune_job_matches(
+        prompt_version=current_version,
+        keep_cv_hash=keep_cv_hash,
+        drop_orphans=orphans,
+        dry_run=True,
+    )
+    if preview["total"] == 0:
+        console.print("[dim]没有需要清理的匹配结果。[/dim]")
+        return
+
+    console.print(f"\n[bold]将删除 {preview['total']} 条匹配结果：[/bold]")
+    console.print(f"  prompt 版本不是 {current_version}：{preview['stale_version']} 条")
+    if stale_cv:
+        console.print(f"  不属于当前 CV（{keep_cv_hash[:8]}）：{preview['stale_cv']} 条")
+    if orphans:
+        console.print(f"  职位已不存在：{preview['orphan']} 条")
+    console.print("[dim]（分类可能重叠，总数为去重后的行数）[/dim]")
+
+    if not yes and not prompt_confirm("确认删除？被删除的职位需要重新评估"):
+        console.print("[yellow]已取消。[/yellow]")
+        return
+
+    result = cache.prune_job_matches(
+        prompt_version=current_version,
+        keep_cv_hash=keep_cv_hash,
+        drop_orphans=orphans,
+        dry_run=False,
+    )
+    console.print(f"[green]已删除 {result['deleted']} 条匹配结果。[/green]")
+    console.print("[dim]运行 `jobradar assess` 可按当前口径补算。[/dim]")
+
+
 # ─── serve 命令 ──────────────────────────────────────────────────────────────
 
 

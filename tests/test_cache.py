@@ -645,3 +645,102 @@ class TestUnassessedJobs:
         assert (succeeded, failed) == (3, 0)
         # 第二次调用必须为空，否则 assess 会陷入每次重评同一批职位的循环。
         assert temp_db.get_unassessed_jobs() == []
+
+
+class TestPruneJobMatches:
+    def _save(self, temp_db, job_id: str, cv_hash: str, prompt_version: str) -> None:
+        match = MatchScore(
+            job_id=job_id,
+            cv_hash=cv_hash,
+            overall_score=70,
+            title_score=70,
+            seniority_score=70,
+            must_have_score=70,
+            nice_to_have_score=70,
+            domain_score=70,
+            location_score=100,
+            language_score=100,
+            risk_penalty=0,
+            recommendation="apply",
+        )
+        temp_db.save_job_match(match, "desc", prompt_version=prompt_version)
+
+    def _remaining(self, temp_db) -> set[tuple[str, str]]:
+        with temp_db._conn() as con:
+            return {(r["job_id"], r["prompt_version"]) for r in con.execute("SELECT * FROM job_matches")}
+
+    def test_dry_run_reports_without_deleting(self, temp_db):
+        job = make_job(description_snippet="desc")
+        temp_db.save_job(job)
+        self._save(temp_db, job.dedup_key, "cv1", "match_v10:zh")
+
+        result = temp_db.prune_job_matches(prompt_version="match_v11:zh", dry_run=True)
+
+        assert result["stale_version"] == 1
+        assert result["total"] == 1
+        assert result["deleted"] == 0
+        assert len(self._remaining(temp_db)) == 1
+
+    def test_deletes_only_stale_prompt_versions(self, temp_db):
+        job = make_job(description_snippet="desc")
+        other = make_job(company="Other", url="http://example.com/2", description_snippet="desc")
+        temp_db.save_job(job)
+        temp_db.save_job(other)
+        self._save(temp_db, job.dedup_key, "cv1", "match_v10:zh")
+        self._save(temp_db, other.dedup_key, "cv1", "match_v11:zh")
+
+        result = temp_db.prune_job_matches(prompt_version="match_v11:zh", dry_run=False)
+
+        assert result["deleted"] == 1
+        assert self._remaining(temp_db) == {(other.dedup_key, "match_v11:zh")}
+
+    def test_stale_cv_hash_is_optional(self, temp_db):
+        job = make_job(description_snippet="desc")
+        temp_db.save_job(job)
+        self._save(temp_db, job.dedup_key, "cv-old", "match_v11:zh")
+
+        untouched = temp_db.prune_job_matches(prompt_version="match_v11:zh", dry_run=True)
+        assert untouched["total"] == 0
+
+        targeted = temp_db.prune_job_matches(
+            prompt_version="match_v11:zh", keep_cv_hash="cv-current", dry_run=True
+        )
+        assert targeted["stale_cv"] == 1
+        assert targeted["total"] == 1
+
+    def test_orphan_rows_removed_only_when_requested(self, temp_db):
+        self._save(temp_db, "ghost|role", "cv1", "match_v11:zh")
+
+        assert temp_db.prune_job_matches(prompt_version="match_v11:zh", dry_run=True)["total"] == 0
+
+        result = temp_db.prune_job_matches(
+            prompt_version="match_v11:zh", drop_orphans=True, dry_run=False
+        )
+        assert result["orphan"] == 1
+        assert result["deleted"] == 1
+        assert self._remaining(temp_db) == set()
+
+    def test_overlapping_rows_counted_once_in_total(self, temp_db):
+        """同一行同时命中多个条件时，total 不应重复计数。"""
+        job = make_job(description_snippet="desc")
+        temp_db.save_job(job)
+        self._save(temp_db, job.dedup_key, "cv-old", "match_v10:zh")
+
+        result = temp_db.prune_job_matches(
+            prompt_version="match_v11:zh", keep_cv_hash="cv-current", dry_run=False
+        )
+
+        assert result["stale_version"] == 1
+        assert result["stale_cv"] == 1
+        assert result["total"] == 1
+        assert result["deleted"] == 1
+
+    def test_no_conditions_is_a_noop(self, temp_db):
+        job = make_job(description_snippet="desc")
+        temp_db.save_job(job)
+        self._save(temp_db, job.dedup_key, "cv1", "match_v11:zh")
+
+        result = temp_db.prune_job_matches(dry_run=False)
+
+        assert result["total"] == 0 and result["deleted"] == 0
+        assert len(self._remaining(temp_db)) == 1

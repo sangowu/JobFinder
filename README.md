@@ -33,6 +33,7 @@ uv run jobradar find cv.docx  # CLI mode
 | `uv run jobradar assess` | Re-run LLM assessment on cached JDs |
 | `uv run jobradar model` | Interactively choose LLM provider and model |
 | `uv run jobradar cache clear` | Clear all caches |
+| `uv run jobradar cache prune-scores` | Drop match results from an outdated prompt version or CV |
 | `uv run jobradar --version` | Show current version |
 
 ## Pipeline Overview

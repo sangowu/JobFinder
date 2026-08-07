@@ -33,6 +33,7 @@ uv run jobradar find cv.docx  # CLI 模式
 | `uv run jobradar assess` | 对缓存 JD 单独补跑 LLM 评估 |
 | `uv run jobradar model` | 交互式选择 LLM provider 和模型 |
 | `uv run jobradar cache clear` | 清空所有缓存 |
+| `uv run jobradar cache prune-scores` | 删除过时 prompt 版本或旧 CV 的匹配结果 |
 | `uv run jobradar --version` | 显示当前版本号 |
 
 ## Pipeline 概览
