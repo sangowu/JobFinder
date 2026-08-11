@@ -94,3 +94,16 @@ def test_start_search_keeps_existing_jobs_until_sse_updates_them():
     assert "JOBS = []" not in start_search
     assert "activeKey = null" not in start_search
     assert "if (existing >= 0) JOBS[existing] = job;" in html
+
+
+def test_score_badge_distinguishes_unassessed_from_real_zero():
+    html = (Path(__file__).parents[1] / "jobradar" / "templates" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    score_badge = html.split("function scoreBadge(s)", 1)[1].split(
+        "function normalizedScore", 1
+    )[0]
+
+    assert 'const missing = s === null || s === undefined;' in score_badge
+    assert 'const display = missing ? "—"' in score_badge
+    assert 'Number.isFinite(numeric) ? Math.round(numeric) : "?"' in score_badge

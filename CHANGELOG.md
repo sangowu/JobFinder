@@ -4,6 +4,9 @@
 
 ### Bug Fixes
 
+- **Unassessed job cards no longer appear as zero-score matches** (`templates/index.html`)
+  Job cards whose current-CV score is `null` now show a gray em dash instead of being coerced to `0` by JavaScript. Genuine numeric zero scores still display as zero, preserving the distinction between "not assessed" and "assessed with no match".
+
 - **Deleted Gmail messages no longer stall incremental sync** (`email_sync.py`)
   When Gmail history references a message that has already disappeared, a `messages.get` 404 is now treated as a terminal missing-message condition rather than a retryable fetch failure. The sync skips that message and saves Gmail's latest `historyId`, while authentication, rate-limit, server, and network errors still hold the cursor for a later retry.
 
