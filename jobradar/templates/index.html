@@ -2095,8 +2095,9 @@ function scoreColor(s) {
   return "bg-red-400";
 }
 function scoreBadge(s) {
-  const numeric = Number(s);
-  const display = Number.isFinite(numeric) ? Math.round(numeric) : "?";
+  const missing = s === null || s === undefined;
+  const numeric = missing ? NaN : Number(s);
+  const display = missing ? "—" : Number.isFinite(numeric) ? Math.round(numeric) : "?";
   return `<span class="inline-flex items-center justify-center w-11 h-11 rounded-full text-white text-sm font-bold font-mono leading-none tabular-nums flex-shrink-0 ${scoreColor(s)}">${display}</span>`;
 }
 function normalizedScore(s) {
