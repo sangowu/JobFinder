@@ -132,6 +132,7 @@ DEFAULT_MODEL=gemini-3.5-flash-lite
 - **Dynamic title seniority gate**: uses CV eligible/stretch/blocked levels to remove obvious title-level mismatches before JD matching
 - **Experience-gap hard reject**: prefilter records `skip_exp`, and `jd_assessment` directly rejects roles whose explicit years-required exceeds the candidate's experience by more than 3 years
 - **Explainable matching**: job details include score breakdown, risks, skill matches, and recommendation tiers
+- **Current-CV result list**: the default Web list shows only real, non-skipped matches for the latest CV; CV-scoped relevance rejections are reused until the CV, JD content, language, or gate prompt changes
 - **Risk-only relocation / office attendance handling**: same-country relocation and office-attendance requirements are recorded in `risks / risk_penalty` but are not treated as `location_score` penalties
 - **Artifact hub**: generate and reuse Interview Prep, Cover Letter, and CV Optimization from the job detail panel
 - **Log panel**: level filtering, keyword highlight, auto-refresh

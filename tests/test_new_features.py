@@ -970,3 +970,72 @@ class TestPipelineStats:
 
         assert Path(report_path) == REPORTS_DIR / "pipeline_stats_latest.json"
         assert created_dirs == [REPORTS_DIR]
+
+
+@pytest.mark.parametrize("cached", [True, False])
+def test_gate_rejection_is_persisted_for_current_cv(
+    db, monkeypatch: pytest.MonkeyPatch, cached: bool
+):
+    import jobradar.search_assessment_stage as stage
+    from jobradar.assessment import jd_assessment_prompt_version
+    from jobradar.search_prefilter import PrefilterResult
+
+    cached_job = JobResult(
+        title="Customer Service Agent",
+        company="Acme",
+        url="https://example.com/customer-service",
+        description_snippet="Answer customer calls.",
+    )
+    if cached:
+        db.save_job(cached_job)
+    monkeypatch.setattr(
+        stage,
+        "batch_assess_jds",
+        lambda jobs, profile, llm, language="zh": [
+            JDAssessment(
+                relevant=False,
+                reason="Unrelated role",
+                score=1,
+                strengths=[],
+                weaknesses=[],
+                matched_keywords=[],
+            )
+        ],
+    )
+
+    pending = PrefilterResult(
+        patch_pending=[(cached_job, cached_job.description_snippet)] if cached else [],
+        pending=[] if cached else [
+            (
+                {
+                    "title": cached_job.title,
+                    "company": cached_job.company,
+                    "url": cached_job.url,
+                    "source": "indeed.ie",
+                    "description_snippet": cached_job.description_snippet,
+                },
+                cached_job.description_snippet,
+                None,
+            )
+        ],
+    )
+
+    stage.flush_assessments(
+        pending,
+        job_all_sources={},
+        profile=_make_profile(),
+        llm=_make_llm(),
+        cv_hash="current-cv",
+        cb=lambda msg: None,
+        on_job=None,
+        language="zh",
+    )
+
+    rejection = db.get_job_relevance_rejection(
+        cached_job.dedup_key,
+        "current-cv",
+        cached_job.description_snippet,
+        prompt_version=jd_assessment_prompt_version("zh"),
+    )
+    assert rejection is not None
+    assert rejection["reason"] == "Unrelated role"

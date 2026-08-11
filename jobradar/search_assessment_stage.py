@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from jobradar import cache
-from jobradar.assessment import JDAssessment, batch_assess_jds
+from jobradar.assessment import (
+    JDAssessment,
+    batch_assess_jds,
+    jd_assessment_prompt_version,
+)
 from jobradar.jd_profile import jd_profile_prompt_version
 from jobradar.job_evaluation import evaluate_job_once, job_evaluation_prompt_version
 from jobradar.logger import get_logger
@@ -322,6 +326,15 @@ def flush_assessments(
                     details={"score": assessment.score, "cached": True},
                 )
                 llm_rejected += 1
+                cache.save_job_relevance_rejection(
+                    job_id=cached_job.dedup_key,
+                    cv_hash=cv_hash,
+                    description=cached_job.description_snippet,
+                    reason=assessment.reason,
+                    score=assessment.score,
+                    model_name=f"{llm.provider}/{llm.model}",
+                    prompt_version=jd_assessment_prompt_version(language),
+                )
             write_cache(
                 {
                     "title": cached_job.title,
@@ -443,6 +456,16 @@ def flush_assessments(
                     "raw_sources": raw_sources,
                 }
             )
+            if not assessment.relevant and cv_hash and llm is not None:
+                cache.save_job_relevance_rejection(
+                    job_id=key,
+                    cv_hash=cv_hash,
+                    description=content,
+                    reason=assessment.reason,
+                    score=assessment.score,
+                    model_name=f"{llm.provider}/{llm.model}",
+                    prompt_version=jd_assessment_prompt_version(language),
+                )
             if assessment.relevant:
                 summary_job = JobResult(
                     title=title,

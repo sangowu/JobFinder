@@ -165,6 +165,19 @@ CREATE TABLE IF NOT EXISTS job_matches (
     PRIMARY KEY (job_id, cv_hash)
 );
 
+CREATE TABLE IF NOT EXISTS job_relevance_rejections (
+    job_id            TEXT NOT NULL,
+    cv_hash           TEXT NOT NULL,
+    description_hash  TEXT NOT NULL,
+    reason            TEXT NOT NULL DEFAULT '',
+    score             INTEGER NOT NULL DEFAULT 0,
+    model_name        TEXT NOT NULL DEFAULT '',
+    prompt_version    TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    PRIMARY KEY (job_id, cv_hash)
+);
+
 CREATE TABLE IF NOT EXISTS interview_preps (
     job_id            TEXT NOT NULL,
     cv_hash           TEXT NOT NULL,
@@ -465,12 +478,35 @@ def merge_job_raw_source(dedup_key: str, source_entry: dict) -> None:
         )
 
 
-def get_recent_jobs(limit: int = 50, language: str = "zh") -> list[JobResult]:
-    """按抓取时间倒序返回最近 limit 条未过期职位。"""
+def get_recent_jobs(
+    limit: int = 50,
+    language: str = "zh",
+    *,
+    require_match: bool = False,
+) -> list[JobResult]:
+    """按抓取时间倒序返回最近职位，可限定为当前 CV 下已有可见匹配。"""
     with _conn() as con:
-        rows = con.execute(
-            "SELECT * FROM job_cache ORDER BY fetched_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if require_match:
+            cv_hash = get_latest_cv_hash()
+            if not cv_hash:
+                return []
+            rows = con.execute(
+                """
+                SELECT job_cache.*
+                FROM job_cache
+                JOIN job_matches
+                  ON job_matches.job_id = job_cache.dedup_key
+                 AND job_matches.cv_hash = ?
+                 AND job_matches.recommendation != 'skip'
+                ORDER BY job_cache.fetched_at DESC
+                LIMIT ?
+                """,
+                (cv_hash, limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM job_cache ORDER BY fetched_at DESC LIMIT ?", (limit,)
+            ).fetchall()
     jobs = [_row_to_job(r) for r in rows]
     from jobradar.jd_profile import jd_profile_prompt_version
 
@@ -700,6 +736,75 @@ def get_job_match(job_id: str, cv_hash: str, description: str = "", prompt_versi
     if prompt_version and row["prompt_version"] != prompt_version:
         return None
     return MatchScore.model_validate_json(row["score_json"])
+
+
+def get_job_relevance_rejection(
+    job_id: str,
+    cv_hash: str,
+    description: str = "",
+    prompt_version: str = "",
+) -> dict | None:
+    with _conn() as con:
+        row = con.execute(
+            """
+            SELECT reason, score, model_name, description_hash, prompt_version
+            FROM job_relevance_rejections
+            WHERE job_id = ? AND cv_hash = ?
+            """,
+            (job_id, cv_hash),
+        ).fetchone()
+    if row is None:
+        return None
+    if description and row["description_hash"] != _description_hash(description):
+        return None
+    if prompt_version and row["prompt_version"] != prompt_version:
+        return None
+    return {
+        "reason": row["reason"],
+        "score": row["score"],
+        "model_name": row["model_name"],
+        "prompt_version": row["prompt_version"],
+    }
+
+
+def save_job_relevance_rejection(
+    *,
+    job_id: str,
+    cv_hash: str,
+    description: str,
+    reason: str,
+    score: int,
+    model_name: str = "",
+    prompt_version: str = "",
+) -> None:
+    now = datetime.utcnow().isoformat()
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO job_relevance_rejections
+              (job_id, cv_hash, description_hash, reason, score, model_name,
+               prompt_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id, cv_hash) DO UPDATE SET
+              description_hash = excluded.description_hash,
+              reason = excluded.reason,
+              score = excluded.score,
+              model_name = excluded.model_name,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """,
+            (
+                job_id,
+                cv_hash,
+                _description_hash(description),
+                reason,
+                score,
+                model_name,
+                prompt_version,
+                now,
+                now,
+            ),
+        )
 
 
 def _attach_latest_match(job: JobResult, language: str = "zh") -> None:
@@ -1159,6 +1264,7 @@ def clear_all() -> None:
         con.execute("DELETE FROM jd_profiles")
         con.execute("DELETE FROM job_summaries")
         con.execute("DELETE FROM job_matches")
+        con.execute("DELETE FROM job_relevance_rejections")
         con.execute("DELETE FROM interview_preps")
         con.execute("DELETE FROM cover_letters")
         con.execute("DELETE FROM cv_optimizations")
@@ -1187,6 +1293,10 @@ def delete_jobs(dedup_keys: list[str]) -> int:
         )
         con.execute(
             f"DELETE FROM job_matches WHERE job_id IN ({placeholders})",
+            dedup_keys,
+        )
+        con.execute(
+            f"DELETE FROM job_relevance_rejections WHERE job_id IN ({placeholders})",
             dedup_keys,
         )
         con.execute(
@@ -1617,6 +1727,10 @@ def clean_expired() -> int:
             )
             con.execute(
                 f"DELETE FROM job_summaries WHERE job_id IN ({placeholders})",
+                expired_job_ids,
+            )
+            con.execute(
+                f"DELETE FROM job_relevance_rejections WHERE job_id IN ({placeholders})",
                 expired_job_ids,
             )
         # 删除有明确截止日期且已过期的 JD

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from jobradar import cache
+from jobradar.assessment import jd_assessment_prompt_version
 from jobradar.filters import infer_title_seniority, is_title_seniority_ok
 from jobradar.logger import get_logger
 from jobradar.matching import match_prompt_version
@@ -95,7 +96,13 @@ def classify_cache_hit(cached_job: JobResult, cv_hash: str, language: str = "zh"
         prompt_version=match_prompt_version(language),
     )
     if match is None:
-        return "reassess"
+        rejection = cache.get_job_relevance_rejection(
+            cached_job.dedup_key,
+            cv_hash,
+            cached_job.description_snippet,
+            prompt_version=jd_assessment_prompt_version(language),
+        )
+        return "skip" if rejection is not None else "reassess"
     return "skip" if match.recommendation == "skip" else "reuse"
 
 

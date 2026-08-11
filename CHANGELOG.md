@@ -4,6 +4,9 @@
 
 ### Bug Fixes
 
+- **Current-CV job lists no longer mix in unassessed historical cards** (`server.py` / `cache.py` / `search_prefilter.py` / `search_assessment_stage.py`)
+  The default Web list now reads visible `job_matches` for the latest CV across the cache instead of taking the newest 200 raw cache rows and treating missing matches as relevant. JD relevance-gate rejections are cached separately by job, CV, JD content, language, and prompt version, so the same rejected cached job does not consume another model call on the next search. A different CV, changed JD, or updated gate prompt still triggers reassessment; no synthetic zero-score `MatchScore` is created.
+
 - **Unassessed job cards no longer appear as zero-score matches** (`templates/index.html`)
   Job cards whose current-CV score is `null` now show a gray em dash instead of being coerced to `0` by JavaScript. Genuine numeric zero scores still display as zero, preserving the distinction between "not assessed" and "assessed with no match".
 
