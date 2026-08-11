@@ -803,6 +803,64 @@ class TestCachedJobModernMatchBackfill:
         assert rejected == 0
         assert saved == 0
 
+    def test_cv_reassessment_preserves_cached_sources(self, db, monkeypatch: pytest.MonkeyPatch):
+        import jobradar.search_assessment_stage as stage
+        from jobradar.search_prefilter import PrefilterResult
+
+        indeed_url = "https://ie.indeed.com/viewjob?jk=123"
+        linkedin_url = "https://www.linkedin.com/jobs/view/123"
+        cached_job = JobResult(
+            title="Software Development Engineer",
+            company="Foxit",
+            location="Dublin",
+            url=indeed_url,
+            description_snippet="Build Python services.",
+            sources=["indeed.ie", "linkedin.com"],
+            raw_sources=[
+                {"source": "indeed.ie", "url": indeed_url, "date_posted": "2026-08-07"},
+                {"source": "linkedin.com", "url": linkedin_url, "date_posted": "2026-08-07"},
+            ],
+            date_posted="2026-08-07",
+        )
+        db.save_job(cached_job)
+
+        monkeypatch.setattr(
+            stage,
+            "batch_assess_jds",
+            lambda jobs, profile, llm, language="zh": [
+                JDAssessment(
+                    relevant=True,
+                    reason="match",
+                    score=9,
+                    strengths=["Python"],
+                    weaknesses=[],
+                    matched_keywords=["Python"],
+                )
+            ],
+        )
+        monkeypatch.setattr(
+            stage,
+            "_evaluate_jobs",
+            lambda tasks, **kwargs: [(task, None) for task in tasks],
+        )
+
+        stage.flush_assessments(
+            PrefilterResult(patch_pending=[(cached_job, cached_job.description_snippet)]),
+            job_all_sources={},
+            profile=_make_profile(),
+            llm=_make_llm(),
+            cv_hash="new-cv",
+            cb=lambda msg: None,
+            on_job=None,
+            language="zh",
+        )
+
+        refreshed = db.get_job(cached_job.dedup_key)
+        assert refreshed is not None
+        assert refreshed.sources == cached_job.sources
+        assert refreshed.raw_sources == cached_job.raw_sources
+        assert refreshed.date_posted == cached_job.date_posted
+
     def test_pipeline_no_longer_writes_the_legacy_assessment_column(self, db, monkeypatch: pytest.MonkeyPatch):
         """评分只经 job_matches 落库；legacy 列不再由管道写入。"""
         import sqlite3
