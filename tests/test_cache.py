@@ -65,6 +65,91 @@ class TestJobCache:
         assert "indeed.com" in result.sources
         assert result.location == ""  # 以第一次为准
 
+    def test_provider_aliases_do_not_create_duplicate_sources(self, temp_db):
+        url = "https://ie.indeed.com/viewjob?jk=123"
+        original = make_job(
+            url=url,
+            sources=["indeed.ie", "linkedin.com"],
+            raw_sources=[
+                {"source": "indeed.ie", "url": url, "date_posted": "2026-08-07"},
+                {
+                    "source": "linkedin.com",
+                    "url": "https://www.linkedin.com/jobs/view/123",
+                    "date_posted": "2026-08-07",
+                },
+            ],
+        )
+        alias = make_job(
+            url=url,
+            sources=["ie.indeed.com"],
+            raw_sources=[{"source": "ie.indeed.com", "url": url, "date_posted": ""}],
+        )
+
+        temp_db.save_job(original)
+        temp_db.save_job(alias)
+
+        result = temp_db.get_job(original.dedup_key)
+        assert result is not None
+        assert result.sources == ["indeed.ie", "linkedin.com"]
+        assert result.raw_sources == original.raw_sources
+
+    def test_read_deduplicates_existing_provider_aliases(self, temp_db):
+        url = "https://ie.indeed.com/viewjob?jk=123"
+        job = make_job(
+            url=url,
+            sources=["indeed.ie"],
+            raw_sources=[{"source": "indeed.ie", "url": url, "date_posted": "2026-08-07"}],
+        )
+        temp_db.save_job(job)
+
+        with sqlite3.connect(os.environ["CACHE_DB_PATH"]) as con:
+            con.execute(
+                "UPDATE job_cache SET sources = ?, raw_sources = ? WHERE dedup_key = ?",
+                (
+                    '["indeed.ie", "ie.indeed.com", "linkedin.com"]',
+                    (
+                        '[{"source":"indeed.ie","url":"https://ie.indeed.com/viewjob?jk=123",'
+                        '"date_posted":"2026-08-07"},'
+                        '{"source":"ie.indeed.com","url":"https://ie.indeed.com/viewjob?jk=123",'
+                        '"date_posted":""},'
+                        '{"source":"linkedin.com","url":"https://www.linkedin.com/jobs/view/123",'
+                        '"date_posted":"2026-08-07"}]'
+                    ),
+                    job.dedup_key,
+                ),
+            )
+
+        result = temp_db.get_job(job.dedup_key)
+        assert result is not None
+        assert result.sources == ["indeed.ie", "linkedin.com"]
+        assert result.raw_sources == [
+            {"source": "indeed.ie", "url": url, "date_posted": "2026-08-07"},
+            {
+                "source": "linkedin.com",
+                "url": "https://www.linkedin.com/jobs/view/123",
+                "date_posted": "2026-08-07",
+            },
+        ]
+
+    def test_merge_raw_source_treats_provider_alias_as_existing(self, temp_db):
+        url = "https://ie.indeed.com/viewjob?jk=123"
+        job = make_job(
+            url=url,
+            sources=["indeed.ie"],
+            raw_sources=[{"source": "indeed.ie", "url": url, "date_posted": "2026-08-07"}],
+        )
+        temp_db.save_job(job)
+
+        temp_db.merge_job_raw_source(
+            job.dedup_key,
+            {"source": "ie.indeed.com", "url": url, "date_posted": ""},
+        )
+
+        result = temp_db.get_job(job.dedup_key)
+        assert result is not None
+        assert result.sources == ["indeed.ie"]
+        assert result.raw_sources == job.raw_sources
+
     def test_expires_at_updated_on_merge(self, temp_db):
         job1 = make_job(sources=["linkedin.com"])
         future = datetime.utcnow() + timedelta(days=5)

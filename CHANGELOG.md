@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **Duplicate Indeed source badges after CV changes** (`search_assessment_stage.py` / `cache.py`)
+  Re-assessing a cached job for a different CV now preserves its original `sources`, `raw_sources`, and posting date instead of deriving a second source name from the URL. Cache reads and merges also collapse hostname aliases from the same provider, so existing rows containing both `indeed.ie` and `ie.indeed.com` render as one Indeed source while retaining distinct LinkedIn sources.
+
 ## [0.5.0] — 2026-08-07
 
 Scoring became CV-aware. A job's match score is now owned by the CV that produced

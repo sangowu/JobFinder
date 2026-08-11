@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from jobradar import artifact_store
 from jobradar.paths import DATA_DIR, ensure_parent
@@ -276,6 +277,72 @@ def _conn():
 # ─── JobResult ────────────────────────────────────────────────────────────────
 
 
+def _source_provider_key(source: str, url: str = "") -> str:
+    source_name = str(source or "").strip()
+    try:
+        host = urlparse(url).netloc.removeprefix("www.").lower()
+    except ValueError:
+        host = ""
+    candidates = (source_name.lower(), host)
+    if any("linkedin" in candidate for candidate in candidates):
+        return "linkedin"
+    if any("indeed" in candidate for candidate in candidates):
+        return "indeed"
+    return source_name.casefold() or host or "unknown"
+
+
+def _source_display_name(source: str, url: str = "") -> str:
+    source_name = str(source or "").strip()
+    if source_name and source_name.lower() != "unknown":
+        return source_name
+    provider = _source_provider_key(source_name, url)
+    if provider == "linkedin":
+        return "linkedin.com"
+    if provider == "indeed":
+        return "indeed.ie"
+    return source_name or "unknown"
+
+
+def _deduplicate_job_sources(
+    sources: list[str] | list[dict],
+    raw_sources: list[dict],
+) -> tuple[list[str], list[dict]]:
+    """Collapse hostname aliases that represent the same job platform."""
+    names_by_provider: dict[str, str] = {}
+    for source in sources:
+        if isinstance(source, dict):
+            source_name = str(source.get("source") or "")
+            source_url = str(source.get("url") or "")
+        else:
+            source_name = str(source or "")
+            source_url = ""
+        provider = _source_provider_key(source_name, source_url)
+        names_by_provider.setdefault(provider, _source_display_name(source_name, source_url))
+
+    entries_by_provider: dict[str, dict] = {}
+    for raw_source in raw_sources:
+        if not isinstance(raw_source, dict):
+            continue
+        source_name = str(raw_source.get("source") or "")
+        source_url = str(raw_source.get("url") or "")
+        provider = _source_provider_key(source_name, source_url)
+        display_name = names_by_provider.setdefault(
+            provider,
+            _source_display_name(source_name, source_url),
+        )
+        entry = dict(raw_source)
+        entry["source"] = display_name
+        existing = entries_by_provider.get(provider)
+        if existing is None:
+            entries_by_provider[provider] = entry
+            continue
+        for field in ("url", "date_posted"):
+            if not existing.get(field) and entry.get(field):
+                existing[field] = entry[field]
+
+    return list(names_by_provider.values()), list(entries_by_provider.values())
+
+
 def get_job(dedup_key: str, language: str = "zh") -> JobResult | None:
     with _conn() as con:
         row = con.execute(
@@ -304,6 +371,7 @@ def save_job(job: JobResult) -> None:
 
 
 def _insert_job(job: JobResult) -> None:
+    sources, raw_sources = _deduplicate_job_sources(job.sources, job.raw_sources)
     with _conn() as con:
         con.execute(
             """
@@ -319,8 +387,8 @@ def _insert_job(job: JobResult) -> None:
                 job.location,
                 job.description_snippet,
                 job.url,
-                json.dumps(job.sources),
-                json.dumps(job.raw_sources),
+                json.dumps(sources),
+                json.dumps(raw_sources),
                 job.date_posted,
                 job.fetched_at.isoformat(),
                 job.expires_at.isoformat() if job.expires_at else None,
@@ -333,10 +401,10 @@ def _insert_job(job: JobResult) -> None:
 
 def _merge_job(existing: JobResult, new: JobResult) -> None:
     """追加新来源；若新记录有 expires_at / assessment，则更新。"""
-    merged_sources = list(dict.fromkeys(existing.sources + new.sources))
-    # raw_sources 按 source 去重合并
-    existing_src_names = {r["source"] for r in existing.raw_sources}
-    merged_raw = list(existing.raw_sources) + [r for r in new.raw_sources if r["source"] not in existing_src_names]
+    merged_sources, merged_raw = _deduplicate_job_sources(
+        existing.sources + new.sources,
+        existing.raw_sources + new.raw_sources,
+    )
     new_expires = new.expires_at or existing.expires_at
     new_coarse_filter = new.coarse_filter or existing.coarse_filter
     new_assessment = new.assessment or existing.assessment
@@ -367,9 +435,11 @@ def merge_job_source(dedup_key: str, source: str) -> None:
         ).fetchone()
         if row is None:
             return
-        existing = json.loads(row["sources"] or "[]")
-        if source not in existing:
-            existing.append(source)
+        existing, _ = _deduplicate_job_sources(
+            json.loads(row["sources"] or "[]") + [source],
+            [],
+        )
+        if existing != json.loads(row["sources"] or "[]"):
             con.execute(
                 "UPDATE job_cache SET sources = ? WHERE dedup_key = ?",
                 (json.dumps(existing), dedup_key),
@@ -385,12 +455,10 @@ def merge_job_raw_source(dedup_key: str, source_entry: dict) -> None:
         ).fetchone()
         if row is None:
             return
-        sources = json.loads(row["sources"] or "[]")
-        raw_sources = json.loads(row["raw_sources"] or "[]")
-        if source_name not in sources:
-            sources.append(source_name)
-        if not any(item.get("source") == source_name for item in raw_sources):
-            raw_sources.append(source_entry)
+        sources, raw_sources = _deduplicate_job_sources(
+            json.loads(row["sources"] or "[]") + [source_name],
+            json.loads(row["raw_sources"] or "[]") + [source_entry],
+        )
         con.execute(
             "UPDATE job_cache SET sources = ?, raw_sources = ? WHERE dedup_key = ?",
             (json.dumps(sources), json.dumps(raw_sources), dedup_key),
@@ -460,14 +528,18 @@ def _row_to_job(row: sqlite3.Row) -> JobResult:
     raw_assessment = row["assessment"] if "assessment" in keys else None
     coarse_filter = CoarseFilterResult.model_validate_json(raw_coarse_filter) if raw_coarse_filter else None
     assessment = JobAssessment.model_validate_json(raw_assessment) if raw_assessment else None
+    sources, raw_sources = _deduplicate_job_sources(
+        json.loads(row["sources"] or "[]"),
+        json.loads(row["raw_sources"] if "raw_sources" in row.keys() and row["raw_sources"] else "[]"),
+    )
     return JobResult(
         title=row["title"],
         company=row["company"],
         location=row["location"] or "",
         url=row["url"],
         description_snippet=row["description_snippet"] or "",
-        sources=[s if isinstance(s, str) else s.get("source", "") for s in json.loads(row["sources"] or "[]")],
-        raw_sources=json.loads(row["raw_sources"] if "raw_sources" in row.keys() and row["raw_sources"] else "[]"),
+        sources=sources,
+        raw_sources=raw_sources,
         date_posted=row["date_posted"] if "date_posted" in row.keys() and row["date_posted"] else "",
         fetched_at=datetime.fromisoformat(row["fetched_at"]),
         expires_at=datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None,
