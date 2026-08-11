@@ -603,7 +603,10 @@ def delete_application(application_id: int) -> dict:
 
 @app.get("/api/jobs")
 def get_jobs(limit: int = 200, language: str = "zh") -> list[dict]:
-    jobs = cache.get_recent_jobs(limit, language=language)
+    require_match = bool(cache.get_latest_cv_hash())
+    jobs = cache.get_recent_jobs(limit, language=language, require_match=require_match)
+    if require_match:
+        jobs = [j for j in jobs if j.match_score is not None]
     jobs = [j for j in jobs if j.is_effectively_relevant]
     jobs.sort(key=lambda j: (j.effective_score if j.effective_score is not None else -1), reverse=True)
     return [_job_to_dict(j) for j in jobs]

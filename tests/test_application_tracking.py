@@ -226,6 +226,40 @@ def test_jobs_route_remains_bound_to_get_jobs():
     assert route.endpoint.__name__ == "get_jobs"
 
 
+def test_jobs_api_requests_only_current_cv_matches(monkeypatch):
+    from jobradar import server
+
+    calls = {}
+
+    def fake_recent_jobs(limit, language="zh", require_match=False):
+        calls["limit"] = limit
+        calls["language"] = language
+        calls["require_match"] = require_match
+        return []
+
+    monkeypatch.setattr(server.cache, "get_latest_cv_hash", lambda: "current-cv")
+    monkeypatch.setattr(server.cache, "get_recent_jobs", fake_recent_jobs)
+
+    assert server.get_jobs() == []
+    assert calls == {"limit": 200, "language": "zh", "require_match": True}
+
+
+def test_jobs_api_preserves_cache_visibility_without_a_cv(monkeypatch):
+    from jobradar import server
+
+    calls = {}
+
+    def fake_recent_jobs(limit, language="zh", require_match=False):
+        calls["require_match"] = require_match
+        return []
+
+    monkeypatch.setattr(server.cache, "get_latest_cv_hash", lambda: "")
+    monkeypatch.setattr(server.cache, "get_recent_jobs", fake_recent_jobs)
+
+    assert server.get_jobs() == []
+    assert calls["require_match"] is False
+
+
 def test_application_nav_button_is_not_nested_in_config_button():
     from pathlib import Path
 

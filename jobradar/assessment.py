@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 
 BATCH_SIZE = 8  # 每批 JD 数量，兼顾 context 长度与 token 节省
 TITLE_RELEVANCE_PROMPT_VERSION = "title_relevance_v4"
+JD_ASSESSMENT_PROMPT_VERSION = "jd_assessment_v1"
 
 _LANGUAGE_NAMES = {"zh": "中文", "en": "English", "es": "Español"}
 _TITLE_KEYWORD_STOPWORDS = {
@@ -25,6 +26,10 @@ _TITLE_KEYWORD_STOPWORDS = {
     "ii", "iii", "i", "in", "intern", "lead", "manager", "of", "or",
     "principal", "scientist", "senior", "specialist", "staff", "the", "with",
 }
+
+
+def jd_assessment_prompt_version(language: str = "zh") -> str:
+    return f"{JD_ASSESSMENT_PROMPT_VERSION}:{language}"
 
 
 def gate_worker_count(provider: str) -> int:

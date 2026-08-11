@@ -489,7 +489,15 @@ class TestFailedURLs:
 
 class TestCacheManagement:
     def test_clear_all(self, temp_db):
-        temp_db.save_job(make_job())
+        job = make_job()
+        temp_db.save_job(job)
+        temp_db.save_job_relevance_rejection(
+            job_id=job.dedup_key,
+            cv_hash="cv123",
+            description=job.description_snippet,
+            reason="Unrelated",
+            score=1,
+        )
         temp_db.record_failed_url("http://x.com", "reason")
         temp_db.save_search_candidates(
             "run-clear",
@@ -498,6 +506,7 @@ class TestCacheManagement:
         temp_db.clear_all()
 
         assert temp_db.get_job("google|software engineer") is None
+        assert temp_db.get_job_relevance_rejection(job.dedup_key, "cv123") is None
         assert not temp_db.is_failed_url("http://x.com")
         assert temp_db.get_search_candidates("run-clear") == []
 
@@ -542,10 +551,18 @@ class TestCacheManagement:
         prep = InterviewPrep(job_id=job.dedup_key, cv_hash="cv123", fit_summary="Strong fit")
         temp_db.save_job_match(match, "desc")
         temp_db.save_interview_prep(prep, "desc")
+        temp_db.save_job_relevance_rejection(
+            job_id=job.dedup_key,
+            cv_hash="cv123",
+            description="desc",
+            reason="Unrelated",
+            score=1,
+        )
 
         temp_db.delete_jobs([job.dedup_key])
         assert temp_db.get_job_match(job.dedup_key, "cv123", "desc") is None
         assert temp_db.get_interview_prep(job.dedup_key, "cv123", "desc") is None
+        assert temp_db.get_job_relevance_rejection(job.dedup_key, "cv123", "desc") is None
 
     def test_delete_jobs_removes_cover_letter(self, temp_db):
         job = make_job(description_snippet="desc")
@@ -829,3 +846,83 @@ class TestPruneJobMatches:
 
         assert result["total"] == 0 and result["deleted"] == 0
         assert len(self._remaining(temp_db)) == 1
+
+
+def test_recent_jobs_can_require_visible_match_for_latest_cv(temp_db):
+    profile = CVProfile(summary="Python engineer", skills=["Python"], seniority="junior")
+    temp_db.save_cv_profile("current-cv", profile)
+
+    visible = make_job(company="Visible", url="https://example.com/visible")
+    skipped = make_job(company="Skipped", url="https://example.com/skipped")
+    unassessed = make_job(company="Unassessed", url="https://example.com/unassessed")
+    old_cv_only = make_job(company="Old CV", url="https://example.com/old-cv")
+    for job in (visible, skipped, unassessed, old_cv_only):
+        temp_db.save_job(job)
+
+    def save_match(job, cv_hash, recommendation, score):
+        temp_db.save_job_match(
+            MatchScore(
+                job_id=job.dedup_key,
+                cv_hash=cv_hash,
+                overall_score=score,
+                title_score=score,
+                seniority_score=score,
+                must_have_score=score,
+                nice_to_have_score=score,
+                domain_score=score,
+                location_score=100,
+                language_score=score,
+                risk_penalty=0,
+                recommendation=recommendation,
+            ),
+            job.description_snippet,
+        )
+
+    save_match(visible, "current-cv", "apply", 80)
+    save_match(skipped, "current-cv", "skip", 0)
+    save_match(old_cv_only, "old-cv", "strong_apply", 90)
+
+    jobs = temp_db.get_recent_jobs(limit=10, require_match=True)
+
+    assert [job.dedup_key for job in jobs] == [visible.dedup_key]
+
+
+def test_relevance_rejection_is_scoped_by_cv_description_and_prompt(temp_db):
+    temp_db.save_job_relevance_rejection(
+        job_id="acme|sales agent",
+        cv_hash="current-cv",
+        description="Handle customer calls.",
+        reason="Unrelated customer-service role",
+        score=1,
+        model_name="gemini/test",
+        prompt_version="jd_assessment_v1:zh",
+    )
+
+    rejection = temp_db.get_job_relevance_rejection(
+        "acme|sales agent",
+        "current-cv",
+        "Handle customer calls.",
+        prompt_version="jd_assessment_v1:zh",
+    )
+
+    assert rejection is not None
+    assert rejection["reason"] == "Unrelated customer-service role"
+    assert rejection["score"] == 1
+    assert temp_db.get_job_relevance_rejection(
+        "acme|sales agent",
+        "different-cv",
+        "Handle customer calls.",
+        prompt_version="jd_assessment_v1:zh",
+    ) is None
+    assert temp_db.get_job_relevance_rejection(
+        "acme|sales agent",
+        "current-cv",
+        "Updated job description.",
+        prompt_version="jd_assessment_v1:zh",
+    ) is None
+    assert temp_db.get_job_relevance_rejection(
+        "acme|sales agent",
+        "current-cv",
+        "Handle customer calls.",
+        prompt_version="jd_assessment_v2:zh",
+    ) is None

@@ -294,7 +294,7 @@ jobradar_email_sync_runs_total{status="failed",reason="auth"}
 | Indeed 抓取结果为 0 | JobSpy 被 Indeed 限流（常见，非故障） | 等几小时重试；查日志中 JobSpy WARNING |
 | Adzuna 返回 429 | 速率限制 | 调大 `_MIN_INTERVAL`（当前 1.2s）；核对 `.env` 中 `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` |
 | LLM 评估全部拒绝 | `cv_summary` / `cv_skills` 提取失败 | 检查 CV 解析结果；`uv run jobradar assess` 补跑评估 |
-| 职位无模型评分 | 当前 `cv_hash` 下尚无 `job_matches` 记录（换 CV 后常见） | `uv run jobradar assess` 为当前 CV 补算 |
+| 职位无模型评分 | 当前 `cv_hash` 下尚无 `job_matches` 记录（换 CV 后常见）；默认 Web 列表不会展示这类历史卡片 | 仅在需要主动补算历史 JD 时运行 `uv run jobradar assess` |
 
 ### 安全注意
 

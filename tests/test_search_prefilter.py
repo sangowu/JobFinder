@@ -133,6 +133,24 @@ class TestClassifyCacheHit:
 
         assert classify_cache_hit(job, CURRENT_CV) == "reassess"
 
+    def test_current_cv_gate_rejection_is_skipped(self, temp_db):
+        from jobradar.assessment import jd_assessment_prompt_version
+        from jobradar.search_prefilter import classify_cache_hit
+
+        job = make_job()
+        temp_db.save_job(job)
+        temp_db.save_job_relevance_rejection(
+            job_id=job.dedup_key,
+            cv_hash=CURRENT_CV,
+            description=job.description_snippet,
+            reason="Unrelated role",
+            score=1,
+            model_name="gemini/test",
+            prompt_version=jd_assessment_prompt_version("zh"),
+        )
+
+        assert classify_cache_hit(job, CURRENT_CV) == "skip"
+
     def test_without_cv_hash_everything_is_reused(self, temp_db):
         """无 CV 时评分无从谈起，一律复用缓存内容。
 
