@@ -233,8 +233,15 @@ def sync_email(
                     pending.append(future.result())
                     fetched += 1
                 except Exception as exc:
-                    metrics["failed_messages"] += 1
-                    logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
+                    if (
+                        isinstance(exc, requests.HTTPError)
+                        and exc.response is not None
+                        and exc.response.status_code == 404
+                    ):
+                        logger.info("Gmail message no longer exists; skipping | id=%s", message_id)
+                    else:
+                        metrics["failed_messages"] += 1
+                        logger.warning("Gmail message fetch failed | id=%s error=%s", message_id, exc)
                 emit_progress("fetching")
         ordered_pending = sorted(pending, key=lambda value: value["received_at"])
         analysis_workers = _analysis_worker_count()

@@ -7,6 +7,7 @@ import threading
 from datetime import datetime
 
 import pytest
+import requests
 
 from jobradar.email_classifier import classify_application_email
 from jobradar.schemas import ApplicationEmailAnalysis
@@ -658,6 +659,60 @@ def test_full_sync_fetches_messages_concurrently(store, monkeypatch):
 
     assert result["scanned"] == 2
     assert result["failed_messages"] == 0
+
+
+def test_missing_history_message_advances_cursor(store, monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    store.set_history_id("100")
+    monkeypatch.setattr(email_sync, "email_sync_configured", lambda: True)
+    monkeypatch.setattr(email_sync, "_load_credentials", lambda: object())
+    monkeypatch.setattr(
+        email_sync,
+        "_list_history_message_ids",
+        lambda credentials, start_history_id, limit: (["missing-message"], "102", 1),
+    )
+    response = requests.Response()
+    response.status_code = 404
+    response.url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/missing-message"
+
+    def fetch_missing_message(credentials, message_id):
+        raise requests.HTTPError("message not found", response=response)
+
+    monkeypatch.setattr(email_sync, "_fetch_message", fetch_missing_message)
+
+    result = email_sync.sync_email(limit=10)
+
+    assert result["failed_messages"] == 0
+    assert result["scanned"] == 0
+    assert store.get_sync_state()["history_id"] == "102"
+
+
+def test_retryable_fetch_failure_holds_cursor(store, monkeypatch):
+    import jobradar.email_sync as email_sync
+
+    store.set_history_id("100")
+    monkeypatch.setattr(email_sync, "email_sync_configured", lambda: True)
+    monkeypatch.setattr(email_sync, "_load_credentials", lambda: object())
+    monkeypatch.setattr(
+        email_sync,
+        "_list_history_message_ids",
+        lambda credentials, start_history_id, limit: (["unavailable-message"], "102", 1),
+    )
+    response = requests.Response()
+    response.status_code = 500
+    response.url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/unavailable-message"
+
+    def fetch_unavailable_message(credentials, message_id):
+        raise requests.HTTPError("temporary server error", response=response)
+
+    monkeypatch.setattr(email_sync, "_fetch_message", fetch_unavailable_message)
+
+    result = email_sync.sync_email(limit=10)
+
+    assert result["failed_messages"] == 1
+    assert result["scanned"] == 0
+    assert store.get_sync_state()["history_id"] == "100"
 
 
 def test_full_sync_analyses_messages_concurrently(store, monkeypatch):

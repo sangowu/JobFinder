@@ -4,6 +4,9 @@
 
 ### Bug Fixes
 
+- **Deleted Gmail messages no longer stall incremental sync** (`email_sync.py`)
+  When Gmail history references a message that has already disappeared, a `messages.get` 404 is now treated as a terminal missing-message condition rather than a retryable fetch failure. The sync skips that message and saves Gmail's latest `historyId`, while authentication, rate-limit, server, and network errors still hold the cursor for a later retry.
+
 - **Duplicate Indeed source badges after CV changes** (`search_assessment_stage.py` / `cache.py`)
   Re-assessing a cached job for a different CV now preserves its original `sources`, `raw_sources`, and posting date instead of deriving a second source name from the URL. Cache reads and merges also collapse hostname aliases from the same provider, so existing rows containing both `indeed.ie` and `ie.indeed.com` render as one Indeed source while retaining distinct LinkedIn sources.
 
